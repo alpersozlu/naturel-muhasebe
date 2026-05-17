@@ -1,0 +1,31 @@
+{
+  "common": {
+    "appName": "DocuFlow TR",
+    "loading": "Loading...",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "approve": "Approve",
+    "reject": "Reject",
+    "lock": "Lock",
+    "unlock": "Unlock",
+    "submit": "Submit"
+  },
+  "auth": {
+    "signIn": "Sign In",
+    "signOut": "Sign Out",
+    "email": "Email",
+    "password": "Password",
+    "invalidCredentials": "Invalid email or password"
+  },
+  "nav": {
+    "admin": "Admin Portal",
+    "verification": "Verification",
+    "revenues": "Revenue Analysis",
+    "expenses": "Expense Analysis",
+    "upload": "Upload & Analyze",
+    "history": "Transaction History",
+    "contact": "Contact"
+  }
+}

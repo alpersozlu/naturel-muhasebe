@@ -1,0 +1,400 @@
+// DocuFlow TR — Prisma Schema (draft, Aşama 1 planlama)
+// Single-tenant. Soft delete (deleted_at) çoğu tabloda var.
+// RLS politikaları Supabase migration SQL'lerinde tanımlanacak (Aşama 2).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // Supabase connection pooler URL'i (transaction mode)
+}
+
+// ─────────────────────────────────────────────────────────────
+// ENUM'lar
+// ─────────────────────────────────────────────────────────────
+
+enum UserRole {
+  admin
+  store_manager
+  cashier
+  sales_rep
+}
+
+enum UploadType {
+  bank_receipt
+  pos_slip
+  store_summary
+  expense
+  cash_advance
+}
+
+enum UploadStatus {
+  pending   // OCR çalışmadı
+  processing
+  parsed    // OCR bitti, kullanıcı onayı bekliyor
+  confirmed // Kullanıcı onayladı
+  failed    // OCR başarısız
+}
+
+enum DailyRecordStatus {
+  draft     // Yüklemeler başladı, henüz tamamlanmadı
+  pending   // Tüm zorunlu yüklemeler tamam, admin onayı bekliyor
+  approved  // Admin onayladı
+  locked    // Kilitli, store_manager değişiklik yapamaz
+}
+
+enum VerificationStatus {
+  match
+  mismatch
+  manual_override
+}
+
+enum Currency {
+  TRY
+  USD
+  EUR
+  GBP
+}
+
+enum ExpenseCategory {
+  rent          // Kira
+  electricity   // Elektrik
+  water         // Su
+  internet      // İnternet
+  stationery    // Kırtasiye
+  cleaning      // Temizlik
+  maintenance   // Bakım
+  salary        // Maaş
+  bonus         // Prim/avans
+  supplies      // Sarf malzeme
+  marketing     // Pazarlama
+  other         // Diğer
+}
+
+// ─────────────────────────────────────────────────────────────
+// AUTH & ORGANIZATION
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id          String    @id @default(uuid())  // Supabase auth.users.id ile aynı
+  email       String    @unique
+  full_name   String?
+  role        UserRole  @default(cashier)
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  store_access  UserStoreAccess[]
+  audit_logs    AuditLog[]
+  uploads       Upload[]      @relation("UploadedByUser")
+  approved_days DailyRecord[] @relation("ApprovedByUser")
+  verifications Verification[]
+  cash_advances CashAdvance[]
+  expenses      Expense[]
+
+  @@index([role])
+}
+
+model Brand {
+  id          String    @id @default(uuid())
+  name        String
+  logo_url    String?
+  created_at  DateTime  @default(now())
+  deleted_at  DateTime?
+
+  stores      Store[]
+
+  @@index([deleted_at])
+}
+
+model Store {
+  id          String    @id @default(uuid())
+  brand_id    String
+  brand       Brand     @relation(fields: [brand_id], references: [id])
+  name        String    // "Lefkoşa", "Mağusa"
+  city        String?
+  address     String?
+  created_at  DateTime  @default(now())
+  deleted_at  DateTime?
+
+  user_access     UserStoreAccess[]
+  daily_records   DailyRecord[]
+
+  @@index([brand_id])
+  @@index([deleted_at])
+}
+
+model UserStoreAccess {
+  user_id   String
+  store_id  String
+  role      UserRole  // Bu mağazadaki rolü
+  user      User      @relation(fields: [user_id], references: [id])
+  store     Store     @relation(fields: [store_id], references: [id])
+
+  @@id([user_id, store_id])
+  @@index([store_id])
+}
+
+// ─────────────────────────────────────────────────────────────
+// GÜNLÜK KAYIT
+// ─────────────────────────────────────────────────────────────
+
+model DailyRecord {
+  id              String              @id @default(uuid())
+  store_id        String
+  store           Store               @relation(fields: [store_id], references: [id])
+  date            DateTime            @db.Date
+  status          DailyRecordStatus   @default(draft)
+  approved_by     String?
+  approved_by_user User?              @relation("ApprovedByUser", fields: [approved_by], references: [id])
+  approved_at     DateTime?
+  locked_at       DateTime?
+  created_at      DateTime            @default(now())
+  updated_at      DateTime            @updatedAt
+
+  uploads         Upload[]
+  pos_slips       PosSlip[]
+  store_summary   StoreSummary?       // 1:1 (her gün 1 özet)
+  bank_receipts   BankReceipt[]
+  expenses        Expense[]
+  cash_advances   CashAdvance[]
+  verification    Verification?       // 1:1
+
+  @@unique([store_id, date])
+  @@index([date])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────
+// UPLOADS (Generic)
+// ─────────────────────────────────────────────────────────────
+
+model Upload {
+  id                String        @id @default(uuid())
+  daily_record_id   String
+  daily_record      DailyRecord   @relation(fields: [daily_record_id], references: [id])
+  type              UploadType
+  file_url          String        // Supabase Storage path
+  mime_type         String
+  file_size_bytes   Int
+  uploaded_by       String
+  uploaded_by_user  User          @relation("UploadedByUser", fields: [uploaded_by], references: [id])
+  uploaded_at       DateTime      @default(now())
+  raw_ocr_json      Json?         // Claude'un ham çıktısı
+  parsed_data_json  Json?         // Zod ile validate edilmiş hali
+  status            UploadStatus  @default(pending)
+  error_message     String?       // OCR fail olursa
+
+  pos_slip          PosSlip?
+  store_summary     StoreSummary?
+  bank_receipt      BankReceipt?
+  expense           Expense?
+
+  @@index([daily_record_id])
+  @@index([type])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────
+// PARSED ENTITIES (OCR sonrası normalize)
+// ─────────────────────────────────────────────────────────────
+
+model PosSlip {
+  id                String      @id @default(uuid())
+  upload_id         String      @unique
+  upload            Upload      @relation(fields: [upload_id], references: [id])
+  daily_record_id   String
+  daily_record      DailyRecord @relation(fields: [daily_record_id], references: [id])
+
+  bank_name         String?     // İş Bankası, Ziraat, Koopbank vb.
+  terminal_no       String?
+  slip_date         DateTime?   @db.Date
+  sales_count       Int?
+  sales_amount      Decimal?    @db.Decimal(14, 2)
+  refund_count      Int?
+  refund_amount     Decimal?    @db.Decimal(14, 2)
+  net_amount        Decimal?    @db.Decimal(14, 2)
+  currency          Currency    @default(TRY)
+  net_amount_try    Decimal?    @db.Decimal(14, 2)  // TRY karşılığı
+  fx_rate_used      Decimal?    @db.Decimal(10, 4)
+
+  user_corrected    Boolean     @default(false)
+  created_at        DateTime    @default(now())
+  updated_at        DateTime    @updatedAt
+
+  @@index([daily_record_id])
+  @@index([bank_name])
+}
+
+model StoreSummary {
+  id                      String      @id @default(uuid())
+  upload_id               String      @unique
+  upload                  Upload      @relation(fields: [upload_id], references: [id])
+  daily_record_id         String      @unique  // 1:1 — her gün 1 özet
+  daily_record            DailyRecord @relation(fields: [daily_record_id], references: [id])
+
+  sales_total             Decimal?    @db.Decimal(14, 2)
+  cash_sales              Decimal?    @db.Decimal(14, 2)
+  credit_card_total       Decimal?    @db.Decimal(14, 2)
+  loyalty_points_total    Decimal?    @db.Decimal(14, 2)  // Kartuş Puan
+  opening_balance         Decimal?    @db.Decimal(14, 2)
+  closing_balance         Decimal?    @db.Decimal(14, 2)
+  currency                Currency    @default(TRY)
+
+  // TRY çevrilmiş halleri (raporlama için)
+  sales_total_try         Decimal?    @db.Decimal(14, 2)
+  cash_sales_try          Decimal?    @db.Decimal(14, 2)
+  credit_card_total_try   Decimal?    @db.Decimal(14, 2)
+  loyalty_points_total_try Decimal?   @db.Decimal(14, 2)
+  fx_rate_used            Decimal?    @db.Decimal(10, 4)
+
+  user_corrected          Boolean     @default(false)
+  created_at              DateTime    @default(now())
+  updated_at              DateTime    @updatedAt
+}
+
+model BankReceipt {
+  id                String      @id @default(uuid())
+  upload_id         String?     @unique  // Manuel girişlerde null
+  upload            Upload?     @relation(fields: [upload_id], references: [id])
+  daily_record_id   String
+  daily_record      DailyRecord @relation(fields: [daily_record_id], references: [id])
+
+  bank_id           String?
+  bank              Bank?       @relation(fields: [bank_id], references: [id])
+  bank_name         String?     // OCR'dan ham
+  iban              String?
+  amount            Decimal     @db.Decimal(14, 2)
+  currency          Currency    @default(TRY)
+  amount_try        Decimal     @db.Decimal(14, 2)
+  fx_rate_used      Decimal?    @db.Decimal(10, 4)
+  deposit_date      DateTime    @db.Date
+  is_manual         Boolean     @default(false)  // Dekont yoksa admin manuel girer
+
+  created_at        DateTime    @default(now())
+  updated_at        DateTime    @updatedAt
+
+  @@index([daily_record_id])
+}
+
+model Expense {
+  id                String          @id @default(uuid())
+  upload_id         String?         @unique
+  upload            Upload?         @relation(fields: [upload_id], references: [id])
+  daily_record_id   String
+  daily_record      DailyRecord     @relation(fields: [daily_record_id], references: [id])
+
+  category          ExpenseCategory
+  vendor            String?
+  amount            Decimal         @db.Decimal(14, 2)
+  currency          Currency        @default(TRY)
+  amount_try        Decimal         @db.Decimal(14, 2)
+  fx_rate_used      Decimal?        @db.Decimal(10, 4)
+  expense_date      DateTime        @db.Date
+  description       String?
+  employee_id       String?
+  employee          User?           @relation(fields: [employee_id], references: [id])
+  vat_rate          Decimal?        @db.Decimal(5, 2)
+  vat_included      Boolean         @default(true)
+
+  user_corrected    Boolean         @default(false)
+  created_at        DateTime        @default(now())
+  updated_at        DateTime        @updatedAt
+
+  @@index([daily_record_id])
+  @@index([category])
+}
+
+model CashAdvance {
+  id                String          @id @default(uuid())
+  daily_record_id   String
+  daily_record      DailyRecord     @relation(fields: [daily_record_id], references: [id])
+  employee_id       String
+  employee          User            @relation(fields: [employee_id], references: [id])
+
+  amount            Decimal         @db.Decimal(14, 2)
+  currency          Currency        @default(TRY)
+  amount_try        Decimal         @db.Decimal(14, 2)
+  fx_rate_used      Decimal?        @db.Decimal(10, 4)
+  category          ExpenseCategory
+  description       String?
+  receipt_url       String?         // Opsiyonel fiş
+
+  created_at        DateTime        @default(now())
+  updated_at        DateTime        @updatedAt
+
+  @@index([daily_record_id])
+  @@index([employee_id])
+}
+
+// ─────────────────────────────────────────────────────────────
+// VERIFICATION
+// ─────────────────────────────────────────────────────────────
+
+model Verification {
+  id                String              @id @default(uuid())
+  daily_record_id   String              @unique
+  daily_record      DailyRecord         @relation(fields: [daily_record_id], references: [id])
+  expected_total    Decimal             @db.Decimal(14, 2)  // Σ(POS) + Nakit + Kartuş
+  actual_total      Decimal             @db.Decimal(14, 2)  // Mağaza Raporu sales_total
+  difference        Decimal             @db.Decimal(14, 2)
+  status            VerificationStatus
+  notes             String?
+  verified_by       String?
+  verified_by_user  User?               @relation(fields: [verified_by], references: [id])
+  verified_at       DateTime?
+
+  created_at        DateTime            @default(now())
+  updated_at        DateTime            @updatedAt
+
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────
+// REFERANS TABLOLARI
+// ─────────────────────────────────────────────────────────────
+
+model Bank {
+  id                          String          @id @default(uuid())
+  name                        String          @unique  // İş Bankası, Ziraat, Koopbank, Maximum, TEB...
+  commission_rate_default     Decimal?        @db.Decimal(5, 4)  // Örn 0.0150 = %1.50
+  is_active                   Boolean         @default(true)
+
+  bank_receipts               BankReceipt[]
+
+  @@index([is_active])
+}
+
+model FxRate {
+  date              DateTime    @db.Date
+  currency          Currency
+  rate_to_try       Decimal     @db.Decimal(10, 4)
+  source            String      @default("TCMB")
+  fetched_at        DateTime    @default(now())
+
+  @@id([date, currency])
+  @@index([currency])
+}
+
+// ─────────────────────────────────────────────────────────────
+// AUDIT LOG
+// ─────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id            String    @id @default(uuid())
+  user_id       String?
+  user          User?     @relation(fields: [user_id], references: [id])
+  action        String    // 'create' | 'update' | 'delete' | 'approve' | 'lock' | 'unlock'
+  entity_type   String    // 'PosSlip', 'DailyRecord', etc.
+  entity_id     String?
+  before_json   Json?
+  after_json    Json?
+  ip_address    String?
+  created_at    DateTime  @default(now())
+
+  @@index([user_id])
+  @@index([entity_type, entity_id])
+  @@index([created_at])
+}

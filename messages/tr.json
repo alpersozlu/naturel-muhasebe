@@ -1,0 +1,31 @@
+{
+  "common": {
+    "appName": "DocuFlow TR",
+    "loading": "Yükleniyor...",
+    "save": "Kaydet",
+    "cancel": "İptal",
+    "delete": "Sil",
+    "edit": "Düzenle",
+    "approve": "Onayla",
+    "reject": "Reddet",
+    "lock": "Kilitle",
+    "unlock": "Kilidi Aç",
+    "submit": "Gönder"
+  },
+  "auth": {
+    "signIn": "Giriş Yap",
+    "signOut": "Çıkış",
+    "email": "E-posta",
+    "password": "Şifre",
+    "invalidCredentials": "Geçersiz e-posta veya şifre"
+  },
+  "nav": {
+    "admin": "Yönetici Portalı",
+    "verification": "Doğrulama Sistemi",
+    "revenues": "Gelir Analizi",
+    "expenses": "Gider Analizi",
+    "upload": "Yükle ve Analiz Et",
+    "history": "İşlem Geçmişi",
+    "contact": "Bize Ulaşın"
+  }
+}
