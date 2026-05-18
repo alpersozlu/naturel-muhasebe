@@ -89,7 +89,13 @@ export const uploadRouter = router({
       return ctx.prisma.upload.findMany({
         where: { daily_record_id: dr.id },
         orderBy: { uploaded_at: "desc" },
-        include: { uploaded_by_user: { select: { email: true, full_name: true } } },
+        include: {
+          uploaded_by_user: { select: { email: true, full_name: true } },
+          pos_slip: true,
+          store_summary: true,
+          bank_receipt: true,
+          expense: true,
+        },
       });
     }),
 

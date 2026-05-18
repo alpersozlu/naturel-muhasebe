@@ -12,12 +12,19 @@ import {
   Trash2,
   ExternalLink,
   Loader2,
+  AlertCircle,
 } from "lucide-react";
 import type { UploadType, UploadStatus } from "@prisma/client";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  PosSlipDetails,
+  StoreSummaryDetails,
+  BankReceiptDetails,
+  ExpenseDetails,
+} from "./parsed-details";
 
 const TYPE_META: Record<UploadType, { label: string; icon: typeof FileText; color: string }> = {
   bank_receipt: { label: "Banka Dekontu", icon: Building, color: "text-blue-600" },
@@ -58,19 +65,16 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
     onError: (e) => toast.error(e.message),
   });
 
-  const utilsSigned = trpc.useUtils();
   const openFile = async (id: string) => {
     try {
-      const res = await utilsSigned.upload.signedUrl.fetch({ id });
+      const res = await utils.upload.signedUrl.fetch({ id });
       window.open(res.url, "_blank", "noopener");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
   };
 
-  if (!storeId || !date) {
-    return null;
-  }
+  if (!storeId || !date) return null;
 
   return (
     <Card className="mt-6">
@@ -97,44 +101,61 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
               const meta = TYPE_META[u.type];
               const Icon = meta.icon;
               return (
-                <div key={u.id} className="px-5 py-3 flex items-center gap-3">
-                  <Icon className={`h-5 w-5 shrink-0 ${meta.color}`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm truncate">
-                      {meta.label}
+                <div key={u.id}>
+                  <div className="px-5 py-3 flex items-center gap-3">
+                    <Icon className={`h-5 w-5 shrink-0 ${meta.color}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm truncate">{meta.label}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {(u.file_size_bytes / 1024).toFixed(0)} KB ·{" "}
+                        {u.uploaded_by_user.full_name ?? u.uploaded_by_user.email} ·{" "}
+                        {formatDistanceToNow(u.uploaded_at, { addSuffix: true, locale: tr })}
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground truncate">
-                      {(u.file_size_bytes / 1024).toFixed(0)} KB ·{" "}
-                      {u.uploaded_by_user.full_name ?? u.uploaded_by_user.email} ·{" "}
-                      {formatDistanceToNow(u.uploaded_at, { addSuffix: true, locale: tr })}
-                    </div>
+                    <Badge variant="secondary" className={`${STATUS_COLOR[u.status]} text-xs`}>
+                      {STATUS_LABEL[u.status]}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => openFile(u.id)}
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      onClick={() => {
+                        if (confirm("Bu dosyayı silmek istediğine emin misin?")) {
+                          del.mutate({ id: u.id });
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
-                  <Badge
-                    variant="secondary"
-                    className={`${STATUS_COLOR[u.status]} text-xs`}
-                  >
-                    {STATUS_LABEL[u.status]}
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => openFile(u.id)}
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive hover:text-destructive"
-                    onClick={() => {
-                      if (confirm("Bu dosyayı silmek istediğine emin misin?")) {
-                        del.mutate({ id: u.id });
-                      }
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+
+                  {/* Parsed detail panel */}
+                  {u.status === "parsed" || u.status === "confirmed" ? (
+                    <>
+                      {u.pos_slip ? <PosSlipDetails data={u.pos_slip} /> : null}
+                      {u.store_summary ? <StoreSummaryDetails data={u.store_summary} /> : null}
+                      {u.bank_receipt ? <BankReceiptDetails data={u.bank_receipt} /> : null}
+                      {u.expense ? <ExpenseDetails data={u.expense} /> : null}
+                    </>
+                  ) : null}
+
+                  {/* Failure detail */}
+                  {u.status === "failed" && u.error_message ? (
+                    <div className="border-t bg-rose-50/50 px-5 py-2 flex items-start gap-2 text-xs text-rose-700">
+                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      <code className="font-mono whitespace-pre-wrap break-all">
+                        {u.error_message}
+                      </code>
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
