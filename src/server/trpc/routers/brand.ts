@@ -5,17 +5,36 @@ import {
   brandUpdateSchema,
   brandIdSchema,
 } from "@/lib/zod-schemas/brand";
+import {
+  assertCanAccessBrand,
+  getAccessibleBrandIds,
+  isAdmin,
+} from "@/lib/auth/permissions";
 
 export const brandRouter = router({
-  list: protectedProcedure.query(({ ctx }) =>
-    ctx.prisma.brand.findMany({
-      where: { deleted_at: null },
+  /**
+   * Admin → tüm markalar.
+   * store_manager/cashier → sadece atanmış oldukları mağazaların markaları.
+   */
+  list: protectedProcedure.query(async ({ ctx }) => {
+    if (isAdmin(ctx.user)) {
+      return ctx.prisma.brand.findMany({
+        where: { deleted_at: null },
+        orderBy: { created_at: "desc" },
+        include: { _count: { select: { stores: { where: { deleted_at: null } } } } },
+      });
+    }
+    const accessibleIds = await getAccessibleBrandIds(ctx.user);
+    if (accessibleIds.length === 0) return [];
+    return ctx.prisma.brand.findMany({
+      where: { id: { in: accessibleIds }, deleted_at: null },
       orderBy: { created_at: "desc" },
       include: { _count: { select: { stores: { where: { deleted_at: null } } } } },
-    })
-  ),
+    });
+  }),
 
   get: protectedProcedure.input(brandIdSchema).query(async ({ ctx, input }) => {
+    await assertCanAccessBrand(ctx.user, input.id);
     const brand = await ctx.prisma.brand.findUnique({
       where: { id: input.id },
       include: {

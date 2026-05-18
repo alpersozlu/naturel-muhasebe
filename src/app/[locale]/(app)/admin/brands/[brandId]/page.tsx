@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { ChevronLeft, Building2 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { Link } from "@/i18n/navigation";
+import { requireSession } from "@/lib/auth/session";
+import { canAccessBrand } from "@/lib/auth/permissions";
 import { StoreList } from "@/components/admin/store-list";
 import { CreateStoreButton } from "@/components/admin/store-form-dialog";
 
@@ -11,8 +13,14 @@ export default async function BrandDetailPage({
   params: Promise<{ brandId: string }>;
 }) {
   const { brandId } = await params;
+  const session = await requireSession();
+  const ok = await canAccessBrand(session, brandId);
+  if (!ok) notFound();
+
   const brand = await prisma.brand.findUnique({ where: { id: brandId } });
   if (!brand || brand.deleted_at) notFound();
+
+  const isAdminUser = session.role === "admin";
 
   return (
     <div>
@@ -24,19 +32,21 @@ export default async function BrandDetailPage({
         Yönetici Portalı
       </Link>
 
-      <div className="flex items-start justify-between mb-6">
-        <div className="flex items-start gap-4">
+      <div className="flex items-start justify-between mb-6 gap-4">
+        <div className="flex items-start gap-4 min-w-0">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary shrink-0">
             <Building2 className="h-6 w-6" />
           </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{brand.name}</h1>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight truncate">{brand.name}</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Mağazaları yönet, çalışan ata, gün sonu yüklemelerini gör.
+              {isAdminUser
+                ? "Mağazaları yönet, çalışan ata, gün sonu yüklemelerini gör."
+                : "Atanmış olduğun mağazalar."}
             </p>
           </div>
         </div>
-        <CreateStoreButton brandId={brand.id} />
+        {isAdminUser ? <CreateStoreButton brandId={brand.id} /> : null}
       </div>
 
       <div className="mb-2">
