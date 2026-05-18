@@ -1,16 +1,29 @@
-import { PageHeader } from "@/components/shared/page-header";
-import { Card, CardContent } from "@/components/ui/card";
-import { Upload, Receipt, FileText, Banknote, Wallet, Building } from "lucide-react";
+"use client";
 
-const CARDS = [
-  { icon: Building, label: "Banka Dekontu", color: "bg-blue-50 text-blue-600" },
-  { icon: Receipt, label: "POS Fişi", color: "bg-purple-50 text-purple-600" },
-  { icon: FileText, label: "Mağaza Özeti", color: "bg-amber-50 text-amber-600" },
-  { icon: Banknote, label: "Peşin Ödeme", color: "bg-emerald-50 text-emerald-600" },
-  { icon: Wallet, label: "Masraf/Fatura", color: "bg-rose-50 text-rose-600" },
-];
+import { useState } from "react";
+import { Receipt, FileText, Banknote, Wallet, Building } from "lucide-react";
+import { PageHeader } from "@/components/shared/page-header";
+import {
+  UploadSelectors,
+  type UploadSelection,
+} from "@/components/upload/upload-selectors";
+import { UploadCard } from "@/components/upload/upload-card";
+import { UploadList } from "@/components/upload/upload-list";
+
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+}
 
 export default function UploadPage() {
+  const [sel, setSel] = useState<UploadSelection>({
+    brandId: "",
+    storeId: "",
+    date: todayIso(),
+  });
+
   return (
     <div>
       <PageHeader
@@ -18,28 +31,58 @@ export default function UploadPage() {
         description="Marka, mağaza ve gün seçimi yaparak gün sonu belgelerini yükleyin."
       />
 
+      <UploadSelectors value={sel} onChange={setSel} />
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {CARDS.map(({ icon: Icon, label, color }) => (
-          <Card key={label} className="hover:border-primary/50 transition-colors">
-            <CardContent className="p-6">
-              <div className={`h-12 w-12 rounded-xl flex items-center justify-center ${color} mb-3`}>
-                <Icon className="h-6 w-6" />
-              </div>
-              <div className="font-medium">{label}</div>
-              <div className="text-xs text-muted-foreground mt-1">
-                Yüklemeler Devre Dışı Bırakıldı
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+        <UploadCard
+          type="bank_receipt"
+          label="Banka Dekontu"
+          icon={Building}
+          iconBg="bg-blue-50"
+          iconColor="text-blue-600"
+          storeId={sel.storeId}
+          date={sel.date}
+        />
+        <UploadCard
+          type="pos_slip"
+          label="POS Fişi"
+          icon={Receipt}
+          iconBg="bg-purple-50"
+          iconColor="text-purple-600"
+          storeId={sel.storeId}
+          date={sel.date}
+          multiple
+        />
+        <UploadCard
+          type="store_summary"
+          label="Mağaza Özeti"
+          icon={FileText}
+          iconBg="bg-amber-50"
+          iconColor="text-amber-600"
+          storeId={sel.storeId}
+          date={sel.date}
+        />
+        <UploadCard
+          type="cash_advance"
+          label="Peşin Ödeme"
+          icon={Banknote}
+          iconBg="bg-emerald-50"
+          iconColor="text-emerald-600"
+          storeId={sel.storeId}
+          date={sel.date}
+        />
+        <UploadCard
+          type="expense"
+          label="Masraf/Fatura"
+          icon={Wallet}
+          iconBg="bg-rose-50"
+          iconColor="text-rose-600"
+          storeId={sel.storeId}
+          date={sel.date}
+        />
       </div>
 
-      <div className="mt-8 text-center">
-        <Upload className="h-12 w-12 mx-auto mb-3 text-muted-foreground/40" />
-        <div className="text-xs italic text-muted-foreground">
-          Bu sayfanın aktif yükleme akışı Aşama 4'te eklenecek.
-        </div>
-      </div>
+      <UploadList storeId={sel.storeId} date={sel.date} />
     </div>
   );
 }
