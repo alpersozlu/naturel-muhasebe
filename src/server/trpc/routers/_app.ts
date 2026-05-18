@@ -5,11 +5,12 @@ import { userRouter } from "./user";
 import { userStoreAccessRouter } from "./userStoreAccess";
 import { auditRouter } from "./audit";
 import { uploadRouter } from "./upload";
+import { cashAdvanceRouter } from "./cashAdvance";
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({
     ok: true,
-    phase: "4a",
+    phase: "4c.3",
     timestamp: new Date().toISOString(),
   })),
   brand: brandRouter,
@@ -18,6 +19,7 @@ export const appRouter = router({
   userStoreAccess: userStoreAccessRouter,
   audit: auditRouter,
   upload: uploadRouter,
+  cashAdvance: cashAdvanceRouter,
 });
 
 export type AppRouter = typeof appRouter;

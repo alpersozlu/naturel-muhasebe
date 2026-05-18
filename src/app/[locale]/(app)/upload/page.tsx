@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Receipt, FileText, Banknote, Wallet, Building } from "lucide-react";
+import { Receipt, FileText, Wallet, Building } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import {
   UploadSelectors,
   type UploadSelection,
 } from "@/components/upload/upload-selectors";
 import { UploadCard } from "@/components/upload/upload-card";
+import { CashAdvanceCard } from "@/components/upload/cash-advance-card";
 import { UploadList } from "@/components/upload/upload-list";
 
 function todayIso(): string {
@@ -62,15 +63,7 @@ export default function UploadPage() {
           storeId={sel.storeId}
           date={sel.date}
         />
-        <UploadCard
-          type="cash_advance"
-          label="Peşin Ödeme"
-          icon={Banknote}
-          iconBg="bg-emerald-50"
-          iconColor="text-emerald-600"
-          storeId={sel.storeId}
-          date={sel.date}
-        />
+        <CashAdvanceCard storeId={sel.storeId} date={sel.date} />
         <UploadCard
           type="expense"
           label="Masraf/Fatura"

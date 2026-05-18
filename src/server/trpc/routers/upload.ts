@@ -113,6 +113,34 @@ export const uploadRouter = router({
       return { url };
     }),
 
+  /** Confirm a parsed upload (status: parsed → confirmed). */
+  confirm: protectedProcedure
+    .input(uploadIdSchema)
+    .mutation(async ({ ctx, input }) => {
+      const upload = await ctx.prisma.upload.findUnique({
+        where: { id: input.id },
+        include: { daily_record: true },
+      });
+      if (!upload) throw new TRPCError({ code: "NOT_FOUND" });
+      await assertCanAccessStore(ctx.user, upload.daily_record.store_id);
+      if (upload.status !== "parsed") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Sadece okunmuş (parsed) yüklemeler onaylanabilir",
+        });
+      }
+      if (upload.daily_record.status === "locked") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Gün kilitli",
+        });
+      }
+      return ctx.prisma.upload.update({
+        where: { id: input.id },
+        data: { status: "confirmed" },
+      });
+    }),
+
   /** Delete an upload (storage + DB row). Locked days blocked. */
   delete: protectedProcedure
     .input(uploadIdSchema)

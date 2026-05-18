@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Loader2,
   AlertCircle,
+  Check,
 } from "lucide-react";
 import type { UploadType, UploadStatus } from "@prisma/client";
 import { trpc } from "@/lib/trpc";
@@ -60,6 +61,14 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
   const del = trpc.upload.delete.useMutation({
     onSuccess: () => {
       toast.success("Silindi");
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const confirmMut = trpc.upload.confirm.useMutation({
+    onSuccess: () => {
+      toast.success("Onaylandı");
       utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
     },
     onError: (e) => toast.error(e.message),
@@ -115,6 +124,17 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                     <Badge variant="secondary" className={`${STATUS_COLOR[u.status]} text-xs`}>
                       {STATUS_LABEL[u.status]}
                     </Badge>
+                    {u.status === "parsed" ? (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-emerald-700 hover:text-emerald-700 hover:bg-emerald-50"
+                        title="Onayla"
+                        onClick={() => confirmMut.mutate({ id: u.id })}
+                      >
+                        <Check className="h-4 w-4" />
+                      </Button>
+                    ) : null}
                     <Button
                       variant="ghost"
                       size="icon"
