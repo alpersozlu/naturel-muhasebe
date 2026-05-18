@@ -12,7 +12,7 @@ import "../globals.css";
 const inter = Inter({ subsets: ["latin", "latin-ext"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "DocuFlow TR",
+  title: "Naturel Ticaret Muhasebe",
   description: "Perakende zinciri günlük iç muhasebe sistemi",
 };
 

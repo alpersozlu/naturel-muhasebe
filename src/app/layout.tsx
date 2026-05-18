@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "DocuFlow TR",
+  title: "Naturel Ticaret Muhasebe",
   description: "Perakende zinciri günlük iç muhasebe sistemi",
 };
 

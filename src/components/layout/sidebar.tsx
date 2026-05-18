@@ -30,12 +30,12 @@ export function Sidebar() {
   return (
     <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 border-r bg-card">
       <div className="flex items-center gap-3 px-6 py-6 border-b">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold">
-          DF
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold shrink-0">
+          NT
         </div>
-        <div>
-          <div className="font-semibold leading-tight">DocuFlow TR</div>
-          <div className="text-xs text-muted-foreground">Yapay Zeka</div>
+        <div className="min-w-0">
+          <div className="font-semibold leading-tight">Naturel Ticaret</div>
+          <div className="text-xs text-muted-foreground">Muhasebe · Yapay Zeka</div>
         </div>
       </div>
 
