@@ -13,6 +13,7 @@ import {
   createSignedReadUrl,
   deleteFromStorage,
 } from "@/server/services/storage";
+import { processUpload } from "@/server/services/ocr/process-upload";
 
 export const uploadRouter = router({
   /**
@@ -49,7 +50,7 @@ export const uploadRouter = router({
         mimeType: input.mime_type,
       });
 
-      return ctx.prisma.upload.create({
+      const upload = await ctx.prisma.upload.create({
         data: {
           daily_record_id: dr.id,
           type: input.type,
@@ -60,6 +61,19 @@ export const uploadRouter = router({
           status: "pending",
         },
       });
+
+      // Synchronous OCR for supported types (currently pos_slip only).
+      // Returns updated row with status='parsed' or 'failed'.
+      // Caller gets the final state in a single round-trip — at the cost
+      // of waiting ~5-10s for vision call. Acceptable for MVP.
+      try {
+        await processUpload(upload.id);
+      } catch (e) {
+        // processUpload already records failure status; just log here
+        console.error("[upload.create] OCR dispatch error", e);
+      }
+
+      return ctx.prisma.upload.findUniqueOrThrow({ where: { id: upload.id } });
     }),
 
   /** List uploads for a given store+date. */
