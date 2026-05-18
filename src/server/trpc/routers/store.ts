@@ -1,5 +1,8 @@
 import { TRPCError } from "@trpc/server";
-import { router, adminProcedure, protectedProcedure } from "../trpc";
+import { router, protectedProcedure } from "../trpc";
+import { withAudit } from "../middleware/audit";
+
+const storeAdmin = withAudit("Store");
 import {
   storeCreateSchema,
   storeUpdateSchema,
@@ -52,7 +55,7 @@ export const storeRouter = router({
     return store;
   }),
 
-  create: adminProcedure.input(storeCreateSchema).mutation(async ({ ctx, input }) => {
+  create: storeAdmin.input(storeCreateSchema).mutation(async ({ ctx, input }) => {
     const brand = await ctx.prisma.brand.findUnique({ where: { id: input.brand_id } });
     if (!brand || brand.deleted_at) {
       throw new TRPCError({ code: "NOT_FOUND", message: "Marka bulunamadı" });
@@ -67,7 +70,7 @@ export const storeRouter = router({
     });
   }),
 
-  update: adminProcedure.input(storeUpdateSchema).mutation(async ({ ctx, input }) => {
+  update: storeAdmin.input(storeUpdateSchema).mutation(async ({ ctx, input }) => {
     const existing = await ctx.prisma.store.findUnique({ where: { id: input.id } });
     if (!existing || existing.deleted_at) {
       throw new TRPCError({ code: "NOT_FOUND" });
@@ -82,14 +85,14 @@ export const storeRouter = router({
     });
   }),
 
-  softDelete: adminProcedure.input(storeIdSchema).mutation(({ ctx, input }) =>
+  softDelete: storeAdmin.input(storeIdSchema).mutation(({ ctx, input }) =>
     ctx.prisma.store.update({
       where: { id: input.id },
       data: { deleted_at: new Date() },
     })
   ),
 
-  restore: adminProcedure.input(storeIdSchema).mutation(({ ctx, input }) =>
+  restore: storeAdmin.input(storeIdSchema).mutation(({ ctx, input }) =>
     ctx.prisma.store.update({
       where: { id: input.id },
       data: { deleted_at: null },

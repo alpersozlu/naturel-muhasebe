@@ -1,11 +1,14 @@
 import { TRPCError } from "@trpc/server";
 import { router, adminProcedure } from "../trpc";
+import { withAudit } from "../middleware/audit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   userCreateSchema,
   userUpdateRoleSchema,
   userIdSchema,
 } from "@/lib/zod-schemas/user";
+
+const userAdmin = withAudit("User");
 
 export const userRouter = router({
   list: adminProcedure.query(({ ctx }) =>
@@ -26,8 +29,7 @@ export const userRouter = router({
     return user;
   }),
 
-  create: adminProcedure.input(userCreateSchema).mutation(async ({ ctx, input }) => {
-    // Duplicate email kontrolü (hem Prisma hem Supabase)
+  create: userAdmin.input(userCreateSchema).mutation(async ({ ctx, input }) => {
     const existing = await ctx.prisma.user.findUnique({ where: { email: input.email } });
     if (existing) {
       throw new TRPCError({
@@ -60,10 +62,9 @@ export const userRouter = router({
     });
   }),
 
-  updateRole: adminProcedure
+  updateRole: userAdmin
     .input(userUpdateRoleSchema)
     .mutation(async ({ ctx, input }) => {
-      // Son admin'i admin olmaktan çıkarmaya izin verme
       if (input.role !== "admin") {
         const adminCount = await ctx.prisma.user.count({ where: { role: "admin" } });
         const current = await ctx.prisma.user.findUnique({ where: { id: input.id } });

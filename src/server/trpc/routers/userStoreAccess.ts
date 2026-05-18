@@ -1,5 +1,8 @@
 import { TRPCError } from "@trpc/server";
-import { router, adminProcedure } from "../trpc";
+import { router } from "../trpc";
+import { withAudit } from "../middleware/audit";
+
+const accessAdmin = withAudit("UserStoreAccess");
 import {
   assignSchema,
   unassignSchema,
@@ -7,7 +10,7 @@ import {
 } from "@/lib/zod-schemas/user-store-access";
 
 export const userStoreAccessRouter = router({
-  listForStore: adminProcedure.input(listForStoreSchema).query(({ ctx, input }) =>
+  listForStore: accessAdmin.input(listForStoreSchema).query(({ ctx, input }) =>
     ctx.prisma.userStoreAccess.findMany({
       where: { store_id: input.store_id },
       include: { user: true },
@@ -15,7 +18,7 @@ export const userStoreAccessRouter = router({
     })
   ),
 
-  assign: adminProcedure.input(assignSchema).mutation(async ({ ctx, input }) => {
+  assign: accessAdmin.input(assignSchema).mutation(async ({ ctx, input }) => {
     // Hem user hem store geçerli olmalı, store silinmiş olmamalı
     const [user, store] = await Promise.all([
       ctx.prisma.user.findUnique({ where: { id: input.user_id } }),
@@ -44,7 +47,7 @@ export const userStoreAccessRouter = router({
     });
   }),
 
-  unassign: adminProcedure.input(unassignSchema).mutation(({ ctx, input }) =>
+  unassign: accessAdmin.input(unassignSchema).mutation(({ ctx, input }) =>
     ctx.prisma.userStoreAccess.delete({
       where: {
         user_id_store_id: { user_id: input.user_id, store_id: input.store_id },

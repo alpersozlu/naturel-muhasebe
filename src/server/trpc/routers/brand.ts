@@ -1,5 +1,8 @@
 import { TRPCError } from "@trpc/server";
-import { router, adminProcedure, protectedProcedure } from "../trpc";
+import { router, protectedProcedure } from "../trpc";
+import { withAudit } from "../middleware/audit";
+
+const brandAdmin = withAudit("Brand");
 import {
   brandCreateSchema,
   brandUpdateSchema,
@@ -50,7 +53,7 @@ export const brandRouter = router({
     return brand;
   }),
 
-  create: adminProcedure.input(brandCreateSchema).mutation(({ ctx, input }) =>
+  create: brandAdmin.input(brandCreateSchema).mutation(({ ctx, input }) =>
     ctx.prisma.brand.create({
       data: {
         name: input.name,
@@ -59,7 +62,7 @@ export const brandRouter = router({
     })
   ),
 
-  update: adminProcedure.input(brandUpdateSchema).mutation(async ({ ctx, input }) => {
+  update: brandAdmin.input(brandUpdateSchema).mutation(async ({ ctx, input }) => {
     const existing = await ctx.prisma.brand.findUnique({ where: { id: input.id } });
     if (!existing || existing.deleted_at) {
       throw new TRPCError({ code: "NOT_FOUND" });
@@ -73,14 +76,14 @@ export const brandRouter = router({
     });
   }),
 
-  softDelete: adminProcedure.input(brandIdSchema).mutation(({ ctx, input }) =>
+  softDelete: brandAdmin.input(brandIdSchema).mutation(({ ctx, input }) =>
     ctx.prisma.brand.update({
       where: { id: input.id },
       data: { deleted_at: new Date() },
     })
   ),
 
-  restore: adminProcedure.input(brandIdSchema).mutation(({ ctx, input }) =>
+  restore: brandAdmin.input(brandIdSchema).mutation(({ ctx, input }) =>
     ctx.prisma.brand.update({
       where: { id: input.id },
       data: { deleted_at: null },
