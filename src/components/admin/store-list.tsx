@@ -2,7 +2,14 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Store, MoreVertical, Pencil, Trash2, MapPin } from "lucide-react";
+import {
+  Store,
+  MoreVertical,
+  Pencil,
+  Trash2,
+  MapPin,
+  Users,
+} from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { StoreFormDialog } from "./store-form-dialog";
+import { StoreStaffDialog } from "./store-staff-dialog";
 
 export function StoreList({ brandId }: { brandId: string }) {
   const { data, isLoading } = trpc.store.listByBrand.useQuery({ brand_id: brandId });
@@ -31,6 +39,8 @@ export function StoreList({ brandId }: { brandId: string }) {
     id: string;
     defaults: { name: string; city: string; address: string };
   } | null>(null);
+
+  const [staffFor, setStaffFor] = useState<{ id: string; name: string } | null>(null);
 
   if (isLoading) {
     return (
@@ -117,6 +127,18 @@ export function StoreList({ brandId }: { brandId: string }) {
                   {store.address}
                 </div>
               ) : null}
+
+              <div className="mt-4 pt-3 border-t">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => setStaffFor({ id: store.id, name: store.name })}
+                >
+                  <Users className="h-4 w-4 mr-2" />
+                  Çalışanlar
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ))}
@@ -132,6 +154,15 @@ export function StoreList({ brandId }: { brandId: string }) {
           }}
           open
           onOpenChange={(o) => !o && setEditing(null)}
+        />
+      ) : null}
+
+      {staffFor ? (
+        <StoreStaffDialog
+          storeId={staffFor.id}
+          storeName={staffFor.name}
+          open
+          onOpenChange={(o) => !o && setStaffFor(null)}
         />
       ) : null}
     </>
