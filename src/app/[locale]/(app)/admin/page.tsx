@@ -2,7 +2,7 @@ import { Users, Activity } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { PageHeader } from "@/components/shared/page-header";
 import { AdminStats } from "@/components/admin/admin-stats";
-import { BrandList } from "@/components/admin/brand-list";
+import { OrgHierarchy } from "@/components/admin/org-hierarchy";
 import { CreateBrandButton } from "@/components/admin/brand-form-dialog";
 
 export default function AdminPage() {
@@ -36,9 +36,9 @@ export default function AdminPage() {
       </div>
 
       <div className="mb-2">
-        <h2 className="text-lg font-semibold">Markalar</h2>
+        <h2 className="text-lg font-semibold">Organizasyon Hiyerarşisi</h2>
       </div>
-      <BrandList />
+      <OrgHierarchy />
     </div>
   );
 }

@@ -35,11 +35,13 @@ export function StoreStaffDialog({
   storeName,
   open,
   onOpenChange,
+  defaultRole = "cashier",
 }: {
   storeId: string;
   storeName: string;
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  defaultRole?: UserRole;
 }) {
   const utils = trpc.useUtils();
   const { data: access } = trpc.userStoreAccess.listForStore.useQuery(
@@ -49,7 +51,7 @@ export function StoreStaffDialog({
   const { data: allUsers } = trpc.user.list.useQuery(undefined, { enabled: open });
 
   const [pickedUserId, setPickedUserId] = useState<string>("");
-  const [pickedRole, setPickedRole] = useState<UserRole>("cashier");
+  const [pickedRole, setPickedRole] = useState<UserRole>(defaultRole);
 
   const assign = trpc.userStoreAccess.assign.useMutation({
     onSuccess: () => {
