@@ -8,11 +8,12 @@ import { uploadRouter } from "./upload";
 import { cashAdvanceRouter } from "./cashAdvance";
 import { verificationRouter } from "./verification";
 import { dailyRecordRouter } from "./dailyRecord";
+import { analyticsRouter } from "./analytics";
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({
     ok: true,
-    phase: "5",
+    phase: "6",
     timestamp: new Date().toISOString(),
   })),
   brand: brandRouter,
@@ -24,6 +25,7 @@ export const appRouter = router({
   cashAdvance: cashAdvanceRouter,
   verification: verificationRouter,
   dailyRecord: dailyRecordRouter,
+  analytics: analyticsRouter,
 });
 
 export type AppRouter = typeof appRouter;
