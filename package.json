@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "bash scripts/dev.sh",
+    "dev:raw": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -42,6 +43,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "decimal.js": "^10.6.0",
+    "heic-convert": "^2.1.0",
     "lucide-react": "^1.16.0",
     "next": "14.2.35",
     "next-intl": "^4.12.0",
@@ -51,6 +53,7 @@
     "react-dom": "^18",
     "react-hook-form": "^7.76.0",
     "recharts": "^3.8.1",
+    "server-only": "^0.0.1",
     "sharp": "^0.34.5",
     "sonner": "^2.0.7",
     "superjson": "^2.2.6",
@@ -59,6 +62,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/heic-convert": "^2.1.0",
     "@types/node": "^20",
     "@types/pdf-parse": "^1.1.5",
     "@types/react": "^18",

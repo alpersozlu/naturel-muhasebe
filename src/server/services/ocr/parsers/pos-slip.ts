@@ -29,7 +29,7 @@ export async function parsePosSlip(opts: {
   let mediaType: ImageMediaType = "image/jpeg";
 
   if (!isPdf) {
-    const r = await preprocessImage(opts.buffer);
+    const r = await preprocessImage(opts.buffer, opts.mimeType);
     imageBuffer = r.buffer;
     mediaType = r.mediaType;
   }
