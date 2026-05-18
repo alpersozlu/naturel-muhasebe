@@ -7,9 +7,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-  // Supabase connection pooler URL'i (transaction mode)
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")  // Pooled (transaction mode) — uygulama runtime
+  directUrl = env("DIRECT_URL")    // Direct connection — migration için
 }
 
 // ─────────────────────────────────────────────────────────────
