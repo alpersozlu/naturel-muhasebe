@@ -2,9 +2,8 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Building2, Store, MoreVertical, Pencil, Trash2 } from "lucide-react";
+import { Store, MoreVertical, Pencil, Trash2, MapPin } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { Link } from "@/i18n/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,14 +12,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { BrandFormDialog } from "./brand-form-dialog";
+import { StoreFormDialog } from "./store-form-dialog";
 
-export function BrandList() {
-  const { data, isLoading } = trpc.brand.list.useQuery();
+export function StoreList({ brandId }: { brandId: string }) {
+  const { data, isLoading } = trpc.store.listByBrand.useQuery({ brand_id: brandId });
   const utils = trpc.useUtils();
-  const softDelete = trpc.brand.softDelete.useMutation({
+  const softDelete = trpc.store.softDelete.useMutation({
     onSuccess: () => {
-      toast.success("Marka silindi (Çöp'ten geri alınabilir)");
+      toast.success("Mağaza silindi");
+      utils.store.listByBrand.invalidate({ brand_id: brandId });
+      utils.brand.get.invalidate({ id: brandId });
       utils.brand.list.invalidate();
     },
     onError: (e) => toast.error(e.message),
@@ -28,7 +29,7 @@ export function BrandList() {
 
   const [editing, setEditing] = useState<{
     id: string;
-    defaults: { name: string; logo_url: string };
+    defaults: { name: string; city: string; address: string };
   } | null>(null);
 
   if (isLoading) {
@@ -45,10 +46,10 @@ export function BrandList() {
     return (
       <Card>
         <CardContent className="py-16 text-center text-muted-foreground">
-          <Building2 className="h-12 w-12 mx-auto mb-3 opacity-30" />
-          <div className="font-medium text-foreground">Henüz hiçbir marka yok.</div>
+          <Store className="h-12 w-12 mx-auto mb-3 opacity-30" />
+          <div className="font-medium text-foreground">Henüz mağaza yok.</div>
           <div className="text-sm mt-1">
-            İşe başlamak için sağ üstteki "Yeni Marka" butonunu kullanın.
+            Yukarıdaki "Yeni Mağaza" butonuyla ilk mağazayı ekle.
           </div>
         </CardContent>
       </Card>
@@ -58,13 +59,9 @@ export function BrandList() {
   return (
     <>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {data.map((brand) => (
-          <Card
-            key={brand.id}
-            className="relative group hover:border-primary/50 hover:shadow-sm transition-all"
-          >
-            {/* Dropdown menü — Link'in üstünde, click bubble etmesin */}
-            <div className="absolute top-3 right-3 z-10" onClick={(e) => e.stopPropagation()}>
+        {data.map((store) => (
+          <Card key={store.id} className="relative">
+            <div className="absolute top-3 right-3 z-10">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -75,10 +72,11 @@ export function BrandList() {
                   <DropdownMenuItem
                     onSelect={() =>
                       setEditing({
-                        id: brand.id,
+                        id: store.id,
                         defaults: {
-                          name: brand.name,
-                          logo_url: brand.logo_url ?? "",
+                          name: store.name,
+                          city: store.city ?? "",
+                          address: store.address ?? "",
                         },
                       })
                     }
@@ -90,9 +88,9 @@ export function BrandList() {
                     className="text-destructive"
                     onSelect={() => {
                       if (
-                        confirm(`"${brand.name}" markasını silmek istediğine emin misin?`)
+                        confirm(`"${store.name}" mağazasını silmek istediğine emin misin?`)
                       ) {
-                        softDelete.mutate({ id: brand.id });
+                        softDelete.mutate({ id: store.id });
                       }
                     }}
                   >
@@ -103,25 +101,35 @@ export function BrandList() {
               </DropdownMenu>
             </div>
 
-            <Link href={`/admin/brands/${brand.id}`} className="block">
-              <CardContent className="p-5">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary mb-3">
-                  <Building2 className="h-5 w-5" />
-                </div>
-                <div className="font-semibold leading-tight">{brand.name}</div>
+            <CardContent className="p-5">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 mb-3">
+                <Store className="h-5 w-5" />
+              </div>
+              <div className="font-semibold leading-tight">{store.name}</div>
+              {store.city ? (
                 <div className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
-                  <Store className="h-3.5 w-3.5" />
-                  {brand._count.stores} mağaza
+                  <MapPin className="h-3.5 w-3.5" />
+                  {store.city}
                 </div>
-              </CardContent>
-            </Link>
+              ) : null}
+              {store.address ? (
+                <div className="text-xs text-muted-foreground mt-2 line-clamp-2">
+                  {store.address}
+                </div>
+              ) : null}
+            </CardContent>
           </Card>
         ))}
       </div>
 
       {editing ? (
-        <BrandFormDialog
-          mode={{ kind: "edit", id: editing.id, defaults: editing.defaults }}
+        <StoreFormDialog
+          mode={{
+            kind: "edit",
+            brand_id: brandId,
+            id: editing.id,
+            defaults: editing.defaults,
+          }}
           open
           onOpenChange={(o) => !o && setEditing(null)}
         />
