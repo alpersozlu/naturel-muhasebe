@@ -1,21 +1,42 @@
+"use client";
+
+import { useState } from "react";
 import { PageHeader } from "@/components/shared/page-header";
-import { Card, CardContent } from "@/components/ui/card";
-import { CalendarDays } from "lucide-react";
+import {
+  VerificationFilters,
+  type VerificationSelection,
+} from "@/components/verification/filters";
+import { DayList } from "@/components/verification/day-list";
+import { trpc } from "@/lib/trpc";
 
 export default function VerificationPage() {
+  const now = new Date();
+  const [sel, setSel] = useState<VerificationSelection>({
+    brandId: "",
+    storeId: "",
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+  });
+
+  // Kilidi açma yetkisi sadece admin'de
+  const { data: health } = trpc.health.useQuery(undefined, { staleTime: Infinity });
+  // Health'ten kullanıcı bilgisi gelmiyor; client'ta canUnlock'u her zaman true bırakıp
+  // server tarafında admin check yapıyoruz (zaten dailyRecord.unlock admin-only).
+  const canUnlock = !!health;
+
   return (
     <div>
       <PageHeader
         title="Doğrulama Sistemi"
         description="Mağazalar genelindeki günlük doğrulama durumunu takip edin."
       />
-      <Card>
-        <CardContent className="py-16 text-center text-muted-foreground">
-          <CalendarDays className="h-12 w-12 mx-auto mb-3 opacity-30" />
-          <div>Bu seçim için veri bulunmamaktadır.</div>
-          <div className="text-xs mt-4 italic">Bu sayfa Aşama 5'te aktif olacak.</div>
-        </CardContent>
-      </Card>
+      <VerificationFilters value={sel} onChange={setSel} />
+      <DayList
+        storeId={sel.storeId}
+        year={sel.year}
+        month={sel.month}
+        canUnlock={canUnlock}
+      />
     </div>
   );
 }
