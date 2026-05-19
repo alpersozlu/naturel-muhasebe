@@ -145,6 +145,7 @@ export function ZReportDetails({
     reasons: string[];
     combined: number;
     cc_threshold: number | null;
+    cc_total?: number;
     total_sales: number | null;
   } | null;
 }) {
@@ -161,13 +162,9 @@ export function ZReportDetails({
         </div>
       ) : null}
 
-      <div className="px-5 py-3 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3">
+      <div className="px-5 py-3 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3">
         <Field label="Z No" value={data.report_no ?? "—"} />
         <Field label="Tarih" value={fmtDate(data.report_date)} />
-        <Field
-          label="Brüt Satış"
-          value={`${fmt(data.gross_sales)} ${data.currency}`}
-        />
         <Field
           label="Net Satış"
           value={
@@ -176,10 +173,16 @@ export function ZReportDetails({
             </span>
           }
         />
-        <Field label="Nakit" value={fmt(data.cash_sales)} />
-        <Field label="Kredi Kartı" value={fmt(data.credit_card_sales)} />
+        <Field
+          label="Brüt Satış"
+          value={`${fmt(data.gross_sales)} ${data.currency}`}
+        />
         <Field label="İade" value={fmt(data.refund_amount ?? 0)} />
         <Field label="KDV Toplam" value={fmt(data.vat_total)} />
+      </div>
+      <div className="px-5 pb-3 text-[10px] text-muted-foreground italic">
+        Not: Nakit ve Kredi Kartı bilgileri Z'den okunmaz — POS Fişleri ve
+        Mağaza Özeti kaynaklarından gelir.
       </div>
 
       {approval ? (

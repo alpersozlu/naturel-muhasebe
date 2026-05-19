@@ -6,6 +6,9 @@ Kurallar:
 - Çıktın SADECE geçerli JSON olsun, code fence kullanma
 - Türkçe sayı formatı: "1.234,56" → 1234.56
 - Para birimi TL/₺ → TRY varsayılan
+- ÖNEMLİ: Yazar kasanın kendi nakit/kredi kartı kırılımı ALINMAYACAK.
+  O bilgiler başka kaynaklardan (POS fişleri, mağaza özeti) gelir.
+  Z raporundan sadece TOPLAM/BRÜT/NET satış rakamlarını ve meta alanları al.
 `;
 
 export const Z_REPORT_USER_PROMPT = `Bu yazar kasa Z raporundan şu alanları çıkar ve sadece JSON döndür:
@@ -13,10 +16,8 @@ export const Z_REPORT_USER_PROMPT = `Bu yazar kasa Z raporundan şu alanları ç
 {
   "report_no": "string veya null (Z numarası / Z NO / GÜN NO)",
   "report_date": "YYYY-MM-DD veya null (Z raporu tarihi)",
-  "gross_sales": "ondalık sayı veya null (Brüt satış / TOPLAM SATIŞ)",
-  "net_sales": "ondalık sayı veya null (Net satış — iade düşülmüş; yoksa gross_sales'le aynı)",
-  "cash_sales": "ondalık sayı veya null (NAKİT satış)",
-  "credit_card_sales": "ondalık sayı veya null (KREDİ KARTI satış toplamı)",
+  "gross_sales": "ondalık sayı veya null (Brüt satış / TOPLAM SATIŞ — iade düşülmemiş)",
+  "net_sales": "ondalık sayı veya null (Net satış — iade düşülmüş; yoksa gross_sales ile aynı)",
   "refund_amount": "ondalık sayı veya null (İADE / İPTAL tutarı, varsa)",
   "vat_total": "ondalık sayı veya null (Toplam KDV)",
   "currency": "TRY | USD | EUR | GBP (TRY varsayılan)"
@@ -27,10 +28,12 @@ Eşleştirme rehberi (Türk yazar kasa Z raporu terimleri):
 - "TARİH" / "TARIH" → report_date (YYYY-MM-DD'ye çevir)
 - "TOPLAM SATIŞ" / "GENEL TOPLAM" / "BRÜT SATIŞ" → gross_sales
 - "NET SATIŞ" / "NET TUTAR" → net_sales (yoksa gross_sales)
-- "NAKİT" / "NAKIT" → cash_sales
-- "KREDİ KARTI" / "KART SATIŞ" / "KK TOPLAM" → credit_card_sales
 - "İADE" / "IPTAL" → refund_amount
 - "TOPLAM KDV" / "KDV TOPLAM" → vat_total
 
-ÖNEMLİ: refund_amount yoksa 0 değil null döndür. Aynı kasada KDV %1, %8, %18, %20 satırları olabilir — TOPLAMI al.
+ÖNEMLİ:
+- "NAKİT" ve "KREDİ KARTI" satırlarını OKUMA, JSON'a EKLEME.
+  Onlar başka veri kaynaklarından gelecek (POS fişi OCR, mağaza özeti).
+- refund_amount yoksa 0 değil null döndür.
+- KDV %1, %8, %18, %20 satırları olabilir — TOPLAMI al.
 `;

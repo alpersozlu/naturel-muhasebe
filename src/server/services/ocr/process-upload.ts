@@ -241,16 +241,15 @@ async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {
     mimeType: upload.mime_type,
   });
 
-  // Content fingerprint: bank/terminal yok ama report_no + date + amounts var
+  // Content fingerprint: Z numarası + tarih + brüt + net (cash/KK artık alınmıyor)
   const fingerprint = parsed.report_no
     ? createHash("sha256")
         .update(
           [
             parsed.report_no ?? "",
             parsed.report_date ?? "",
+            String(parsed.gross_sales ?? ""),
             String(parsed.net_sales ?? ""),
-            String(parsed.credit_card_sales ?? ""),
-            String(parsed.cash_sales ?? ""),
           ].join("|")
         )
         .digest("hex")
@@ -295,6 +294,8 @@ async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {
   const net = parsed.net_sales ?? parsed.gross_sales;
   const tryFor = (v: number | null) => (parsed.currency === "TRY" ? v : null);
 
+  // KK ve nakit Z raporundan artık OKUNMUYOR — onlar POS fişleri ve
+  // Mağaza Özeti kaynaklarından geliyor. DB kolonları nullable, null kalır.
   const fields = {
     report_no: parsed.report_no,
     report_date: parsed.report_date
@@ -302,15 +303,15 @@ async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {
       : null,
     gross_sales: parsed.gross_sales,
     net_sales: net,
-    cash_sales: parsed.cash_sales,
-    credit_card_sales: parsed.credit_card_sales,
+    cash_sales: null,
+    credit_card_sales: null,
     refund_amount: parsed.refund_amount,
     vat_total: parsed.vat_total,
     currency: parsed.currency,
     gross_sales_try: tryFor(parsed.gross_sales),
     net_sales_try: tryFor(net),
-    cash_sales_try: tryFor(parsed.cash_sales),
-    credit_card_sales_try: tryFor(parsed.credit_card_sales),
+    cash_sales_try: null,
+    credit_card_sales_try: null,
     content_fingerprint: fingerprint,
   };
   await prisma.zReport.upsert({
