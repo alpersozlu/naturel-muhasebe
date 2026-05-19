@@ -1,5 +1,8 @@
+"use client";
+
 import type { LucideIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { useCountUp } from "@/lib/use-count-up";
 
 const TRY_FORMATTER = new Intl.NumberFormat("tr-TR", {
   minimumFractionDigits: 2,
@@ -27,14 +30,17 @@ export function StatCard({
   bgColor?: string;
   hint?: string;
 }) {
+  const animated = useCountUp(value, 700);
   return (
-    <Card>
+    <Card className="hover:shadow-sm animate-slide-up">
       <CardContent className="p-5">
-        <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${bgColor} ${color} mb-3`}>
+        <div
+          className={`h-10 w-10 rounded-xl flex items-center justify-center ${bgColor} ${color} mb-3 transition-transform duration-soft ease-snappy`}
+        >
           <Icon className="h-5 w-5" />
         </div>
-        <div className="text-2xl font-bold tabular-nums">
-          {fmtMoney(value)}
+        <div className="text-2xl font-bold tabular-nums tracking-tight">
+          {fmtMoney(animated)}
           <span className="text-base font-normal text-muted-foreground ml-1">
             {suffix}
           </span>

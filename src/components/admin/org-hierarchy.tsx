@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { BrandFormDialog } from "./brand-form-dialog";
 import { StoreFormDialog } from "./store-form-dialog";
 import { StoreStaffDialog } from "./store-staff-dialog";
+import { ListSkeleton } from "@/components/shared/skeleton";
 
 export function OrgHierarchy() {
   const { data, isLoading } = trpc.brand.list.useQuery();
@@ -27,8 +28,8 @@ export function OrgHierarchy() {
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="py-10 text-center text-muted-foreground text-sm">
-          Yükleniyor...
+        <CardContent className="p-0">
+          <ListSkeleton rows={3} rowHeight="h-16" />
         </CardContent>
       </Card>
     );

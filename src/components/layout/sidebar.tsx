@@ -28,18 +28,22 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 border-r bg-card">
-      <div className="flex items-center gap-3 px-6 py-6 border-b">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold shrink-0">
+    <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 border-r border-border/70 bg-card/95 backdrop-blur-sm">
+      <div className="flex items-center gap-3 px-6 py-5 border-b border-border/70">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold shadow-sm shrink-0">
           NT
         </div>
         <div className="min-w-0">
-          <div className="font-semibold leading-tight">Naturel Ticaret</div>
-          <div className="text-xs text-muted-foreground">Muhasebe · Yapay Zeka</div>
+          <div className="font-semibold leading-tight tracking-tight">
+            Naturel Ticaret
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Muhasebe · Yapay Zeka
+          </div>
         </div>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      <nav className="flex-1 px-3 py-4 space-y-0.5">
         {NAV.map(({ href, icon: Icon, key }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           return (
@@ -47,14 +51,22 @@ export function Sidebar() {
               key={href}
               href={href}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-snap ease-ios active:scale-[0.98]",
                 active
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  ? "bg-primary/10 text-primary shadow-xs"
+                  : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
               )}
             >
-              <Icon className="h-5 w-5 shrink-0" />
+              <Icon
+                className={cn(
+                  "h-5 w-5 shrink-0 transition-transform duration-snap ease-snappy",
+                  active ? "scale-105" : "group-hover:scale-105"
+                )}
+              />
               <span>{t(key)}</span>
+              {active ? (
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-r-full bg-primary" />
+              ) : null}
             </Link>
           );
         })}

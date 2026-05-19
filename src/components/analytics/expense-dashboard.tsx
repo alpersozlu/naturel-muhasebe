@@ -16,6 +16,7 @@ import { Wallet, Receipt, Users, Store } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatCard } from "./stat-card";
+import { StatCardSkeleton, ChartSkeleton } from "@/components/shared/skeleton";
 
 const TRY = new Intl.NumberFormat("tr-TR", {
   minimumFractionDigits: 0,
@@ -63,11 +64,15 @@ export function ExpenseDashboard({
 
   if (isLoading) {
     return (
-      <Card>
-        <CardContent className="py-16 text-center text-muted-foreground text-sm">
-          Yükleniyor...
-        </CardContent>
-      </Card>
+      <div className="space-y-6">
+        <StatCardSkeleton count={4} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <ChartSkeleton height={220} />
+          <ChartSkeleton height={220} />
+          <ChartSkeleton height={180} />
+          <ChartSkeleton height={180} />
+        </div>
+      </div>
     );
   }
 

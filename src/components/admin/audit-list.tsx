@@ -37,8 +37,16 @@ export function AuditList() {
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="py-10 text-center text-muted-foreground text-sm">
-          Yükleniyor...
+        <CardContent className="p-0 divide-y">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="px-5 py-3 flex items-center gap-4">
+              <div className="h-5 w-20 rounded animate-pulse bg-muted/60" />
+              <div className="flex-1">
+                <div className="h-3 w-2/3 rounded animate-pulse bg-muted/60" />
+              </div>
+              <div className="h-3 w-24 rounded animate-pulse bg-muted/50" />
+            </div>
+          ))}
         </CardContent>
       </Card>
     );

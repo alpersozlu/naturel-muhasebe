@@ -11,7 +11,6 @@ import {
   Wallet,
   Trash2,
   ExternalLink,
-  Loader2,
   AlertCircle,
   Check,
 } from "lucide-react";
@@ -96,9 +95,17 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
         </div>
 
         {isLoading ? (
-          <div className="py-10 text-center text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
-            Yükleniyor
+          <div className="px-4 py-3">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 py-3">
+                <div className="h-5 w-5 rounded animate-pulse bg-muted/60" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3 w-32 rounded animate-pulse bg-muted/60" />
+                  <div className="h-2.5 w-48 rounded animate-pulse bg-muted/50" />
+                </div>
+                <div className="h-5 w-16 rounded animate-pulse bg-muted/60" />
+              </div>
+            ))}
           </div>
         ) : !data || data.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground">

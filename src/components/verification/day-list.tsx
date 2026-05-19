@@ -4,6 +4,7 @@ import { CalendarDays } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { DayRow } from "./day-row";
+import { Skeleton } from "@/components/shared/skeleton";
 
 export function DayList({
   storeId,
@@ -34,11 +35,11 @@ export function DayList({
 
   if (isLoading) {
     return (
-      <Card>
-        <CardContent className="py-12 text-center text-muted-foreground text-sm">
-          Yükleniyor...
-        </CardContent>
-      </Card>
+      <div className="space-y-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-16 w-full rounded-xl" />
+        ))}
+      </div>
     );
   }
 
