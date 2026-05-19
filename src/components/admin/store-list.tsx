@@ -55,7 +55,7 @@ export function StoreList({ brandId }: { brandId: string }) {
   if (!data || data.length === 0) {
     return (
       <Card>
-        <CardContent className="py-16 text-center text-muted-foreground">
+        <CardContent className="py-16 text-center text-muted-foreground animate-fade-in">
           <Store className="h-12 w-12 mx-auto mb-3 opacity-30" />
           <div className="font-medium text-foreground">Henüz mağaza yok.</div>
           <div className="text-sm mt-1">

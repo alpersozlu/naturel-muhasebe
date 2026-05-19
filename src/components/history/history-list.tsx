@@ -10,6 +10,8 @@ import {
   Wallet,
   History as HistoryIcon,
   ExternalLink,
+  Loader2,
+  ChevronDown,
 } from "lucide-react";
 import type { UploadType, UploadStatus } from "@prisma/client";
 import { toast } from "sonner";
@@ -54,15 +56,21 @@ function fmtMoney(n: { toNumber: () => number } | null | undefined): string | nu
 }
 
 export function HistoryList({ filters }: { filters: HistorySelection }) {
-  const { data, isLoading } = trpc.history.list.useQuery({
-    brand_id: filters.brandId || undefined,
-    store_id: filters.storeId || undefined,
-    type: (filters.type || undefined) as UploadType | undefined,
-    status: (filters.status || undefined) as UploadStatus | undefined,
-    date_from: filters.dateFrom || undefined,
-    date_to: filters.dateTo || undefined,
-    limit: 50,
-  });
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    trpc.history.list.useInfiniteQuery(
+      {
+        brand_id: filters.brandId || undefined,
+        store_id: filters.storeId || undefined,
+        type: (filters.type || undefined) as UploadType | undefined,
+        status: (filters.status || undefined) as UploadStatus | undefined,
+        date_from: filters.dateFrom || undefined,
+        date_to: filters.dateTo || undefined,
+        limit: 25,
+      },
+      {
+        getNextPageParam: (last) => last.nextCursor ?? undefined,
+      }
+    );
 
   const utils = trpc.useUtils();
   const openFile = async (id: string) => {
@@ -93,12 +101,12 @@ export function HistoryList({ filters }: { filters: HistorySelection }) {
     );
   }
 
-  const items = data?.items ?? [];
+  const items = data?.pages.flatMap((p) => p.items) ?? [];
 
   if (items.length === 0) {
     return (
       <Card>
-        <CardContent className="py-16 text-center text-muted-foreground">
+        <CardContent className="py-16 text-center text-muted-foreground animate-fade-in">
           <HistoryIcon className="h-12 w-12 mx-auto mb-3 opacity-30" />
           <div className="font-medium text-foreground">İşlem bulunamadı</div>
           <div className="text-sm mt-1">
@@ -169,11 +177,32 @@ export function HistoryList({ filters }: { filters: HistorySelection }) {
         </CardContent>
       </Card>
 
-      {data?.nextCursor ? (
-        <div className="mt-4 text-center text-xs text-muted-foreground">
-          Son 50 işlem gösteriliyor — daha fazlası için filtre uygula.
+      <div className="mt-4 flex flex-col items-center gap-2">
+        {hasNextPage ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isFetchingNextPage}
+            onClick={() => fetchNextPage()}
+          >
+            {isFetchingNextPage ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                Yükleniyor
+              </>
+            ) : (
+              <>
+                Daha fazla yükle
+                <ChevronDown className="h-4 w-4 ml-1" />
+              </>
+            )}
+          </Button>
+        ) : null}
+        <div className="text-xs text-muted-foreground">
+          {items.length} işlem gösteriliyor
+          {!hasNextPage && items.length > 0 ? " · son" : ""}
         </div>
-      ) : null}
+      </div>
     </>
   );
 }
