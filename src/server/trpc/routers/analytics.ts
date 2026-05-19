@@ -5,13 +5,29 @@ import {
 } from "@/lib/zod-schemas/analytics";
 import { revenueSummary } from "@/server/services/analytics/revenue";
 import { expenseSummary } from "@/server/services/analytics/expense";
+import { buildRevenueExcel } from "@/server/services/exports/excel/revenue";
+import { buildExpenseExcel } from "@/server/services/exports/excel/expense";
 import { isAdmin, getAccessibleStoreIds } from "@/lib/auth/permissions";
+
+async function resolveFilterLabels(
+  prisma: typeof import("@/lib/prisma").prisma,
+  brand_id?: string,
+  store_id?: string
+): Promise<{ brandName?: string; storeName?: string }> {
+  const [brand, store] = await Promise.all([
+    brand_id ? prisma.brand.findUnique({ where: { id: brand_id } }) : null,
+    store_id ? prisma.store.findUnique({ where: { id: store_id } }) : null,
+  ]);
+  return {
+    brandName: brand?.name,
+    storeName: store?.name,
+  };
+}
 
 export const analyticsRouter = router({
   revenue: protectedProcedure
     .input(analyticsFilterSchema)
     .query(async ({ ctx, input }) => {
-      // Non-admin → scope to accessible stores
       const filter = { ...input };
       if (!isAdmin(ctx.user) && !filter.store_id && !filter.brand_id) {
         const ids = await getAccessibleStoreIds(ctx.user);
@@ -28,9 +44,6 @@ export const analyticsRouter = router({
             by_bank: [],
           };
         }
-        // Fall through; if more than one store, run query without filter
-        // but limited by store_id check inside summary by passing brand_id
-        // For simplicity, only the first accessible store is auto-selected
         filter.store_id = ids[0];
       }
       return revenueSummary(ctx.prisma, filter);
@@ -55,5 +68,53 @@ export const analyticsRouter = router({
         filter.store_id = ids[0];
       }
       return expenseSummary(ctx.prisma, filter);
+    }),
+
+  exportRevenue: protectedProcedure
+    .input(analyticsFilterSchema)
+    .mutation(async ({ ctx, input }) => {
+      const filter = { ...input };
+      if (!isAdmin(ctx.user) && !filter.store_id && !filter.brand_id) {
+        const ids = await getAccessibleStoreIds(ctx.user);
+        if (ids.length === 0) {
+          throw new Error("Erişebileceğin mağaza yok");
+        }
+        filter.store_id = ids[0];
+      }
+      const [summary, labels] = await Promise.all([
+        revenueSummary(ctx.prisma, filter),
+        resolveFilterLabels(ctx.prisma, filter.brand_id, filter.store_id),
+      ]);
+      return buildRevenueExcel({
+        summary,
+        year: filter.year,
+        month: filter.month,
+        brandName: labels.brandName,
+        storeName: labels.storeName,
+      });
+    }),
+
+  exportExpense: protectedProcedure
+    .input(expenseFilterSchema)
+    .mutation(async ({ ctx, input }) => {
+      const filter = { ...input };
+      if (!isAdmin(ctx.user) && !filter.store_id && !filter.brand_id) {
+        const ids = await getAccessibleStoreIds(ctx.user);
+        if (ids.length === 0) {
+          throw new Error("Erişebileceğin mağaza yok");
+        }
+        filter.store_id = ids[0];
+      }
+      const [summary, labels] = await Promise.all([
+        expenseSummary(ctx.prisma, filter),
+        resolveFilterLabels(ctx.prisma, filter.brand_id, filter.store_id),
+      ]);
+      return buildExpenseExcel({
+        summary,
+        year: filter.year,
+        month: filter.month,
+        brandName: labels.brandName,
+        storeName: labels.storeName,
+      });
     }),
 });
