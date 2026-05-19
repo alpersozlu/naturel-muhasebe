@@ -29,5 +29,11 @@ export const storesByBrandSchema = z.object({
   brand_id: z.string().uuid(),
 });
 
+export const storeMonthlyCalendarSchema = z.object({
+  store_id: z.string().uuid(),
+  year: z.number().int().min(2020).max(2100),
+  month: z.number().int().min(1).max(12),
+});
+
 export type StoreCreateInput = z.infer<typeof storeCreateSchema>;
 export type StoreUpdateInput = z.infer<typeof storeUpdateSchema>;

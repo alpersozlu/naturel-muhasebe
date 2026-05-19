@@ -9,7 +9,9 @@ import {
   Trash2,
   MapPin,
   Users,
+  CalendarDays,
 } from "lucide-react";
+import { Link } from "@/i18n/navigation";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -112,30 +114,42 @@ export function StoreList({ brandId }: { brandId: string }) {
             </div>
 
             <CardContent className="p-5">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 mb-3">
-                <Store className="h-5 w-5" />
-              </div>
-              <div className="font-semibold leading-tight">{store.name}</div>
-              {store.city ? (
-                <div className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
-                  <MapPin className="h-3.5 w-3.5" />
-                  {store.city}
+              <Link
+                href={`/stores/${store.id}`}
+                className="block group -m-5 p-5 pb-3 rounded-t-xl hover:bg-muted/30 transition-colors"
+              >
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 mb-3 group-hover:scale-105 transition-transform">
+                  <Store className="h-5 w-5" />
                 </div>
-              ) : null}
-              {store.address ? (
-                <div className="text-xs text-muted-foreground mt-2 line-clamp-2">
-                  {store.address}
+                <div className="font-semibold leading-tight group-hover:text-primary transition-colors">
+                  {store.name}
                 </div>
-              ) : null}
+                {store.city ? (
+                  <div className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {store.city}
+                  </div>
+                ) : null}
+                {store.address ? (
+                  <div className="text-xs text-muted-foreground mt-2 line-clamp-2">
+                    {store.address}
+                  </div>
+                ) : null}
+              </Link>
 
-              <div className="mt-4 pt-3 border-t">
+              <div className="mt-4 pt-3 border-t grid grid-cols-2 gap-2">
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`/stores/${store.id}`}>
+                    <CalendarDays className="h-4 w-4 mr-1.5" />
+                    Takvim
+                  </Link>
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="w-full"
                   onClick={() => setStaffFor({ id: store.id, name: store.name })}
                 >
-                  <Users className="h-4 w-4 mr-2" />
+                  <Users className="h-4 w-4 mr-1.5" />
                   Çalışanlar
                 </Button>
               </div>
