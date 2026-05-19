@@ -50,9 +50,14 @@ const TRY_FORMATTER = new Intl.NumberFormat("tr-TR", {
   maximumFractionDigits: 2,
 });
 
-function fmtMoney(n: { toNumber: () => number } | null | undefined): string | null {
-  if (!n) return null;
-  return TRY_FORMATTER.format(n.toNumber());
+function fmtMoney(n: unknown): string | null {
+  if (n === null || n === undefined) return null;
+  // Server may serialize Prisma Decimal as: Decimal object, string, or number
+  const num =
+    typeof n === "object" && n !== null && "toNumber" in n
+      ? (n as { toNumber: () => number }).toNumber()
+      : Number(n);
+  return Number.isFinite(num) ? TRY_FORMATTER.format(num) : null;
 }
 
 export function HistoryList({ filters }: { filters: HistorySelection }) {
@@ -209,10 +214,10 @@ export function HistoryList({ filters }: { filters: HistorySelection }) {
 
 type HistoryItem = {
   type: UploadType;
-  pos_slip: { bank_name: string | null; net_amount_try: { toNumber: () => number } | null } | null;
-  store_summary: { sales_total_try: { toNumber: () => number } | null } | null;
-  bank_receipt: { bank_name: string | null; amount_try: { toNumber: () => number } | null } | null;
-  expense: { vendor: string | null; amount_try: { toNumber: () => number } | null; category: string } | null;
+  pos_slip: { bank_name: string | null; net_amount_try: unknown } | null;
+  store_summary: { sales_total_try: unknown } | null;
+  bank_receipt: { bank_name: string | null; amount_try: unknown } | null;
+  expense: { vendor: string | null; amount_try: unknown; category: string } | null;
 };
 
 function describe(u: HistoryItem): { amount: string | null; bank: string | null; vendor: string | null } {
