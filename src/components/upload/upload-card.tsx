@@ -90,7 +90,9 @@ export function UploadCard({
     }
 
     if (ok > 0) {
-      toast.success(`${ok} dosya yüklendi`);
+      toast.success(
+        ok === 1 ? "Yüklendi · arka planda analiz ediliyor" : `${ok} dosya yüklendi · analiz ediliyor`
+      );
       utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
     }
     if (fail > 0 && ok === 0) {

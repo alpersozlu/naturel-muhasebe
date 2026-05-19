@@ -54,7 +54,18 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.upload.listForStoreDate.useQuery(
     { store_id: storeId, date },
-    { enabled: !!storeId && !!date }
+    {
+      enabled: !!storeId && !!date,
+      // Poll while OCR is still in flight. Stops automatically once
+      // every row has reached parsed/confirmed/failed.
+      refetchInterval: (query) => {
+        const list = query.state.data;
+        const hasInflight = list?.some(
+          (u) => u.status === "pending" || u.status === "processing"
+        );
+        return hasInflight ? 3000 : false;
+      },
+    }
   );
 
   const del = trpc.upload.delete.useMutation({

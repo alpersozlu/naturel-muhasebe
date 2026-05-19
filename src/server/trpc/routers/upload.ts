@@ -14,6 +14,7 @@ import {
   deleteFromStorage,
 } from "@/server/services/storage";
 import { processUpload } from "@/server/services/ocr/process-upload";
+import { waitUntil } from "@vercel/functions";
 
 export const uploadRouter = router({
   /**
@@ -62,18 +63,22 @@ export const uploadRouter = router({
         },
       });
 
-      // Synchronous OCR for supported types (currently pos_slip only).
-      // Returns updated row with status='parsed' or 'failed'.
-      // Caller gets the final state in a single round-trip — at the cost
-      // of waiting ~5-10s for vision call. Acceptable for MVP.
-      try {
-        await processUpload(upload.id);
-      } catch (e) {
-        // processUpload already records failure status; just log here
-        console.error("[upload.create] OCR dispatch error", e);
-      }
+      // Fire-and-forget OCR. waitUntil() pushes the work onto Vercel's
+      // background runtime — the mutation returns in ~200ms while OCR
+      // continues for up to maxDuration. UI polls listForStoreDate every
+      // 3s while any row is pending/processing, so status flips to
+      // 'parsed'/'failed' show up live.
+      //
+      // In local dev (no Vercel runtime), waitUntil falls through and
+      // the promise just executes detached; we wrap in catch so any
+      // unhandled rejection doesn't crash the dev server.
+      waitUntil(
+        processUpload(upload.id).catch((e) => {
+          console.error("[upload.create] async OCR failed", e);
+        })
+      );
 
-      return ctx.prisma.upload.findUniqueOrThrow({ where: { id: upload.id } });
+      return upload;
     }),
 
   /** List uploads for a given store+date. */
