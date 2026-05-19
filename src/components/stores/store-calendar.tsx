@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
-import { useRouter, usePathname } from "@/i18n/navigation";
+import { useRouter, usePathname, Link } from "@/i18n/navigation";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/shared/skeleton";
@@ -183,16 +183,13 @@ export function StoreCalendar({
               ].join(" · ");
 
               return (
-                <button
+                <Link
                   key={d.iso}
-                  type="button"
-                  onClick={() => {
-                    // Future: navigate to day detail / upload page with date pre-filled.
-                  }}
+                  href={`/stores/${storeId}/days/${d.iso}`}
                   title={`${d.day} ${MONTH_NAMES[month - 1]} — ${style.label}\n${summary}\nYükleme: ${d.upload_count}`}
                   className={`aspect-square rounded-xl p-2 text-left transition-all ${style.bg} ${style.ring} ${
                     isToday ? "ring-2 ring-primary/40" : ""
-                  } focus:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
+                  } focus:outline-none focus-visible:ring-2 focus-visible:ring-primary flex flex-col hover:scale-[1.02] active:scale-100`}
                 >
                   <div className="flex items-start justify-between gap-1">
                     <div
@@ -211,7 +208,7 @@ export function StoreCalendar({
                       {d.upload_count} dosya
                     </div>
                   ) : null}
-                </button>
+                </Link>
               );
             })}
           </div>
