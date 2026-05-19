@@ -185,6 +185,12 @@ async function runBankReceipt(upload: Upload, buffer: Buffer): Promise<void> {
     buffer,
     mimeType: upload.mime_type,
   });
+  if (!parsed.is_bank_receipt) {
+    throw new Error(
+      parsed.rejection_reason ??
+        "Bu bir banka dekontu gibi görünmüyor. Lütfen geçerli bir banka işlem makbuzu yükleyin."
+    );
+  }
   if (parsed.amount === null || parsed.deposit_date === null) {
     throw new Error(
       "Banka dekontundan tutar veya tarih okunamadı — manuel düzenleme gerekli"

@@ -216,9 +216,9 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                   {u.status === "failed" && u.error_message ? (
                     <div className="border-t bg-rose-50/50 px-5 py-2 flex items-start gap-2 text-xs text-rose-700">
                       <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                      <code className="font-mono whitespace-pre-wrap break-all">
+                      <span className="whitespace-pre-wrap leading-relaxed">
                         {u.error_message}
-                      </code>
+                      </span>
                     </div>
                   ) : null}
                 </div>

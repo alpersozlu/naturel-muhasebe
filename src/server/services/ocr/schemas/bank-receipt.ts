@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 export const bankReceiptOcrSchema = z.object({
+  is_bank_receipt: z.boolean(),
+  rejection_reason: z.string().nullable(),
   bank_name: z.string().min(1).nullable(),
   iban: z.string().min(1).nullable(),
   amount: z.number().min(0).nullable(),
