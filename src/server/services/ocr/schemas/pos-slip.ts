@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 export const posSlipOcrSchema = z.object({
+  is_pos_slip: z.boolean(),
+  rejection_reason: z.string().nullable(),
   bank_name: z.string().min(1).nullable(),
   terminal_no: z.string().min(1).nullable(),
   date: z

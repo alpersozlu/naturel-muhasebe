@@ -8,9 +8,38 @@ Kurallar:
 - Banka isimleri Türkçe karakterleriyle: "İş Bankası", "Ziraat Bankası", "Koopbank", "Garanti", "Akbank", "TEB", "Türkiye İş Bankası" vb.
 `;
 
-export const POS_SLIP_USER_PROMPT = `Bu POS slip'inden şu alanları çıkar ve sadece JSON döndür:
+export const POS_SLIP_USER_PROMPT = `Bu görseli ÖNCE doküman türü açısından değerlendir, sonra alanları çıkar.
 
+ADIM 1 — Doküman türü doğrulaması:
+Bu görsel bir POS GÜN SONU RAPORU mu? Geçerli POS gün sonu raporu şu özelliklere sahiptir:
+- Banka POS cihazından çıkmış bir slip (İş Bankası, Ziraat, Garanti, Akbank, TEB, Koopbank vb.)
+- "GÜN SONU", "X RAPORU", "BATCH KAPATMA", "Z RAPORU" (banka POS) gibi başlık
+- "TERMINAL NO", "İŞ YERİ NO", "ŞUBE NO", "BATCH NO" alanları
+- "SATIŞ ADEDİ", "SATIŞ TUTARI", "İADE", "NET TUTAR" gibi POS özetleme alanları
+
+REDDEDİLMESİ gereken görseller:
+- Banka havale/EFT dekontu — "DEKONT", "HAVALE", "Alıcı IBAN" var
+- Yazar kasa Z raporu (mali) — "MALİ HAFIZA", "ÖKC", "RUHSAT NO"
+- Mağaza satış özeti — "Kartuş Puan", "Loyalty", mağaza POS yazılımı çıktısı
+- Fatura, fiş, makbuz
+- Tek bir satış slibi (gün sonu değil) — "SATIŞ TUTARI: X" yalnız, gün toplamı yok
+
+ADIM 2 — Çıktı formatı (sadece JSON, code fence yok):
+
+Eğer POS gün sonu DEĞİLSE:
 {
+  "is_pos_slip": false,
+  "rejection_reason": "Bu bir POS gün sonu raporu gibi görünmüyor — [kısa açıklama]. Lütfen geçerli bir POS gün sonu slipini yükleyin.",
+  "bank_name": null, "terminal_no": null, "date": null,
+  "sales_count": null, "sales_amount": null,
+  "refund_count": null, "refund_amount": null,
+  "net_amount": null, "currency": "TRY"
+}
+
+Eğer POS gün sonu İSE:
+{
+  "is_pos_slip": true,
+  "rejection_reason": null,
   "bank_name": "string veya null",
   "terminal_no": "string veya null",
   "date": "YYYY-MM-DD veya null",

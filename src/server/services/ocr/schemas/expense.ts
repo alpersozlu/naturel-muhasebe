@@ -16,6 +16,8 @@ const expenseCategoryEnum = z.enum([
 ]);
 
 export const expenseOcrSchema = z.object({
+  is_expense: z.boolean(),
+  rejection_reason: z.string().nullable(),
   vendor: z.string().min(1).nullable(),
   expense_date: z
     .string()

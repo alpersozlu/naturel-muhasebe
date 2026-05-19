@@ -11,9 +11,37 @@ Kurallar:
   Z raporundan sadece TOPLAM/BRÜT/NET satış rakamlarını ve meta alanları al.
 `;
 
-export const Z_REPORT_USER_PROMPT = `Bu yazar kasa Z raporundan şu alanları çıkar ve sadece JSON döndür:
+export const Z_REPORT_USER_PROMPT = `Bu görseli ÖNCE doküman türü açısından değerlendir, sonra alanları çıkar.
 
+ADIM 1 — Doküman türü doğrulaması:
+Bu görsel bir YAZAR KASA (ÖKC) Z RAPORU mu? Geçerli Z raporu şu özelliklere sahiptir:
+- Türk yazar kasalarının (ÖKC — Ödeme Kaydedici Cihaz) gün sonu mali raporu
+- "Z RAPORU", "Z NO", "GÜN NO", "MALİ HAFIZA", "MF NO", "RUHSAT NO" gibi başlık/alanlar
+- TOPLAM SATIŞ, NET SATIŞ, KDV (KDV oranlarına göre kırılım %1/%8/%18/%20)
+- Yazar kasanın kendi formatı (banka POS değil, mağaza yazılımı değil)
+
+REDDEDİLMESİ gereken görseller:
+- Banka havale/EFT dekontu
+- Banka POS gün sonu slibi — "TERMINAL NO", "BATCH NO" var ama "MF/MALİ HAFIZA" yok
+- Mağaza yazılımı özet raporu — "Kartuş Puan", "Loyalty", mağaza POS yazılımı
+- Tek bir satış fişi (gün sonu değil)
+- Fatura, makbuz veya alakasız görsel
+
+ADIM 2 — Çıktı formatı (sadece JSON, code fence yok):
+
+Eğer Z raporu DEĞİLSE:
 {
+  "is_z_report": false,
+  "rejection_reason": "Bu bir yazar kasa Z raporu gibi görünmüyor — [kısa açıklama]. Lütfen geçerli bir Z raporu yükleyin.",
+  "report_no": null, "report_date": null,
+  "gross_sales": null, "net_sales": null,
+  "refund_amount": null, "vat_total": null, "currency": "TRY"
+}
+
+Eğer Z raporu İSE:
+{
+  "is_z_report": true,
+  "rejection_reason": null,
   "report_no": "string veya null (Z numarası / Z NO / GÜN NO)",
   "report_date": "YYYY-MM-DD veya null (Z raporu tarihi)",
   "gross_sales": "ondalık sayı veya null (Brüt satış / TOPLAM SATIŞ — iade düşülmemiş)",

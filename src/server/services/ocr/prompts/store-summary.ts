@@ -8,9 +8,38 @@ Kurallar:
 - Negatif değerler (iade, tenzil) "-" işaretli olabilir
 `;
 
-export const STORE_SUMMARY_USER_PROMPT = `Bu mağaza gün sonu özet raporundan şu alanları çıkar ve sadece JSON döndür:
+export const STORE_SUMMARY_USER_PROMPT = `Bu görseli ÖNCE doküman türü açısından değerlendir, sonra alanları çıkar.
 
+ADIM 1 — Doküman türü doğrulaması:
+Bu görsel bir MAĞAZA GÜN SONU ÖZET RAPORU mu? Geçerli mağaza özet raporu şu özelliklere sahiptir:
+- Mağaza POS yazılımı çıktısı (Mavi, FLO, U.S. Polo Assn., Derimod, vb.)
+- "Gün Sonu Özet", "Günlük Satış Raporu", "Z Raporu" (mağaza yazılımı) gibi başlık
+- "Nakit", "Kredi Kartı" (banka kırılımları da olabilir), "Kartuş Puan/Loyalty/Sadakat" satırları
+- "Satış Toplam", "Gün Toplamı", devir bakiye gibi alanlar
+
+REDDEDİLMESİ gereken görseller:
+- Banka havale/EFT dekontu
+- Banka POS gün sonu slibi (terminal/batch içerikli, mağaza yazılımı değil)
+- Yazar kasa (ÖKC) Z raporu — "MALİ HAFIZA", "MF", "Z NO"
+- Tek bir fatura/makbuz
+- Alakasız görsel
+
+ADIM 2 — Çıktı formatı (sadece JSON, code fence yok):
+
+Eğer mağaza özet raporu DEĞİLSE:
 {
+  "is_store_summary": false,
+  "rejection_reason": "Bu bir mağaza gün sonu özet raporu gibi görünmüyor — [kısa açıklama]. Lütfen geçerli bir mağaza özet raporu yükleyin.",
+  "summary_date": null, "sales_total": null, "cash_sales": null,
+  "credit_card_total": null, "loyalty_points_total": null,
+  "opening_balance": null, "closing_balance": null, "currency": "TRY"
+}
+
+Eğer mağaza özet raporu İSE:
+{
+  "is_store_summary": true,
+  "rejection_reason": null,
+  "summary_date": "YYYY-MM-DD veya null (raporun tarihi)",
   "sales_total": "ondalık sayı veya null (gün toplam satış, gross)",
   "cash_sales": "ondalık sayı veya null (nakit ile yapılan satışlar)",
   "credit_card_total": "ondalık sayı veya null (kredi kartıyla yapılan satışlar toplamı)",

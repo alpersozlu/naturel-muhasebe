@@ -6,6 +6,8 @@ import { z } from "zod";
  * veri kaynaklarından geliyor (POS fişi OCR, mağaza özeti).
  */
 export const zReportOcrSchema = z.object({
+  is_z_report: z.boolean(),
+  rejection_reason: z.string().nullable(),
   report_no: z.string().min(1).nullable(),
   report_date: z
     .string()

@@ -18,6 +18,40 @@ const SUPPORTED = new Set<Upload["type"]>([
   "z_report",
 ]);
 
+function fmtDateTr(iso: string): string {
+  const parts = iso.split("-");
+  if (parts.length !== 3) return iso;
+  return `${parts[2]}.${parts[1]}.${parts[0]}`;
+}
+
+/**
+ * Hard date enforcement: belge tarihi seçili güne eşleşmek zorunda.
+ * Belge tarihi okunamazsa veya farklıysa hata fırlatır → upload "failed" olur.
+ */
+async function assertDateMatch(
+  dailyRecordId: string,
+  docDate: string | null,
+  docLabel: string
+): Promise<void> {
+  if (docDate === null) {
+    throw new Error(
+      `${docLabel} tarihi okunamadı — manuel kontrol gerekli. Lütfen tarihi okunaklı olan bir görsel yükleyin.`
+    );
+  }
+  const dr = await prisma.dailyRecord.findUnique({
+    where: { id: dailyRecordId },
+    select: { date: true },
+  });
+  const expectedIso = dr ? dr.date.toISOString().slice(0, 10) : null;
+  if (expectedIso && docDate !== expectedIso) {
+    throw new Error(
+      `${docLabel} ${fmtDateTr(docDate)} tarihli, ama ${fmtDateTr(
+        expectedIso
+      )} gününe yüklenmeye çalışıldı. Doğru güne yükleyin.`
+    );
+  }
+}
+
 /**
  * Run OCR for the given upload and persist results.
  * Status: pending → processing → parsed | failed
@@ -74,6 +108,14 @@ async function downloadUpload(upload: Upload): Promise<Buffer | null> {
 async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
   const { raw, parsed } = await parsePosSlip({ buffer, mimeType: upload.mime_type });
 
+  if (!parsed.is_pos_slip) {
+    throw new Error(
+      parsed.rejection_reason ??
+        "Bu bir POS gün sonu raporu gibi görünmüyor. Lütfen geçerli bir POS gün sonu slipini yükleyin."
+    );
+  }
+  await assertDateMatch(upload.daily_record_id, parsed.date, "POS slibi");
+
   // Fingerprint over content-defining fields. If two photos of the
   // same slip get uploaded, they all collapse to the same fingerprint.
   const fingerprint = parsed.bank_name
@@ -115,15 +157,6 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
     }
   }
 
-  // Date mismatch detection (warn, don't block).
-  const dr = await prisma.dailyRecord.findUnique({
-    where: { id: upload.daily_record_id },
-    select: { date: true },
-  });
-  const expectedDateIso = dr ? dr.date.toISOString().slice(0, 10) : null;
-  const dateMismatch =
-    !!parsed.date && !!expectedDateIso && parsed.date !== expectedDateIso;
-
   const fields = {
     bank_name: parsed.bank_name,
     terminal_no: parsed.terminal_no,
@@ -143,13 +176,6 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
     create: { upload_id: upload.id, daily_record_id: upload.daily_record_id, ...fields },
   });
 
-  if (dateMismatch) {
-    await prisma.upload.update({
-      where: { id: upload.id },
-      data: { date_mismatch: true },
-    });
-  }
-
   await markParsed(upload.id, raw, parsed);
 }
 
@@ -158,6 +184,13 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     buffer,
     mimeType: upload.mime_type,
   });
+  if (!parsed.is_store_summary) {
+    throw new Error(
+      parsed.rejection_reason ??
+        "Bu bir mağaza özet raporu gibi görünmüyor. Lütfen geçerli bir mağaza gün sonu özet raporu yükleyin."
+    );
+  }
+  await assertDateMatch(upload.daily_record_id, parsed.summary_date, "Mağaza özeti");
   const tryFor = (v: number | null) => (parsed.currency === "TRY" ? v : null);
   const fields = {
     sales_total: parsed.sales_total,
@@ -191,9 +224,10 @@ async function runBankReceipt(upload: Upload, buffer: Buffer): Promise<void> {
         "Bu bir banka dekontu gibi görünmüyor. Lütfen geçerli bir banka işlem makbuzu yükleyin."
     );
   }
-  if (parsed.amount === null || parsed.deposit_date === null) {
+  await assertDateMatch(upload.daily_record_id, parsed.deposit_date, "Banka dekontu");
+  if (parsed.amount === null) {
     throw new Error(
-      "Banka dekontundan tutar veya tarih okunamadı — manuel düzenleme gerekli"
+      "Banka dekontundan tutar okunamadı — manuel düzenleme gerekli"
     );
   }
   const amount_try = parsed.currency === "TRY" ? parsed.amount : parsed.amount; // FX Phase 5
@@ -216,9 +250,16 @@ async function runBankReceipt(upload: Upload, buffer: Buffer): Promise<void> {
 
 async function runExpense(upload: Upload, buffer: Buffer): Promise<void> {
   const { raw, parsed } = await parseExpense({ buffer, mimeType: upload.mime_type });
-  if (parsed.amount === null || parsed.expense_date === null) {
+  if (!parsed.is_expense) {
     throw new Error(
-      "Faturadan tutar veya tarih okunamadı — manuel düzenleme gerekli"
+      parsed.rejection_reason ??
+        "Bu bir fatura/makbuz gibi görünmüyor. Lütfen geçerli bir fatura veya makbuz yükleyin."
+    );
+  }
+  await assertDateMatch(upload.daily_record_id, parsed.expense_date, "Fatura");
+  if (parsed.amount === null) {
+    throw new Error(
+      "Faturadan tutar okunamadı — manuel düzenleme gerekli"
     );
   }
   const amount_try = parsed.currency === "TRY" ? parsed.amount : parsed.amount; // FX Phase 5
@@ -246,6 +287,14 @@ async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {
     buffer,
     mimeType: upload.mime_type,
   });
+
+  if (!parsed.is_z_report) {
+    throw new Error(
+      parsed.rejection_reason ??
+        "Bu bir yazar kasa Z raporu gibi görünmüyor. Lütfen geçerli bir Z raporu yükleyin."
+    );
+  }
+  await assertDateMatch(upload.daily_record_id, parsed.report_date, "Z raporu");
 
   // Content fingerprint: Z numarası + tarih + brüt + net (cash/KK artık alınmıyor)
   const fingerprint = parsed.report_no
@@ -285,17 +334,6 @@ async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {
     }
   }
 
-  // Date mismatch warning
-  const dr = await prisma.dailyRecord.findUnique({
-    where: { id: upload.daily_record_id },
-    select: { date: true },
-  });
-  const expectedDateIso = dr ? dr.date.toISOString().slice(0, 10) : null;
-  const dateMismatch =
-    !!parsed.report_date &&
-    !!expectedDateIso &&
-    parsed.report_date !== expectedDateIso;
-
   // Net sales: yoksa gross
   const net = parsed.net_sales ?? parsed.gross_sales;
   const tryFor = (v: number | null) => (parsed.currency === "TRY" ? v : null);
@@ -329,13 +367,6 @@ async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {
       ...fields,
     },
   });
-
-  if (dateMismatch) {
-    await prisma.upload.update({
-      where: { id: upload.id },
-      data: { date_mismatch: true },
-    });
-  }
 
   await markParsed(upload.id, raw, parsed);
 }

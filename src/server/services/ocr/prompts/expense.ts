@@ -9,9 +9,37 @@ Kurallar:
 - vat_included = true varsay (yeni Türk e-fatura standardı KDV dahil gösterir)
 `;
 
-export const EXPENSE_USER_PROMPT = `Bu fatura/makbuzdan şu alanları çıkar ve sadece JSON döndür:
+export const EXPENSE_USER_PROMPT = `Bu görseli ÖNCE doküman türü açısından değerlendir, sonra alanları çıkar.
 
+ADIM 1 — Doküman türü doğrulaması:
+Bu görsel bir FATURA veya MAKBUZ mu? Geçerli fatura/makbuz şu özelliklere sahiptir:
+- Bir firma/tedarikçi adı (vendor)
+- Toplam tutar ve genellikle KDV bilgisi
+- Fatura tarihi
+- Fatura numarası, vergi no veya benzeri kimlik bilgileri (genellikle ama her zaman değil)
+
+REDDEDİLMESİ gereken görseller:
+- Banka havale/EFT dekontu
+- POS gün sonu slibi (terminal/batch)
+- Yazar kasa Z raporu
+- Mağaza özet raporu
+- Alakasız görsel (fotoğraf, ekran görüntüsü, vb.)
+
+ADIM 2 — Çıktı formatı (sadece JSON, code fence yok):
+
+Eğer fatura/makbuz DEĞİLSE:
 {
+  "is_expense": false,
+  "rejection_reason": "Bu bir fatura/makbuz gibi görünmüyor — [kısa açıklama]. Lütfen geçerli bir fatura veya makbuz yükleyin.",
+  "vendor": null, "expense_date": null, "amount": null,
+  "vat_rate": null, "vat_included": true,
+  "category": "other", "description": null, "currency": "TRY"
+}
+
+Eğer fatura/makbuz İSE:
+{
+  "is_expense": true,
+  "rejection_reason": null,
   "vendor": "string veya null (faturayı kesen firma adı)",
   "expense_date": "YYYY-MM-DD veya null (fatura tarihi)",
   "amount": "ondalık sayı veya null (KDV DAHİL toplam ödenen tutar)",
