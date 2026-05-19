@@ -213,7 +213,7 @@ model Upload {
 model PosSlip {
   id              String      @id @default(uuid())
   upload_id       String      @unique
-  upload          Upload      @relation(fields: [upload_id], references: [id])
+  upload          Upload      @relation(fields: [upload_id], references: [id], onDelete: Cascade)
   daily_record_id String
   daily_record    DailyRecord @relation(fields: [daily_record_id], references: [id])
 
@@ -245,7 +245,7 @@ model PosSlip {
 model StoreSummary {
   id              String      @id @default(uuid())
   upload_id       String      @unique
-  upload          Upload      @relation(fields: [upload_id], references: [id])
+  upload          Upload      @relation(fields: [upload_id], references: [id], onDelete: Cascade)
   daily_record_id String      @unique // 1:1 — her gün 1 özet
   daily_record    DailyRecord @relation(fields: [daily_record_id], references: [id])
 
@@ -272,7 +272,7 @@ model StoreSummary {
 model BankReceipt {
   id              String      @id @default(uuid())
   upload_id       String?     @unique // Manuel girişlerde null
-  upload          Upload?     @relation(fields: [upload_id], references: [id])
+  upload          Upload?     @relation(fields: [upload_id], references: [id], onDelete: Cascade)
   daily_record_id String
   daily_record    DailyRecord @relation(fields: [daily_record_id], references: [id])
 
@@ -296,7 +296,7 @@ model BankReceipt {
 model Expense {
   id              String      @id @default(uuid())
   upload_id       String?     @unique
-  upload          Upload?     @relation(fields: [upload_id], references: [id])
+  upload          Upload?     @relation(fields: [upload_id], references: [id], onDelete: Cascade)
   daily_record_id String
   daily_record    DailyRecord @relation(fields: [daily_record_id], references: [id])
 
@@ -420,7 +420,7 @@ model AuditLog {
 model ZReport {
   id              String      @id @default(uuid())
   upload_id       String      @unique
-  upload          Upload      @relation(fields: [upload_id], references: [id])
+  upload          Upload      @relation(fields: [upload_id], references: [id], onDelete: Cascade)
   daily_record_id String
   daily_record    DailyRecord @relation(fields: [daily_record_id], references: [id])
 
