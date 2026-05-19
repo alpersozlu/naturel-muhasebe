@@ -4,48 +4,57 @@
 
 @layer base {
   :root {
+    /* %80 neutral palette (slate/zinc-derived), %20 accent */
     --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --foreground: 222 14% 11%;            /* slate-900 toned */
+
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 222 14% 11%;
+
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 243 75% 59%;            /* indigo-600 #6366F1 — master prompt ana mor */
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
+    --popover-foreground: 222 14% 11%;
+
+    /* Accent: indigo-600 (Apple-ish system color, used sparingly) */
+    --primary: 243 75% 59%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 96%;             /* slate-100 */
+    --secondary-foreground: 222 14% 16%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;       /* slate-500 */
+
+    --accent: 220 14% 96%;
+    --accent-foreground: 222 14% 16%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;                /* slate-200 — hairline */
+    --input: 220 13% 91%;
     --ring: 243 75% 59%;
-    --radius: 0.75rem;
   }
 
   .dark {
-    --background: 240 10% 3.9%;
+    --background: 222 14% 9%;
     --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
+    --card: 222 14% 11%;
     --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
+    --popover: 222 14% 11%;
     --popover-foreground: 0 0% 98%;
-    --primary: 243 75% 59%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 3.7% 15.9%;
+    --primary: 243 75% 65%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 222 14% 18%;
     --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
+    --muted: 222 14% 18%;
+    --muted-foreground: 220 9% 65%;
+    --accent: 222 14% 18%;
     --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 62% 50%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 243 75% 59%;
+    --border: 222 14% 22%;
+    --input: 222 14% 22%;
+    --ring: 243 75% 65%;
   }
 }
 
@@ -53,7 +62,38 @@
   * {
     @apply border-border;
   }
+
+  html {
+    /* Better text rendering on modern browsers */
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
+    /* Inter font feature settings — Apple-like text shapes */
+    font-feature-settings:
+      "cv11" 1,    /* alt single-storey a */
+      "ss01" 1,    /* alt curved tails */
+      "cv02" 1,    /* alt straight-leg l */
+      "cv03" 1,    /* alt curly tail r */
+      "cv04" 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Numbers in financial UI should be tabular by default */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Subtle focus ring across the board */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-ring/40 ring-offset-2 ring-offset-background;
+  }
+
+  /* Selection color */
+  ::selection {
+    @apply bg-primary/15 text-foreground;
   }
 }
