@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertTriangle } from "lucide-react";
 import type { PosSlip, StoreSummary, BankReceipt, Expense } from "@prisma/client";
 
 const TRY_FORMATTER = new Intl.NumberFormat("tr-TR", {
@@ -37,9 +38,28 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-export function PosSlipDetails({ data }: { data: PosSlip }) {
+export function PosSlipDetails({
+  data,
+  dateMismatch,
+  expectedDate,
+}: {
+  data: PosSlip;
+  dateMismatch?: boolean;
+  expectedDate?: Date | string;
+}) {
   return (
     <div className="border-t bg-muted/30">
+      {dateMismatch ? (
+        <div className="px-5 py-2 bg-amber-50 border-b border-amber-200 flex items-start gap-2 text-xs text-amber-800">
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <div>
+            <strong>Tarih uyuşmazlığı:</strong> Slip{" "}
+            {fmtDate(data.slip_date)} tarihli, ama bu güne yüklenmiş
+            {expectedDate ? ` (${fmtDate(new Date(expectedDate))})` : ""}.
+            Yanlış güne yüklenmiş olabilir — kontrol edin.
+          </div>
+        </div>
+      ) : null}
       <div className="px-5 py-3 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3">
         <Field label="Banka" value={data.bank_name ?? "—"} />
         <Field label="Tarih" value={fmtDate(data.slip_date)} />

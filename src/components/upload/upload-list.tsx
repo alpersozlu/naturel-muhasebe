@@ -139,6 +139,16 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                         {formatDistanceToNow(u.uploaded_at, { addSuffix: true, locale: tr })}
                       </div>
                     </div>
+                    {u.date_mismatch ? (
+                      <Badge
+                        variant="secondary"
+                        className="bg-amber-100 text-amber-700 text-xs"
+                        title="Slip tarihi seçtiğin günle uyuşmuyor"
+                      >
+                        <AlertCircle className="h-3 w-3 mr-1" />
+                        Tarih
+                      </Badge>
+                    ) : null}
                     <Badge variant="secondary" className={`${STATUS_COLOR[u.status]} text-xs`}>
                       {STATUS_LABEL[u.status]}
                     </Badge>
@@ -178,7 +188,13 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                   {/* Parsed detail panel */}
                   {u.status === "parsed" || u.status === "confirmed" ? (
                     <>
-                      {u.pos_slip ? <PosSlipDetails data={u.pos_slip} /> : null}
+                      {u.pos_slip ? (
+                        <PosSlipDetails
+                          data={u.pos_slip}
+                          dateMismatch={u.date_mismatch}
+                          expectedDate={date}
+                        />
+                      ) : null}
                       {u.store_summary ? <StoreSummaryDetails data={u.store_summary} /> : null}
                       {u.bank_receipt ? <BankReceiptDetails data={u.bank_receipt} /> : null}
                       {u.expense ? <ExpenseDetails data={u.expense} /> : null}

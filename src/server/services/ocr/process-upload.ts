@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import type { Prisma, Upload } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -69,6 +70,57 @@ async function downloadUpload(upload: Upload): Promise<Buffer | null> {
 
 async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
   const { raw, parsed } = await parsePosSlip({ buffer, mimeType: upload.mime_type });
+
+  // Fingerprint over content-defining fields. If two photos of the
+  // same slip get uploaded, they all collapse to the same fingerprint.
+  const fingerprint = parsed.bank_name
+    ? createHash("sha256")
+        .update(
+          [
+            parsed.bank_name ?? "",
+            parsed.terminal_no ?? "",
+            parsed.date ?? "",
+            String(parsed.net_amount ?? ""),
+            String(parsed.sales_count ?? ""),
+          ].join("|")
+        )
+        .digest("hex")
+    : null;
+
+  // 🛡️ Fraud guard #2: content replay. Same slip captured as a
+  // different photo (different file hash) but identical OCR fields.
+  if (fingerprint) {
+    const dup = await prisma.posSlip.findFirst({
+      where: {
+        daily_record_id: upload.daily_record_id,
+        content_fingerprint: fingerprint,
+        NOT: { upload_id: upload.id },
+      },
+      select: { upload_id: true },
+    });
+    if (dup) {
+      await prisma.upload.update({
+        where: { id: upload.id },
+        data: {
+          status: "failed",
+          duplicate_of_id: dup.upload_id,
+          error_message:
+            "Bu slip'in içeriği bu güne zaten kayıtlı — aynı banka, terminal, tutar. Önce mevcut kaydı silin.",
+        },
+      });
+      return;
+    }
+  }
+
+  // Date mismatch detection (warn, don't block).
+  const dr = await prisma.dailyRecord.findUnique({
+    where: { id: upload.daily_record_id },
+    select: { date: true },
+  });
+  const expectedDateIso = dr ? dr.date.toISOString().slice(0, 10) : null;
+  const dateMismatch =
+    !!parsed.date && !!expectedDateIso && parsed.date !== expectedDateIso;
+
   const fields = {
     bank_name: parsed.bank_name,
     terminal_no: parsed.terminal_no,
@@ -80,12 +132,21 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
     net_amount: parsed.net_amount,
     currency: parsed.currency,
     net_amount_try: parsed.currency === "TRY" ? parsed.net_amount : null,
+    content_fingerprint: fingerprint,
   };
   await prisma.posSlip.upsert({
     where: { upload_id: upload.id },
     update: fields,
     create: { upload_id: upload.id, daily_record_id: upload.daily_record_id, ...fields },
   });
+
+  if (dateMismatch) {
+    await prisma.upload.update({
+      where: { id: upload.id },
+      data: { date_mismatch: true },
+    });
+  }
+
   await markParsed(upload.id, raw, parsed);
 }
 

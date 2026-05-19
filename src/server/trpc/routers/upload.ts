@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import {
@@ -39,6 +40,27 @@ export const uploadRouter = router({
       }
 
       const buffer = Buffer.from(input.file_base64, "base64");
+      const file_hash = createHash("sha256").update(buffer).digest("hex");
+
+      // 🛡️ Fraud guard #1: exact-file replay.
+      // Block if this same daily_record already has a non-failed upload
+      // with the same SHA-256. Failed uploads are excluded so the user
+      // can retry after a corrupted scan or OCR error.
+      const existing = await ctx.prisma.upload.findFirst({
+        where: {
+          daily_record_id: dr.id,
+          file_hash,
+          status: { not: "failed" },
+        },
+        select: { id: true, type: true, uploaded_at: true },
+      });
+      if (existing) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `Bu dosya bu güne zaten yüklenmiş (önceki kayıt: ${existing.uploaded_at.toLocaleString("tr-TR")}).`,
+        });
+      }
+
       const path = buildUploadPath({
         storeId: input.store_id,
         dailyRecordId: dr.id,
@@ -56,6 +78,7 @@ export const uploadRouter = router({
           daily_record_id: dr.id,
           type: input.type,
           file_url: path,
+          file_hash,
           mime_type: input.mime_type,
           file_size_bytes: buffer.length,
           uploaded_by: ctx.user.id,
