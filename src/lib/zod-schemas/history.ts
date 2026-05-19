@@ -8,7 +8,14 @@ export const historyFilterSchema = z.object({
   brand_id: z.string().uuid().optional(),
   store_id: z.string().uuid().optional(),
   type: z
-    .enum(["bank_receipt", "pos_slip", "store_summary", "expense", "cash_advance"])
+    .enum([
+      "bank_receipt",
+      "pos_slip",
+      "store_summary",
+      "expense",
+      "cash_advance",
+      "z_report",
+    ])
     .optional(),
   status: z
     .enum(["pending", "processing", "parsed", "confirmed", "failed"])

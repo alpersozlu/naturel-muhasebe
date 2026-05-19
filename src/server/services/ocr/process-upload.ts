@@ -8,12 +8,14 @@ import { parsePosSlip } from "./parsers/pos-slip";
 import { parseStoreSummary } from "./parsers/store-summary";
 import { parseBankReceipt } from "./parsers/bank-receipt";
 import { parseExpense } from "./parsers/expense";
+import { parseZReport } from "./parsers/z-report";
 
 const SUPPORTED = new Set<Upload["type"]>([
   "pos_slip",
   "store_summary",
   "bank_receipt",
   "expense",
+  "z_report",
 ]);
 
 /**
@@ -40,6 +42,7 @@ export async function processUpload(uploadId: string): Promise<void> {
     else if (upload.type === "store_summary") await runStoreSummary(upload, buffer);
     else if (upload.type === "bank_receipt") await runBankReceipt(upload, buffer);
     else if (upload.type === "expense") await runExpense(upload, buffer);
+    else if (upload.type === "z_report") await runZReport(upload, buffer);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[OCR] failed", { uploadId, type: upload.type, error: msg });
@@ -229,6 +232,104 @@ async function runExpense(upload: Upload, buffer: Buffer): Promise<void> {
     update: fields,
     create: { upload_id: upload.id, daily_record_id: upload.daily_record_id, ...fields },
   });
+  await markParsed(upload.id, raw, parsed);
+}
+
+async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {
+  const { raw, parsed } = await parseZReport({
+    buffer,
+    mimeType: upload.mime_type,
+  });
+
+  // Content fingerprint: bank/terminal yok ama report_no + date + amounts var
+  const fingerprint = parsed.report_no
+    ? createHash("sha256")
+        .update(
+          [
+            parsed.report_no ?? "",
+            parsed.report_date ?? "",
+            String(parsed.net_sales ?? ""),
+            String(parsed.credit_card_sales ?? ""),
+            String(parsed.cash_sales ?? ""),
+          ].join("|")
+        )
+        .digest("hex")
+    : null;
+
+  // Fraud guard #2: same Z replay (different photo, same content)
+  if (fingerprint) {
+    const dup = await prisma.zReport.findFirst({
+      where: {
+        daily_record_id: upload.daily_record_id,
+        content_fingerprint: fingerprint,
+        NOT: { upload_id: upload.id },
+      },
+      select: { upload_id: true },
+    });
+    if (dup) {
+      await prisma.upload.update({
+        where: { id: upload.id },
+        data: {
+          status: "failed",
+          duplicate_of_id: dup.upload_id,
+          error_message:
+            "Bu Z raporunun içeriği bu güne zaten kayıtlı — aynı Z numarası, tarih ve tutarlar. Önce mevcut kaydı silin.",
+        },
+      });
+      return;
+    }
+  }
+
+  // Date mismatch warning
+  const dr = await prisma.dailyRecord.findUnique({
+    where: { id: upload.daily_record_id },
+    select: { date: true },
+  });
+  const expectedDateIso = dr ? dr.date.toISOString().slice(0, 10) : null;
+  const dateMismatch =
+    !!parsed.report_date &&
+    !!expectedDateIso &&
+    parsed.report_date !== expectedDateIso;
+
+  // Net sales: yoksa gross
+  const net = parsed.net_sales ?? parsed.gross_sales;
+  const tryFor = (v: number | null) => (parsed.currency === "TRY" ? v : null);
+
+  const fields = {
+    report_no: parsed.report_no,
+    report_date: parsed.report_date
+      ? new Date(`${parsed.report_date}T00:00:00.000Z`)
+      : null,
+    gross_sales: parsed.gross_sales,
+    net_sales: net,
+    cash_sales: parsed.cash_sales,
+    credit_card_sales: parsed.credit_card_sales,
+    refund_amount: parsed.refund_amount,
+    vat_total: parsed.vat_total,
+    currency: parsed.currency,
+    gross_sales_try: tryFor(parsed.gross_sales),
+    net_sales_try: tryFor(net),
+    cash_sales_try: tryFor(parsed.cash_sales),
+    credit_card_sales_try: tryFor(parsed.credit_card_sales),
+    content_fingerprint: fingerprint,
+  };
+  await prisma.zReport.upsert({
+    where: { upload_id: upload.id },
+    update: fields,
+    create: {
+      upload_id: upload.id,
+      daily_record_id: upload.daily_record_id,
+      ...fields,
+    },
+  });
+
+  if (dateMismatch) {
+    await prisma.upload.update({
+      where: { id: upload.id },
+      data: { date_mismatch: true },
+    });
+  }
+
   await markParsed(upload.id, raw, parsed);
 }
 

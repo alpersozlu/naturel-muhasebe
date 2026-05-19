@@ -1,7 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Receipt, FileText, Wallet, Building } from "lucide-react";
+import {
+  Receipt,
+  FileText,
+  Wallet,
+  Building,
+  Calculator,
+} from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import {
   UploadSelectors,
@@ -9,6 +15,7 @@ import {
 } from "@/components/upload/upload-selectors";
 import { UploadCard } from "@/components/upload/upload-card";
 import { CashAdvanceCard } from "@/components/upload/cash-advance-card";
+import { ManualInvoiceCard } from "@/components/upload/manual-invoice-card";
 import { UploadList } from "@/components/upload/upload-list";
 
 function todayIso(): string {
@@ -36,11 +43,11 @@ export default function UploadPage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <UploadCard
-          type="bank_receipt"
-          label="Banka Dekontu"
-          icon={Building}
-          iconBg="bg-blue-50"
-          iconColor="text-blue-600"
+          type="z_report"
+          label="Z Raporu"
+          icon={Calculator}
+          iconBg="bg-cyan-50"
+          iconColor="text-cyan-600"
           storeId={sel.storeId}
           date={sel.date}
         />
@@ -63,6 +70,16 @@ export default function UploadPage() {
           storeId={sel.storeId}
           date={sel.date}
         />
+        <UploadCard
+          type="bank_receipt"
+          label="Banka Dekontu"
+          icon={Building}
+          iconBg="bg-blue-50"
+          iconColor="text-blue-600"
+          storeId={sel.storeId}
+          date={sel.date}
+        />
+        <ManualInvoiceCard storeId={sel.storeId} date={sel.date} />
         <CashAdvanceCard storeId={sel.storeId} date={sel.date} />
         <UploadCard
           type="expense"

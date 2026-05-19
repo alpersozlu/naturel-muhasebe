@@ -10,11 +10,12 @@ import { verificationRouter } from "./verification";
 import { dailyRecordRouter } from "./dailyRecord";
 import { analyticsRouter } from "./analytics";
 import { historyRouter } from "./history";
+import { manualInvoiceRouter } from "./manualInvoice";
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({
     ok: true,
-    phase: "7.3",
+    phase: "8.7",
     timestamp: new Date().toISOString(),
   })),
   brand: brandRouter,
@@ -28,6 +29,7 @@ export const appRouter = router({
   dailyRecord: dailyRecordRouter,
   analytics: analyticsRouter,
   history: historyRouter,
+  manualInvoice: manualInvoiceRouter,
 });
 
 export type AppRouter = typeof appRouter;

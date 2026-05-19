@@ -15,6 +15,7 @@ import {
   deleteFromStorage,
 } from "@/server/services/storage";
 import { processUpload } from "@/server/services/ocr/process-upload";
+import { checkZApproval } from "@/server/services/verification/z-rule";
 import { waitUntil } from "@vercel/functions";
 
 export const uploadRouter = router({
@@ -123,6 +124,7 @@ export const uploadRouter = router({
           store_summary: true,
           bank_receipt: true,
           expense: true,
+          z_report: true,
         },
       });
     }),
@@ -163,10 +165,34 @@ export const uploadRouter = router({
           message: "Gün kilitli",
         });
       }
+      // Z raporu için iş kuralı şart: Z+ManualInvoice ≤ KK*1.05 && < StoreSummary.sales_total
+      if (upload.type === "z_report") {
+        const check = await checkZApproval(ctx.prisma, upload.id);
+        if (check && !check.passed) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Z raporu onaylanamadı:\n${check.reasons.join("\n")}`,
+          });
+        }
+      }
       return ctx.prisma.upload.update({
         where: { id: input.id },
         data: { status: "confirmed" },
       });
+    }),
+
+  /** Z raporu onay kuralı durumu — UI butonları için. */
+  zApprovalCheck: protectedProcedure
+    .input(uploadIdSchema)
+    .query(async ({ ctx, input }) => {
+      const upload = await ctx.prisma.upload.findUnique({
+        where: { id: input.id },
+        include: { daily_record: true },
+      });
+      if (!upload) throw new TRPCError({ code: "NOT_FOUND" });
+      await assertCanAccessStore(ctx.user, upload.daily_record.store_id);
+      if (upload.type !== "z_report") return null;
+      return checkZApproval(ctx.prisma, upload.id);
     }),
 
   /** Delete an upload (storage + DB row). Locked days blocked. */

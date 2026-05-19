@@ -13,6 +13,7 @@ import {
   ExternalLink,
   AlertCircle,
   Check,
+  Calculator,
 } from "lucide-react";
 import type { UploadType, UploadStatus } from "@prisma/client";
 import { trpc } from "@/lib/trpc";
@@ -25,6 +26,7 @@ import {
   BankReceiptDetails,
   ExpenseDetails,
 } from "./parsed-details";
+import { ZApprovalGate } from "./z-approval-gate";
 
 const TYPE_META: Record<UploadType, { label: string; icon: typeof FileText; color: string }> = {
   bank_receipt: { label: "Banka Dekontu", icon: Building, color: "text-blue-600" },
@@ -32,6 +34,7 @@ const TYPE_META: Record<UploadType, { label: string; icon: typeof FileText; colo
   store_summary: { label: "Mağaza Özeti", icon: FileText, color: "text-amber-600" },
   expense: { label: "Masraf/Fatura", icon: Wallet, color: "text-rose-600" },
   cash_advance: { label: "Peşin Ödeme", icon: Banknote, color: "text-emerald-600" },
+  z_report: { label: "Z Raporu", icon: Calculator, color: "text-cyan-600" },
 };
 
 const STATUS_LABEL: Record<UploadStatus, string> = {
@@ -198,6 +201,14 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                       {u.store_summary ? <StoreSummaryDetails data={u.store_summary} /> : null}
                       {u.bank_receipt ? <BankReceiptDetails data={u.bank_receipt} /> : null}
                       {u.expense ? <ExpenseDetails data={u.expense} /> : null}
+                      {u.z_report ? (
+                        <ZApprovalGate
+                          uploadId={u.id}
+                          data={u.z_report}
+                          dateMismatch={u.date_mismatch}
+                          expectedDate={date}
+                        />
+                      ) : null}
                     </>
                   ) : null}
 

@@ -21,6 +21,7 @@ const TYPE_LABEL: Record<string, string> = {
   store_summary: "Mağaza Özeti",
   expense: "Masraf/Fatura",
   cash_advance: "Peşin Ödeme",
+  z_report: "Z Raporu",
 };
 
 const STATUS_LABEL: Record<string, string> = {
