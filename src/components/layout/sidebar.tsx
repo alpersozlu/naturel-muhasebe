@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import {
+  LayoutDashboard,
   Shield,
   ClipboardCheck,
   TrendingUp,
@@ -14,6 +15,7 @@ import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 
 const NAV = [
+  { href: "/", icon: LayoutDashboard, key: "today" as const },
   { href: "/admin", icon: Shield, key: "admin" as const },
   { href: "/verification", icon: ClipboardCheck, key: "verification" as const },
   { href: "/revenues", icon: TrendingUp, key: "revenues" as const },
@@ -45,7 +47,10 @@ export function Sidebar() {
 
       <nav className="flex-1 px-3 py-4 space-y-0.5">
         {NAV.map(({ href, icon: Icon, key }) => {
-          const active = pathname === href || pathname.startsWith(`${href}/`);
+          const active =
+            href === "/"
+              ? pathname === "/"
+              : pathname === href || pathname.startsWith(`${href}/`);
           return (
             <Link
               key={href}

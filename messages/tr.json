@@ -20,6 +20,7 @@
     "invalidCredentials": "Geçersiz e-posta veya şifre"
   },
   "nav": {
+    "today": "Bugün",
     "admin": "Yönetici Portalı",
     "verification": "Doğrulama Sistemi",
     "revenues": "Gelir Analizi",

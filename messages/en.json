@@ -20,6 +20,7 @@
     "invalidCredentials": "Invalid email or password"
   },
   "nav": {
+    "today": "Today",
     "admin": "Admin Portal",
     "verification": "Verification",
     "revenues": "Revenue Analysis",
