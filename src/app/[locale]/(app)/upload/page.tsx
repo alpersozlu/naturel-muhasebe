@@ -8,6 +8,7 @@ import {
   Building,
   Calculator,
 } from "lucide-react";
+import { trpc } from "@/lib/trpc";
 import { PageHeader } from "@/components/shared/page-header";
 import {
   UploadSelectors,
@@ -18,6 +19,7 @@ import { CashAdvanceCard } from "@/components/upload/cash-advance-card";
 import { DailyCashCard } from "@/components/upload/daily-cash-card";
 import { ManualInvoiceCard } from "@/components/upload/manual-invoice-card";
 import { UploadList } from "@/components/upload/upload-list";
+import { ReconciliationPanel } from "@/components/upload/reconciliation-panel";
 
 function todayIso(): string {
   const d = new Date();
@@ -32,6 +34,9 @@ export default function UploadPage() {
     storeId: "",
     date: todayIso(),
   });
+
+  const { data: me } = trpc.user.me.useQuery();
+  const isAdmin = me?.role === "admin";
 
   return (
     <div>
@@ -95,6 +100,12 @@ export default function UploadPage() {
       </div>
 
       <UploadList storeId={sel.storeId} date={sel.date} />
+
+      <ReconciliationPanel
+        storeId={sel.storeId}
+        date={sel.date}
+        canApprove={isAdmin}
+      />
     </div>
   );
 }

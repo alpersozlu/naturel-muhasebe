@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Coins, Loader2, AlertTriangle, Check } from "lucide-react";
+import { Coins, Loader2, Check } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
 import { trpc } from "@/lib/trpc";
@@ -100,7 +100,7 @@ export function DailyCashCard({
         <div className="text-xs text-muted-foreground mb-3">
           {disabled
             ? "Önce mağaza ve tarih seç"
-            : "Elden sayılan nakit (OCR yok)"}
+            : "Dekont yoksa elden sayılan toplam nakit (zorunlu giriş)"}
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -159,13 +159,7 @@ export function DailyCashCard({
               locale: tr,
             })}
           </div>
-        ) : (
-          <div className="mt-3 pt-3 border-t text-[11px] text-muted-foreground flex items-start gap-1.5">
-            <AlertTriangle className="h-3 w-3 mt-0.5 text-amber-500 shrink-0" />
-            Müdür kasayı saymadıysa boş bırak — kasa eksiklik kontrolü
-            yapılamaz.
-          </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );

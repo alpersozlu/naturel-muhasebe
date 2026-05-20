@@ -52,6 +52,104 @@ export const dailyRecordRouter = router({
       });
     }),
 
+  /**
+   * Gün uzlaşması özeti — /upload sayfasında "Gün Uzlaşması" panelinde
+   * kullanılır. Hangi belgeler var, hangileri eksik, mutabakat durumu
+   * (yapılabiliyorsa) ve müdür kasa sayım tespiti.
+   */
+  reconciliation: protectedProcedure
+    .input(setReportedCashSchema.pick({ store_id: true, date: true }))
+    .query(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      const dateObj = new Date(`${input.date}T00:00:00.000Z`);
+      const dr = await ctx.prisma.dailyRecord.findUnique({
+        where: {
+          store_id_date: { store_id: input.store_id, date: dateObj },
+        },
+        include: {
+          uploads: { select: { id: true, type: true, status: true } },
+          store_summary: true,
+          z_reports: { select: { id: true } },
+          pos_slips: {
+            select: {
+              id: true,
+              upload: { select: { status: true } },
+            },
+          },
+          bank_receipts: { select: { id: true } },
+          manual_invoices: { select: { id: true, amount_try: true } },
+        },
+      });
+
+      if (!dr) {
+        return {
+          exists: false,
+          status: "empty" as const,
+          has_z: false,
+          has_summary: false,
+          pos_count: 0,
+          has_reported_cash: false,
+          has_bank_receipt: false,
+          manual_invoice_count: 0,
+          failed_count: 0,
+          daily_record_status: null,
+          verification: null,
+        };
+      }
+
+      const hasZ = dr.z_reports.length > 0;
+      const hasSummary = dr.store_summary !== null;
+      const posCount = dr.pos_slips.filter(
+        (p) => p.upload.status === "parsed" || p.upload.status === "confirmed"
+      ).length;
+      const hasReportedCash = dr.reported_cash_try !== null;
+      const hasBankReceipt = dr.bank_receipts.length > 0;
+      const failedCount = dr.uploads.filter((u) => u.status === "failed").length;
+
+      // Mutabakat hesaplayabilir miyiz? Mağaza Özeti gerekli.
+      const verification = hasSummary
+        ? await computeDay(ctx.prisma, dr.id)
+        : null;
+
+      let status:
+        | "empty"
+        | "incomplete"
+        | "ready"
+        | "match"
+        | "mismatch"
+        | "locked"
+        | "error";
+      if (dr.status === "locked") status = "locked";
+      else if (failedCount > 0) status = "error";
+      else if (!hasSummary || !hasZ || posCount === 0) status = "incomplete";
+      else if (!verification) status = "ready";
+      else if (verification.status === "match") status = "match";
+      else status = "mismatch";
+
+      return {
+        exists: true,
+        status,
+        has_z: hasZ,
+        has_summary: hasSummary,
+        pos_count: posCount,
+        has_reported_cash: hasReportedCash,
+        has_bank_receipt: hasBankReceipt,
+        manual_invoice_count: dr.manual_invoices.length,
+        failed_count: failedCount,
+        daily_record_status: dr.status,
+        daily_record_id: dr.id,
+        verification: verification
+          ? {
+              status: verification.status,
+              expected_total: verification.expected_total,
+              actual_total: verification.actual_total,
+              difference: verification.difference,
+              notes: verification.notes,
+            }
+          : null,
+      };
+    }),
+
   /** Mevcut müdür nakit girişini oku (form'u doldurmak için). */
   getReportedCash: protectedProcedure
     .input(setReportedCashSchema.pick({ store_id: true, date: true }))

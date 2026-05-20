@@ -12,9 +12,10 @@ import {
   Mail,
 } from "lucide-react";
 import { Link, usePathname } from "@/i18n/navigation";
+import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 
-const NAV = [
+const NAV_ADMIN = [
   { href: "/", icon: LayoutDashboard, key: "today" as const },
   { href: "/admin", icon: Shield, key: "admin" as const },
   { href: "/verification", icon: ClipboardCheck, key: "verification" as const },
@@ -25,9 +26,18 @@ const NAV = [
   { href: "/contact", icon: Mail, key: "contact" as const },
 ] as const;
 
+// Admin dışı kullanıcılar (mağaza müdürü, kasiyer, satış temsilcisi)
+// sadece kendi mağazalarına belge yükleyebilir. Diğer sayfalar gizli.
+const NAV_NON_ADMIN = [
+  { href: "/upload", icon: Upload, key: "upload" as const },
+  { href: "/contact", icon: Mail, key: "contact" as const },
+] as const;
+
 export function Sidebar() {
   const t = useTranslations("nav");
   const pathname = usePathname();
+  const { data: me } = trpc.user.me.useQuery();
+  const NAV = me?.role === "admin" ? NAV_ADMIN : NAV_NON_ADMIN;
 
   return (
     <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 border-r border-border/70 bg-card/95 backdrop-blur-sm">

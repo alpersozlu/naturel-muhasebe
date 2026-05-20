@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { router, adminProcedure } from "../trpc";
+import { router, adminProcedure, protectedProcedure } from "../trpc";
 import { withAudit } from "../middleware/audit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -11,6 +11,14 @@ import {
 const userAdmin = withAudit("User");
 
 export const userRouter = router({
+  /** Mevcut oturum kullanıcısı — UI'da role bazlı filtreleme için. */
+  me: protectedProcedure.query(({ ctx }) => ({
+    id: ctx.user.id,
+    email: ctx.user.email,
+    full_name: ctx.user.full_name,
+    role: ctx.user.role,
+  })),
+
   list: adminProcedure.query(({ ctx }) =>
     ctx.prisma.user.findMany({
       orderBy: { created_at: "desc" },
