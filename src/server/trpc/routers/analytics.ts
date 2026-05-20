@@ -42,6 +42,12 @@ export const analyticsRouter = router({
             daily_series: [],
             by_store: [],
             by_bank: [],
+            prev_month_total: 0,
+            prev_year_total: 0,
+            sparkline: [],
+            cash_ratio_trend: [],
+            by_brand: [],
+            weekday_pattern: [],
           };
         }
         filter.store_id = ids[0];
