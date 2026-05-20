@@ -21,6 +21,16 @@ const TRY_FORMATTER = new Intl.NumberFormat("tr-TR", {
   maximumFractionDigits: 2,
 });
 
+// Prisma Decimal tRPC üzerinden string'e serialize edilir — client'ta
+// .toNumber() artık çağrılamaz. Bu helper hem Decimal object hem string/number'ı destekler.
+function num(v: unknown): number {
+  if (v === null || v === undefined) return 0;
+  if (typeof v === "object" && v !== null && "toNumber" in v) {
+    return (v as { toNumber: () => number }).toNumber();
+  }
+  return Number(v);
+}
+
 function fmt(n: number): string {
   return TRY_FORMATTER.format(n);
 }
@@ -29,11 +39,11 @@ type DayRecord = {
   id: string;
   date: Date;
   status: "draft" | "pending" | "approved" | "locked";
-  store_summary: { sales_total_try: { toNumber: () => number } | null } | null;
+  store_summary: { sales_total_try: unknown } | null;
   verification: {
-    expected_total: { toNumber: () => number };
-    actual_total: { toNumber: () => number };
-    difference: { toNumber: () => number };
+    expected_total: unknown;
+    actual_total: unknown;
+    difference: unknown;
     status: "match" | "mismatch" | "manual_override";
   } | null;
   _count: {
@@ -168,7 +178,7 @@ function FilledDayRow({
         <div className="sm:col-span-3">
           {hasSummary && record.store_summary?.sales_total_try ? (
             <div className="text-sm font-semibold tabular-nums text-emerald-700">
-              {fmt(record.store_summary.sales_total_try.toNumber())} ₺
+              {fmt(num(record.store_summary.sales_total_try))} ₺
             </div>
           ) : (
             <div className="text-sm text-muted-foreground/70 italic">
