@@ -11,7 +11,11 @@ import { ACCEPTED_MIME_TYPES, MAX_UPLOAD_BYTES } from "@/lib/constants";
 
 const ACCEPT_ATTR = ACCEPTED_MIME_TYPES.join(",");
 
-function fileToBase64(file: File): Promise<string> {
+// Vercel serverless body limit ~4.5 MB. Base64 ~33% şişirir, dolayısıyla
+// raw payload'u ~3 MB altında tutmamız gerek.
+const TARGET_MAX_BYTES = 3 * 1024 * 1024;
+
+function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -21,8 +25,86 @@ function fileToBase64(file: File): Promise<string> {
       resolve(idx >= 0 ? result.slice(idx + 1) : result);
     };
     reader.onerror = reject;
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(blob);
   });
+}
+
+/**
+ * Görseli canvas üzerinden yeniden boyutlandırıp JPEG'e çevirir.
+ * HEIC/PDF bypass edilir (browser canvas onları decode edemez,
+ * HEIC server-side heic-convert ile dönüştürülecek).
+ */
+async function compressImageIfNeeded(file: File): Promise<{
+  blob: Blob;
+  mimeType: string;
+  filename: string;
+}> {
+  const t = file.type;
+  const isCompressible =
+    t === "image/jpeg" || t === "image/png" || t === "image/webp";
+
+  if (!isCompressible) {
+    return { blob: file, mimeType: t, filename: file.name };
+  }
+
+  // Küçük dosyaları olduğu gibi geç — gereksiz işlem
+  if (file.size <= TARGET_MAX_BYTES) {
+    return { blob: file, mimeType: t, filename: file.name };
+  }
+
+  const bitmap = await createImageBitmap(file);
+  const maxDim = 2000;
+  let w = bitmap.width;
+  let h = bitmap.height;
+  if (Math.max(w, h) > maxDim) {
+    const ratio = maxDim / Math.max(w, h);
+    w = Math.round(w * ratio);
+    h = Math.round(h * ratio);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    bitmap.close();
+    throw new Error("Canvas context oluşturulamadı");
+  }
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close();
+
+  // İlk denemede 0.85 kalite, hâlâ büyükse 0.7'ye düşür
+  let quality = 0.85;
+  let blob: Blob | null = await new Promise((resolve) =>
+    canvas.toBlob((b) => resolve(b), "image/jpeg", quality)
+  );
+  if (blob && blob.size > TARGET_MAX_BYTES) {
+    quality = 0.7;
+    blob = await new Promise((resolve) =>
+      canvas.toBlob((b) => resolve(b), "image/jpeg", quality)
+    );
+  }
+  if (!blob) throw new Error("Görsel sıkıştırma başarısız");
+
+  const newName = file.name.replace(/\.[^.]+$/, "") + ".jpg";
+  return { blob, mimeType: "image/jpeg", filename: newName };
+}
+
+/**
+ * Yükleme hatası gelirse kullanıcı dostu mesaja çevir.
+ */
+function humanizeUploadError(msg: string): string {
+  if (
+    msg.includes("Unexpected token") ||
+    msg.includes("not valid JSON") ||
+    msg.includes("Request Entity Too Large") ||
+    msg.includes("413")
+  ) {
+    return "Dosya çok büyük olabilir. Lütfen daha küçük çözünürlükte bir görsel yüklemeyi dene.";
+  }
+  if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+    return "Ağ hatası — bağlantını kontrol et ve tekrar dene.";
+  }
+  return msg;
 }
 
 export function UploadCard({
@@ -72,19 +154,27 @@ export function UploadCard({
           fail++;
           continue;
         }
-        const base64 = await fileToBase64(file);
+        const { blob, mimeType, filename } = await compressImageIfNeeded(file);
+        if (blob.size > TARGET_MAX_BYTES) {
+          toast.error(
+            `${file.name}: sıkıştırma sonrası bile çok büyük (${(blob.size / 1024 / 1024).toFixed(1)} MB). Daha küçük çözünürlüklü bir görsel yükleyin.`
+          );
+          fail++;
+          continue;
+        }
+        const base64 = await blobToBase64(blob);
         await create.mutateAsync({
           store_id: storeId,
           date,
           type,
-          filename: file.name,
-          mime_type: file.type as (typeof ACCEPTED_MIME_TYPES)[number],
+          filename,
+          mime_type: mimeType as (typeof ACCEPTED_MIME_TYPES)[number],
           file_base64: base64,
         });
         ok++;
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        toast.error(`${file.name}: ${msg}`);
+        const raw = e instanceof Error ? e.message : String(e);
+        toast.error(`${file.name}: ${humanizeUploadError(raw)}`);
         fail++;
       }
     }
