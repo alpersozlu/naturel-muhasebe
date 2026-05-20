@@ -50,6 +50,20 @@ const MONTH_LABELS = [
   "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
   "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
 ];
+const MONTH_LABELS_SHORT = [
+  "Oca", "Şub", "Mar", "Nis", "May", "Haz",
+  "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara",
+];
+
+/** "May 2026" gibi kısa etiket — TrendChip için */
+function shortPeriodLabel(year: number, month: number): string {
+  return `${MONTH_LABELS_SHORT[month - 1]} ${year}`;
+}
+
+/** Cari aydan 1 ay geriye git, yıl sınırı dahil */
+function prevMonthOf(year: number, month: number): { year: number; month: number } {
+  return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
+}
 
 // ───────────────── Color tokens ─────────────────
 const POS_COLOR = "#6366F1";
@@ -67,17 +81,17 @@ function pctChange(current: number, prev: number): number | null {
 
 function TrendChip({
   value,
-  label,
+  periodLabel,
 }: {
   value: number | null;
-  label: string;
+  /** Karşılaştırılan dönem etiketi — örn. "Nis 2026" veya "May 2025" */
+  periodLabel: string;
 }) {
   if (value === null) {
     return (
-      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
         <Minus className="h-3.5 w-3.5" />
-        <span>—</span>
-        <span className="text-muted-foreground/80">{label}</span>
+        <span>vs. {periodLabel}</span>
       </span>
     );
   }
@@ -88,7 +102,7 @@ function TrendChip({
     <span className={`inline-flex items-center gap-1 text-xs font-medium tabular-nums ${tone}`}>
       <Icon className="h-3.5 w-3.5" />
       <span>{fmtPct(value, value > -10 && value < 10 ? 1 : 0)}</span>
-      <span className="text-muted-foreground font-normal">{label}</span>
+      <span className="text-muted-foreground font-normal">vs. {periodLabel}</span>
     </span>
   );
 }
@@ -99,6 +113,9 @@ function HeroSection({ data, month, year }: { data: RevenueSummary; month: numbe
   const mom = pctChange(data.total, data.prev_month_total);
   const yoy = pctChange(data.total, data.prev_year_total);
   const sparkData = data.sparkline.map((s) => ({ ...s }));
+  const prevM = prevMonthOf(year, month);
+  const momLabel = shortPeriodLabel(prevM.year, prevM.month);
+  const yoyLabel = shortPeriodLabel(year - 1, month);
 
   return (
     <Card className="overflow-hidden animate-fade-in">
@@ -114,8 +131,8 @@ function HeroSection({ data, month, year }: { data: RevenueSummary; month: numbe
               <span className="text-2xl font-normal text-muted-foreground ml-2">₺</span>
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
-              <TrendChip value={mom} label="geçen aydan" />
-              <TrendChip value={yoy} label="geçen yıldan" />
+              <TrendChip value={mom} periodLabel={momLabel} />
+              <TrendChip value={yoy} periodLabel={yoyLabel} />
               <span className="text-xs text-muted-foreground">
                 {data.active_days} aktif gün · Günlük ort. {fmtMoneyShort(data.daily_avg)} ₺
               </span>
@@ -573,9 +590,11 @@ function CashHealth({ data }: { data: RevenueSummary }) {
 }
 
 // ───────────────── Brand split ─────────────────
-function BrandSplit({ data }: { data: RevenueSummary }) {
+function BrandSplit({ data, month, year }: { data: RevenueSummary; month: number; year: number }) {
   if (data.by_brand.length < 2) return null;
   const ranked = [...data.by_brand].sort((a, b) => b.total - a.total).slice(0, 2);
+  const prevM = prevMonthOf(year, month);
+  const momLabel = shortPeriodLabel(prevM.year, prevM.month);
   return (
     <Card className="animate-fade-in">
       <CardContent className="p-5">
@@ -595,7 +614,7 @@ function BrandSplit({ data }: { data: RevenueSummary }) {
               >
                 <div className="flex items-baseline justify-between mb-1">
                   <div className="font-semibold">{b.brand_name}</div>
-                  <TrendChip value={mom} label="geçen aya göre" />
+                  <TrendChip value={mom} periodLabel={momLabel} />
                 </div>
                 <div className="text-2xl font-semibold tabular-nums tracking-tight mt-1">
                   {fmtMoneyShort(b.total)}
@@ -801,7 +820,7 @@ export function RevenueDashboard({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <BrandSplit data={data} />
+        <BrandSplit data={data} month={month} year={year} />
         <CashHealth data={data} />
       </div>
 
