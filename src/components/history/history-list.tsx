@@ -1,6 +1,6 @@
 "use client";
 
-import { format } from "date-fns";
+import { format, isSameDay, differenceInCalendarDays } from "date-fns";
 import { tr } from "date-fns/locale";
 import {
   FileText,
@@ -60,6 +60,27 @@ function fmtMoney(n: unknown): string | null {
       ? (n as { toNumber: () => number }).toNumber()
       : Number(n);
   return Number.isFinite(num) ? TRY_FORMATTER.format(num) : null;
+}
+
+function dayHeader(date: Date): { primary: string; secondary: string | null } {
+  const today = new Date();
+  const diff = differenceInCalendarDays(today, date);
+  if (isSameDay(date, today)) {
+    return { primary: format(date, "d MMMM yyyy", { locale: tr }), secondary: "Bugün" };
+  }
+  if (diff === 1) {
+    return { primary: format(date, "d MMMM yyyy", { locale: tr }), secondary: "Dün" };
+  }
+  if (diff > 1 && diff < 7) {
+    return {
+      primary: format(date, "d MMMM yyyy", { locale: tr }),
+      secondary: format(date, "EEEE", { locale: tr }),
+    };
+  }
+  return {
+    primary: format(date, "d MMMM yyyy", { locale: tr }),
+    secondary: format(date, "EEEE", { locale: tr }),
+  };
 }
 
 export function HistoryList({ filters }: { filters: HistorySelection }) {
@@ -124,65 +145,117 @@ export function HistoryList({ filters }: { filters: HistorySelection }) {
     );
   }
 
+  // Group items by daily_record.date (the business day they belong to),
+  // not by uploaded_at — so all uploads for "19 Mayıs" cluster together
+  // regardless of when they were uploaded.
+  const groups = new Map<string, { date: Date; items: typeof items }>();
+  for (const u of items) {
+    const iso = format(u.daily_record.date, "yyyy-MM-dd");
+    if (!groups.has(iso)) {
+      groups.set(iso, { date: new Date(u.daily_record.date), items: [] });
+    }
+    groups.get(iso)!.items.push(u);
+  }
+  const sortedGroups = Array.from(groups.values()).sort(
+    (a, b) => b.date.getTime() - a.date.getTime()
+  );
+
   return (
     <>
-      <Card>
-        <CardContent className="p-0 divide-y">
-          {items.map((u) => {
-            const meta = TYPE_META[u.type];
-            const Icon = meta.icon;
-            const detail = describe(u);
-            return (
-              <div
-                key={u.id}
-                className="px-5 py-3.5 flex items-center gap-3 hover:bg-muted/30 transition-colors duration-snap"
-              >
-                <div
-                  className={`h-9 w-9 rounded-lg flex items-center justify-center bg-muted/60 ${meta.color} shrink-0`}
-                >
-                  <Icon className="h-4 w-4" />
+      <div className="space-y-5">
+        {sortedGroups.map((group) => {
+          const header = dayHeader(group.date);
+          const iso = format(group.date, "yyyy-MM-dd");
+          return (
+            <div key={iso}>
+              {/* Sticky day header */}
+              <div className="sticky top-0 z-10 -mx-1 px-1 py-2 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 mb-2">
+                <div className="flex items-baseline justify-between gap-3 px-1">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {header.primary}
+                  </h3>
+                  {header.secondary ? (
+                    <span className="text-[11px] font-medium text-primary/80">
+                      {header.secondary}
+                    </span>
+                  ) : null}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">
-                    {meta.label}
-                    {detail.amount ? (
-                      <span className="ml-2 text-emerald-700 tabular-nums">
-                        {detail.amount}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="text-xs text-muted-foreground truncate">
-                    {u.daily_record.store.brand.name} ·{" "}
-                    {u.daily_record.store.name} ·{" "}
-                    {format(u.daily_record.date, "d MMM yyyy", { locale: tr })}
-                    {detail.bank ? ` · ${detail.bank}` : ""}
-                    {detail.vendor ? ` · ${detail.vendor}` : ""}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground/80 truncate mt-0.5">
-                    {u.uploaded_by_user.full_name ?? u.uploaded_by_user.email}{" "}
-                    · {format(u.uploaded_at, "HH:mm")}
-                  </div>
-                </div>
-                <Badge
-                  variant="secondary"
-                  className={`${STATUS_COLOR[u.status]} text-xs shrink-0`}
-                >
-                  {STATUS_LABEL[u.status]}
-                </Badge>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => openFile(u.id)}
-                  title="Dosyayı aç"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                </Button>
               </div>
-            );
-          })}
-        </CardContent>
-      </Card>
+
+              <Card>
+                <CardContent className="p-0 divide-y">
+                  {group.items.map((u) => {
+                    const meta = TYPE_META[u.type];
+                    const Icon = meta.icon;
+                    const detail = describe(u);
+                    return (
+                      <div
+                        key={u.id}
+                        className="px-5 py-3.5 flex items-center gap-3 hover:bg-muted/30 transition-colors duration-snap"
+                      >
+                        <div
+                          className={`h-9 w-9 rounded-lg flex items-center justify-center bg-muted/60 ${meta.color} shrink-0`}
+                        >
+                          <Icon className="h-4 w-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate flex items-center gap-2 flex-wrap">
+                            <span>{meta.label}</span>
+                            {detail.amount ? (
+                              <span className="text-emerald-700 tabular-nums">
+                                {detail.amount}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate flex items-center gap-1.5 mt-0.5">
+                            <span className="font-medium text-foreground/80">
+                              {u.daily_record.store.name}
+                            </span>
+                            <span className="text-muted-foreground/60">·</span>
+                            <span>{u.daily_record.store.brand.name}</span>
+                            {detail.bank ? (
+                              <>
+                                <span className="text-muted-foreground/60">·</span>
+                                <span>{detail.bank}</span>
+                              </>
+                            ) : null}
+                            {detail.vendor ? (
+                              <>
+                                <span className="text-muted-foreground/60">·</span>
+                                <span>{detail.vendor}</span>
+                              </>
+                            ) : null}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground/70 truncate mt-0.5">
+                            {u.uploaded_by_user.full_name ??
+                              u.uploaded_by_user.email}{" "}
+                            · {format(u.uploaded_at, "HH:mm")}
+                          </div>
+                        </div>
+                        <Badge
+                          variant="secondary"
+                          className={`${STATUS_COLOR[u.status]} text-xs shrink-0`}
+                        >
+                          {STATUS_LABEL[u.status]}
+                        </Badge>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => openFile(u.id)}
+                          title="Dosyayı aç"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            </div>
+          );
+        })}
+      </div>
 
       <div className="mt-4 flex flex-col items-center gap-2">
         {hasNextPage ? (
