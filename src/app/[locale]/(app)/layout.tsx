@@ -12,7 +12,7 @@ export default async function AppLayout({
 
   return (
     <div className="min-h-screen bg-background">
-      <Sidebar />
+      <Sidebar role={session?.role ?? null} />
       <div className="md:pl-64">
         <header className="sticky top-0 z-30 flex h-14 items-center justify-end gap-3 border-b bg-card/95 backdrop-blur px-6">
           <LanguageSwitcher />

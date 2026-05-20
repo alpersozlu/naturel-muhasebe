@@ -12,8 +12,8 @@ import {
   Mail,
 } from "lucide-react";
 import { Link, usePathname } from "@/i18n/navigation";
-import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+import type { UserRole } from "@prisma/client";
 
 const NAV_ADMIN = [
   { href: "/", icon: LayoutDashboard, key: "today" as const },
@@ -33,11 +33,10 @@ const NAV_NON_ADMIN = [
   { href: "/contact", icon: Mail, key: "contact" as const },
 ] as const;
 
-export function Sidebar() {
+export function Sidebar({ role }: { role: UserRole | null }) {
   const t = useTranslations("nav");
   const pathname = usePathname();
-  const { data: me } = trpc.user.me.useQuery();
-  const NAV = me?.role === "admin" ? NAV_ADMIN : NAV_NON_ADMIN;
+  const NAV = role === "admin" ? NAV_ADMIN : NAV_NON_ADMIN;
 
   return (
     <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 border-r border-border/70 bg-card/95 backdrop-blur-sm">
