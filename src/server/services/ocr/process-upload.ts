@@ -25,6 +25,24 @@ function fmtDateTr(iso: string): string {
 }
 
 /**
+ * Türkçe karakterleri ASCII'ye çevir, lowercase yap. Fuzzy mağaza ismi
+ * karşılaştırması için ("Güzelyurt" ↔ "GÜZELYURT" ↔ "guzelyurt").
+ */
+function normalizeName(s: string): string {
+  return s
+    .toLocaleLowerCase("tr-TR")
+    .replace(/ı/g, "i")
+    .replace(/ş/g, "s")
+    .replace(/ğ/g, "g")
+    .replace(/ü/g, "u")
+    .replace(/ö/g, "o")
+    .replace(/ç/g, "c")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * Hard date enforcement: belge tarihi seçili güne eşleşmek zorunda.
  * Belge tarihi okunamazsa veya farklıysa hata fırlatır → upload "failed" olur.
  */
@@ -191,6 +209,47 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     );
   }
   await assertDateMatch(upload.daily_record_id, parsed.summary_date, "Mağaza özeti");
+
+  // 🛡️ Marka formatı + mağaza ismi eşleşmesi: yanlış mağazaya yüklemeyi engelle.
+  const dr = await prisma.dailyRecord.findUnique({
+    where: { id: upload.daily_record_id },
+    include: { store: { include: { brand: true } } },
+  });
+  if (dr) {
+    const brandLower = dr.store.brand.name.toLowerCase();
+    const isMaviBrand = brandLower.includes("mavi");
+    const isDerimodBrand = brandLower.includes("derimod");
+
+    // Marka ↔ format kontrolü
+    if (isMaviBrand && parsed.report_format === "nebim") {
+      throw new Error(
+        `Bu mağaza "${dr.store.brand.name}" markası (IT POS bekleniyor) ama yüklenen rapor Nebim formatında — yanlış marka raporu olabilir.`
+      );
+    }
+    if (isDerimodBrand && parsed.report_format === "it_pos") {
+      throw new Error(
+        `Bu mağaza "${dr.store.brand.name}" markası (Nebim bekleniyor) ama yüklenen rapor IT POS formatında — yanlış marka raporu olabilir.`
+      );
+    }
+
+    // Mağaza ismi fuzzy eşleşmesi
+    if (parsed.store_name_on_report) {
+      const reportNorm = normalizeName(parsed.store_name_on_report);
+      const expectedNorm = normalizeName(dr.store.name);
+      // Mağaza adından anlamlı token'ları al (örn "lefkosa", "girne", "guzelyurt")
+      const tokens = expectedNorm
+        .split(/\s+/)
+        .filter((t) => t.length >= 4 && !["mavi", "derimod"].includes(t));
+      const matchFound =
+        tokens.length === 0 || tokens.some((t) => reportNorm.includes(t));
+      if (!matchFound) {
+        throw new Error(
+          `Raporda "${parsed.store_name_on_report}" yazıyor ama "${dr.store.name}" mağazasına yükleme yapılmaya çalışıldı. Doğru mağazaya yükle.`
+        );
+      }
+    }
+  }
+
   const tryFor = (v: number | null) => (parsed.currency === "TRY" ? v : null);
   const fields = {
     sales_total: parsed.sales_total,
