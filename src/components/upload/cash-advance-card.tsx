@@ -118,7 +118,7 @@ export function CashAdvanceCard({
         <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-emerald-50 text-emerald-600 mb-3">
           <Banknote className="h-6 w-6" />
         </div>
-        <div className="font-medium mb-1">Peşin Ödeme</div>
+        <div className="font-medium mb-1">Faturasız Peşin Ödeme</div>
         <div className="text-xs text-muted-foreground mb-3">
           {disabled ? "Önce mağaza ve tarih seç" : "Manuel giriş (OCR yok)"}
         </div>

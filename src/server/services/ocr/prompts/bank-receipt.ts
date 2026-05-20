@@ -1,4 +1,4 @@
-export const BANK_RECEIPT_SYSTEM_PROMPT = `Sen Türk bankalarından alınan para yatırma/transfer dekontlarını okuyan bir OCR uzmanısın.
+export const BANK_RECEIPT_SYSTEM_PROMPT = `Sen Türk bankalarından alınan IBAN'lı havale/transfer dekontlarını okuyan bir OCR uzmanısın.
 
 Kurallar:
 - Rakamları DİKKATLİCE oku, kuruşları (virgülden sonra 2 hane) atlama
@@ -6,29 +6,31 @@ Kurallar:
 - Çıktın SADECE geçerli JSON olsun, code fence kullanma
 - Türkçe sayı formatı: "1.234,56" → 1234.56
 - IBAN'ı tam ve boşluksuz al (örn: TR12345678901234567890123456)
+- IBAN bu belge türünün AYIRT EDİCİ özelliğidir — IBAN yoksa kabul etme
 `;
 
 export const BANK_RECEIPT_USER_PROMPT = `Bu görseli ÖNCE doküman türü açısından değerlendir, sonra alanları çıkar.
 
 ADIM 1 — Doküman türü doğrulaması:
-Bu görsel bir BANKA DEKONTU mu? Geçerli banka dekontu şu özelliklere sahiptir:
+Bu görsel bir İBAN DEKONTU mu? Geçerli İban dekontu şu özelliklere sahiptir:
 - Bir bankanın logosu/adı (İş Bankası, Ziraat, Garanti, Akbank, TEB, Koopbank, Yapı Kredi, vb.)
 - "Dekont", "Makbuz", "Havale", "EFT", "Transfer Onay", "İşlem Sonucu" gibi başlık/etiket
-- IBAN, hesap numarası, işlem referans numarası, valör tarihi gibi bankacılık alanları
+- ZORUNLU: TR ile başlayan IBAN numarası (alıcı veya gönderen) — bu olmazsa İban dekontu sayılmaz
 
 REDDEDİLMESİ gereken görseller:
 - POS gün sonu raporu (X/Z raporu) — "TERMINAL NO", "BATCH NO", "SLIP NO", "GÜN SONU" başlıkları
 - Yazar kasa Z raporu — "MALİ HAFIZA", "Z NO", "GÜN NO"
 - Mağaza satış özeti — "SATIŞ ÖZETİ", "GÜNLÜK ÖZET"
 - Fatura, fiş, makbuz (banka değil)
+- IBAN içermeyen kasa makbuzu veya elden teslim alındısı
 - Tamamen alakasız görsel
 
 ADIM 2 — Çıktı formatı (sadece JSON, code fence yok):
 
-Eğer banka dekontu DEĞİLSE:
+Eğer İban dekontu DEĞİLSE:
 {
   "is_bank_receipt": false,
-  "rejection_reason": "Bu bir banka dekontu gibi görünmüyor — [kısa açıklama, örn: 'POS gün sonu raporu', 'Yazar kasa Z raporu', 'Tanınmayan görsel']. Lütfen geçerli bir banka işlem makbuzu yükleyin.",
+  "rejection_reason": "Bu bir İban dekontu gibi görünmüyor — [kısa açıklama, örn: 'POS gün sonu raporu', 'IBAN bulunmuyor', 'Yazar kasa Z raporu']. Lütfen IBAN'lı bir banka transferi/havale dekontu yükleyin.",
   "bank_name": null,
   "iban": null,
   "amount": null,
@@ -36,7 +38,7 @@ Eğer banka dekontu DEĞİLSE:
   "currency": "TRY"
 }
 
-Eğer banka dekontu İSE:
+Eğer İban dekontu İSE:
 {
   "is_bank_receipt": true,
   "rejection_reason": null,

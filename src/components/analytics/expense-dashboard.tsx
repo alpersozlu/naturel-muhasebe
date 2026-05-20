@@ -83,7 +83,7 @@ export function ExpenseDashboard({
           <Wallet className="h-12 w-12 mx-auto mb-3 opacity-30" />
           <div className="font-medium text-foreground">Bu ay için gider verisi yok</div>
           <div className="text-sm mt-1">
-            Masraf/Fatura veya Peşin Ödeme girildikten sonra burada gözükür.
+            Masraf/Fatura veya Faturasız Peşin Ödeme girildikten sonra burada gözükür.
           </div>
         </CardContent>
       </Card>

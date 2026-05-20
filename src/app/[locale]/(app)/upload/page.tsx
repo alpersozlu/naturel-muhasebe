@@ -72,7 +72,7 @@ export default function UploadPage() {
         />
         <UploadCard
           type="bank_receipt"
-          label="Banka Dekontu"
+          label="İban Dekontu"
           icon={Building}
           iconBg="bg-blue-50"
           iconColor="text-blue-600"

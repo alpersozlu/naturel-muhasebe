@@ -221,13 +221,13 @@ async function runBankReceipt(upload: Upload, buffer: Buffer): Promise<void> {
   if (!parsed.is_bank_receipt) {
     throw new Error(
       parsed.rejection_reason ??
-        "Bu bir banka dekontu gibi görünmüyor. Lütfen geçerli bir banka işlem makbuzu yükleyin."
+        "Bu bir İban dekontu gibi görünmüyor. Lütfen IBAN'lı bir banka transferi/havale dekontu yükleyin."
     );
   }
-  await assertDateMatch(upload.daily_record_id, parsed.deposit_date, "Banka dekontu");
+  await assertDateMatch(upload.daily_record_id, parsed.deposit_date, "İban dekontu");
   if (parsed.amount === null) {
     throw new Error(
-      "Banka dekontundan tutar okunamadı — manuel düzenleme gerekli"
+      "İban dekontundan tutar okunamadı — manuel düzenleme gerekli"
     );
   }
   const amount_try = parsed.currency === "TRY" ? parsed.amount : parsed.amount; // FX Phase 5

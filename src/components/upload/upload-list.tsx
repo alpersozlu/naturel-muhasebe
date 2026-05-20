@@ -29,11 +29,11 @@ import {
 import { ZApprovalGate } from "./z-approval-gate";
 
 const TYPE_META: Record<UploadType, { label: string; icon: typeof FileText; color: string }> = {
-  bank_receipt: { label: "Banka Dekontu", icon: Building, color: "text-blue-600" },
+  bank_receipt: { label: "İban Dekontu", icon: Building, color: "text-blue-600" },
   pos_slip: { label: "POS Fişi", icon: Receipt, color: "text-purple-600" },
   store_summary: { label: "Mağaza Özeti", icon: FileText, color: "text-amber-600" },
   expense: { label: "Masraf/Fatura", icon: Wallet, color: "text-rose-600" },
-  cash_advance: { label: "Peşin Ödeme", icon: Banknote, color: "text-emerald-600" },
+  cash_advance: { label: "Faturasız Peşin Ödeme", icon: Banknote, color: "text-emerald-600" },
   z_report: { label: "Z Raporu", icon: Calculator, color: "text-cyan-600" },
 };
 

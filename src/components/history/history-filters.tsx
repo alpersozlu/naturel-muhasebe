@@ -16,11 +16,11 @@ import {
 const ALL = "__ALL__";
 
 const TYPE_LABEL: Record<string, string> = {
-  bank_receipt: "Banka Dekontu",
+  bank_receipt: "İban Dekontu",
   pos_slip: "POS Fişi",
   store_summary: "Mağaza Özeti",
   expense: "Masraf/Fatura",
-  cash_advance: "Peşin Ödeme",
+  cash_advance: "Faturasız Peşin Ödeme",
   z_report: "Z Raporu",
 };
 
