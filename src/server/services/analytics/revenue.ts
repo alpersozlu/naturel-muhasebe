@@ -33,6 +33,7 @@ export type RevenueSummary = {
     pos: number;
     prev_month_total: number;
     sparkline: Array<{ month_key: string; total: number }>;
+    stores: Array<{ store_id: string; store_name: string; total: number; cash: number; pos: number }>;
   }>;
   /** Pzt (0) → Pzr (6) sıralı, sadece cari ay */
   weekday_pattern: Array<{ dow: number; label: string; total: number; days: number; avg: number }>;
@@ -101,6 +102,11 @@ export async function revenueSummary(
   const monthlyAll: Record<string, MonthBucket> = {};
   const monthlyByBrand: Record<string, Record<string, MonthBucket>> = {};
   const brandNames: Record<string, string> = {};
+  // Cari ay: marka → mağaza → toplam
+  const currentStoresByBrand: Record<
+    string,
+    Record<string, { store_name: string; total: number; cash: number; pos: number }>
+  > = {};
 
   let total = 0;
   let cash = 0;
@@ -157,6 +163,18 @@ export async function revenueSummary(
       byStoreMap[sid].total += sTotal;
       byStoreMap[sid].cash += sCash;
       byStoreMap[sid].pos += sCC;
+
+      // Per-brand store map (current month only)
+      currentStoresByBrand[brandId] ??= {};
+      currentStoresByBrand[brandId]![sid] ??= {
+        store_name: s.daily_record.store.name,
+        total: 0,
+        cash: 0,
+        pos: 0,
+      };
+      currentStoresByBrand[brandId]![sid]!.total += sTotal;
+      currentStoresByBrand[brandId]![sid]!.cash += sCash;
+      currentStoresByBrand[brandId]![sid]!.pos += sCC;
 
       const dow = (date.getUTCDay() + 6) % 7; // 0=Mon
       weekdayTotals[dow]!.total += sTotal;
@@ -244,6 +262,16 @@ export async function revenueSummary(
         const key = ymKey(d.getUTCFullYear(), d.getUTCMonth() + 1);
         brandSpark.push({ month_key: key, total: months[key]?.total ?? 0 });
       }
+      const storesMap = currentStoresByBrand[brandId] ?? {};
+      const stores = Object.entries(storesMap)
+        .map(([store_id, v]) => ({
+          store_id,
+          store_name: v.store_name,
+          total: v.total,
+          cash: v.cash,
+          pos: v.pos,
+        }))
+        .sort((a, b) => b.total - a.total);
       return {
         brand_id: brandId,
         brand_name: brandNames[brandId] ?? "—",
@@ -252,6 +280,7 @@ export async function revenueSummary(
         pos: cur.pos,
         prev_month_total: prev,
         sparkline: brandSpark,
+        stores,
       };
     })
     .sort((a, b) => b.total - a.total);

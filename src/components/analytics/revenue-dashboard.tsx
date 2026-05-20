@@ -581,12 +581,13 @@ function BrandSplit({ data }: { data: RevenueSummary }) {
       <CardContent className="p-5">
         <div className="font-semibold mb-1">Marka Karşılaştırması</div>
         <div className="text-xs text-muted-foreground mb-4">
-          İki marka, yan yana
+          İki marka yan yana — her birinin altında kendi mağazaları
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {ranked.map((b) => {
             const mom = pctChange(b.total, b.prev_month_total);
             const cashPct = b.total > 0 ? (b.cash / b.total) * 100 : 0;
+            const maxStore = b.stores[0]?.total ?? 0;
             return (
               <div
                 key={b.brand_id}
@@ -622,6 +623,40 @@ function BrandSplit({ data }: { data: RevenueSummary }) {
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
+
+                {b.stores.length > 0 ? (
+                  <div className="mt-3 pt-3 border-t border-border/60 space-y-2">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+                      Mağazalar
+                    </div>
+                    {b.stores.map((s) => {
+                      const share = b.total > 0 ? (s.total / b.total) * 100 : 0;
+                      const widthPct = maxStore > 0 ? (s.total / maxStore) * 100 : 0;
+                      return (
+                        <div key={s.store_id}>
+                          <div className="flex items-baseline justify-between mb-1">
+                            <div className="text-xs text-foreground truncate pr-2">
+                              {s.store_name}
+                            </div>
+                            <div className="text-xs tabular-nums">
+                              <span className="font-medium">{fmtMoneyShort(s.total)}</span>
+                              <span className="text-muted-foreground ml-1">₺</span>
+                              <span className="text-[10px] text-muted-foreground ml-1.5">
+                                %{share.toFixed(0)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-muted/50 overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-700 ease-out"
+                              style={{ width: `${widthPct}%`, backgroundColor: POS_COLOR }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
             );
           })}
