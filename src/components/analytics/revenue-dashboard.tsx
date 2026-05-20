@@ -17,7 +17,6 @@ import {
   ArrowUpRight,
   Banknote,
   CreditCard,
-  Minus,
   Sparkles,
   TrendingUp,
   Wallet,
@@ -87,11 +86,12 @@ function TrendChip({
   /** Karşılaştırılan dönem etiketi — örn. "Nis 2026" veya "May 2025" */
   periodLabel: string;
 }) {
+  // Önceki dönem verisi yoksa: eski stildeki gibi yeşil ↗ + dönem etiketi
   if (value === null) {
     return (
-      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
-        <Minus className="h-3.5 w-3.5" />
-        <span>vs. {periodLabel}</span>
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600">
+        <ArrowUpRight className="h-3.5 w-3.5" />
+        <span className="text-emerald-600">vs. {periodLabel}</span>
       </span>
     );
   }
@@ -102,7 +102,7 @@ function TrendChip({
     <span className={`inline-flex items-center gap-1 text-xs font-medium tabular-nums ${tone}`}>
       <Icon className="h-3.5 w-3.5" />
       <span>{fmtPct(value, value > -10 && value < 10 ? 1 : 0)}</span>
-      <span className="text-muted-foreground font-normal">vs. {periodLabel}</span>
+      <span className={`font-normal ${tone}`}>vs. {periodLabel}</span>
     </span>
   );
 }
