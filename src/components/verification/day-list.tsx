@@ -1,6 +1,5 @@
 "use client";
 
-import { CalendarDays } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { DayRow } from "./day-row";
@@ -35,25 +34,14 @@ export function DayList({
 
   if (isLoading) {
     return (
-      <div className="space-y-2">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-16 w-full rounded-xl" />
-        ))}
-      </div>
-    );
-  }
-
-  if (!data || data.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-12 text-center text-muted-foreground">
-          <CalendarDays className="h-12 w-12 mx-auto mb-3 opacity-30" />
-          <div>Bu ay için kayıt yok.</div>
-          <div className="text-xs mt-1">
-            Bir gün için belge yüklediğinde burada görünür.
-          </div>
-        </CardContent>
-      </Card>
+      <>
+        <ColumnHeader />
+        <div className="space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-20 w-full rounded-xl" />
+          ))}
+        </div>
+      </>
     );
   }
 
@@ -64,16 +52,49 @@ export function DayList({
       month,
     });
 
+  // Pad with empty placeholders so every day of the month is visible.
+  const daysInMonth = new Date(year, month, 0).getDate();
+  type FilledRow = NonNullable<typeof data>[number];
+  const byDay = new Map<number, FilledRow>();
+  for (const r of data ?? []) {
+    byDay.set(new Date(r.date).getUTCDate(), r);
+  }
+
   return (
-    <div className="space-y-2">
-      {data.map((r) => (
-        <DayRow
-          key={r.id}
-          record={r}
-          onChange={refresh}
-          canUnlock={canUnlock}
-        />
-      ))}
+    <>
+      <ColumnHeader />
+      <div className="space-y-2">
+        {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
+          const record = byDay.get(day);
+          if (record) {
+            return (
+              <DayRow
+                key={`d-${day}`}
+                record={record}
+                onChange={refresh}
+                canUnlock={canUnlock}
+              />
+            );
+          }
+          return (
+            <DayRow
+              key={`d-${day}`}
+              emptyDay={{ day, year, month }}
+            />
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function ColumnHeader() {
+  return (
+    <div className="hidden sm:grid grid-cols-12 gap-3 px-5 mb-2 text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+      <div className="col-span-1">Gün</div>
+      <div className="col-span-3">Mağaza Özeti Miktarı</div>
+      <div className="col-span-5">Eşleştirme Belgeleri</div>
+      <div className="col-span-3 text-right">Durum</div>
     </div>
   );
 }

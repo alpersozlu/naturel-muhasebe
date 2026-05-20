@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,7 @@ function fmt(n: number): string {
   return TRY_FORMATTER.format(n);
 }
 
-type DayRow = {
+type DayRecord = {
   id: string;
   date: Date;
   status: "draft" | "pending" | "approved" | "locked";
@@ -43,12 +44,61 @@ type DayRow = {
   };
 };
 
-export function DayRow({
+type Props =
+  | {
+      record: DayRecord;
+      onChange: () => void;
+      canUnlock: boolean;
+      emptyDay?: undefined;
+    }
+  | {
+      emptyDay: { day: number; year: number; month: number };
+      record?: undefined;
+      onChange?: undefined;
+      canUnlock?: undefined;
+    };
+
+export function DayRow(props: Props) {
+  if (props.emptyDay) {
+    return <EmptyDayRow {...props.emptyDay} />;
+  }
+  return (
+    <FilledDayRow
+      record={props.record}
+      onChange={props.onChange}
+      canUnlock={props.canUnlock}
+    />
+  );
+}
+
+function EmptyDayRow({ day }: { day: number; year: number; month: number }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center border rounded-xl bg-card/40 px-5 py-3.5">
+      <div className="sm:col-span-1">
+        <DayPill day={day} muted />
+      </div>
+      <div className="sm:col-span-3 text-sm text-muted-foreground/70 italic">
+        Yüklenmedi
+      </div>
+      <div className="sm:col-span-5 text-sm text-muted-foreground/60 italic flex items-center gap-2">
+        <AlertCircle className="h-3.5 w-3.5" />
+        Bu gün için hiçbir belge yüklenmedi.
+      </div>
+      <div className="sm:col-span-3 flex justify-end">
+        <Badge variant="secondary" className="bg-slate-100 text-slate-500">
+          Boş
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
+function FilledDayRow({
   record,
   onChange,
   canUnlock,
 }: {
-  record: DayRow;
+  record: DayRecord;
   onChange: () => void;
   canUnlock: boolean;
 }) {
@@ -86,53 +136,112 @@ export function DayRow({
     (hasSummary ? 1 : 0);
 
   const badgeMeta = isLocked
-    ? { color: "bg-slate-200 text-slate-800", label: "Kilitli" }
+    ? { color: "bg-emerald-100 text-emerald-700", label: "Doğrulandı" }
     : verStatus === "match"
       ? { color: "bg-emerald-100 text-emerald-700", label: "Eşleşiyor" }
       : verStatus === "mismatch"
         ? { color: "bg-rose-100 text-rose-700", label: "Fark Var" }
         : docCount === 0
           ? { color: "bg-slate-100 text-slate-500", label: "Belge Yok" }
-          : { color: "bg-amber-100 text-amber-700", label: "Bekliyor" };
+          : { color: "bg-amber-100 text-amber-700", label: "Beklemede" };
 
-  const dayNum = record.date.getUTCDate();
+  const dayNum = new Date(record.date).getUTCDate();
+
+  // Belge sayısı parçalı özet
+  const docPieces: string[] = [];
+  if (record._count.pos_slips > 0) docPieces.push(`${record._count.pos_slips} POS`);
+  if (record._count.bank_receipts > 0)
+    docPieces.push(`${record._count.bank_receipts} İban`);
+  if (record._count.expenses > 0)
+    docPieces.push(`${record._count.expenses} Masraf`);
+  if (record._count.cash_advances > 0)
+    docPieces.push(`${record._count.cash_advances} Peşin`);
+  if (hasSummary) docPieces.push("1 Mağaza Özeti");
 
   return (
-    <div className="border rounded-xl bg-card overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center gap-4 px-5 py-3 hover:bg-muted/30 transition-colors text-left"
-      >
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold text-sm shrink-0">
-          {dayNum}
+    <div className="border rounded-xl bg-card overflow-hidden hover:shadow-sm transition-shadow">
+      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center px-5 py-3.5">
+        <div className="sm:col-span-1">
+          <DayPill day={dayNum} />
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium">
-            {record.date.toLocaleDateString("tr-TR", {
-              weekday: "long",
-              day: "numeric",
-              month: "long",
-            })}
-          </div>
-          <div className="text-xs text-muted-foreground">
-            {docCount} belge
-            {hasSummary && record.store_summary?.sales_total_try ? (
-              <>
-                {" · "}Satış {fmt(record.store_summary.sales_total_try.toNumber())} ₺
-              </>
-            ) : null}
-          </div>
+
+        <div className="sm:col-span-3">
+          {hasSummary && record.store_summary?.sales_total_try ? (
+            <div className="text-sm font-semibold tabular-nums text-emerald-700">
+              {fmt(record.store_summary.sales_total_try.toNumber())} ₺
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground/70 italic">
+              Özet yüklenmedi
+            </div>
+          )}
         </div>
-        <Badge variant="secondary" className={`${badgeMeta.color} text-xs`}>
-          {badgeMeta.label}
-        </Badge>
-        {open ? (
-          <ChevronUp className="h-4 w-4 text-muted-foreground" />
-        ) : (
-          <ChevronDown className="h-4 w-4 text-muted-foreground" />
-        )}
-      </button>
+
+        <div className="sm:col-span-5">
+          {docPieces.length === 0 ? (
+            <div className="text-sm text-muted-foreground/60 italic flex items-center gap-2">
+              <AlertCircle className="h-3.5 w-3.5" />
+              Bu gün için hiçbir belge yüklenmedi.
+            </div>
+          ) : (
+            <div className="text-sm text-foreground/80">
+              {docPieces.join(" · ")}
+            </div>
+          )}
+        </div>
+
+        <div className="sm:col-span-3 flex items-center justify-end gap-2">
+          <Badge variant="secondary" className={`${badgeMeta.color} text-xs`}>
+            {badgeMeta.label}
+          </Badge>
+          {!isLocked ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!hasSummary || approve.isPending}
+              onClick={() => approve.mutate({ id: record.id })}
+              title={
+                hasSummary
+                  ? "Bu günü doğrula ve kilitle"
+                  : "Önce Mağaza Özeti yüklenmeli"
+              }
+            >
+              {approve.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Lock className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          ) : canUnlock ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={unlock.isPending}
+              onClick={() => {
+                if (confirm("Kilidi açmak istediğine emin misin?")) {
+                  unlock.mutate({ id: record.id });
+                }
+              }}
+              title="Kilidi aç (admin)"
+            >
+              <Unlock className="h-3.5 w-3.5" />
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setOpen((o) => !o)}
+            title={open ? "Detayı gizle" : "Detayı göster"}
+          >
+            {open ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+      </div>
 
       {open ? (
         <div className="border-t bg-muted/20 px-5 py-4">
@@ -145,43 +254,33 @@ export function DayRow({
             <ComparisonPanel result={previewQuery.data} />
           ) : null}
 
-          <div className="flex items-center gap-2 pt-3 mt-3 border-t justify-end">
-            {!isLocked ? (
-              <Button
-                size="sm"
-                disabled={!hasSummary || approve.isPending}
-                onClick={() => approve.mutate({ id: record.id })}
-                className="bg-slate-900 hover:bg-slate-800"
+          {isLocked ? (
+            <div className="pt-3 mt-3 border-t flex justify-end">
+              <Badge
+                variant="secondary"
+                className="bg-emerald-100 text-emerald-700"
               >
-                <Lock className="h-4 w-4 mr-1.5" />
-                Doğrula ve Kilitle
-              </Button>
-            ) : (
-              <>
-                <Badge variant="secondary" className="bg-emerald-100 text-emerald-700">
-                  <Check className="h-3 w-3 mr-1" />
-                  Gün Doğrulandı
-                </Badge>
-                {canUnlock ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={unlock.isPending}
-                    onClick={() => {
-                      if (confirm("Kilidi açmak istediğine emin misin?")) {
-                        unlock.mutate({ id: record.id });
-                      }
-                    }}
-                  >
-                    <Unlock className="h-4 w-4 mr-1.5" />
-                    Kilidi Aç
-                  </Button>
-                ) : null}
-              </>
-            )}
-          </div>
+                <Check className="h-3 w-3 mr-1" />
+                Gün Doğrulandı ve Kilitli
+              </Badge>
+            </div>
+          ) : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function DayPill({ day, muted }: { day: number; muted?: boolean }) {
+  return (
+    <div
+      className={`flex h-10 w-10 items-center justify-center rounded-xl font-semibold text-sm tabular-nums ${
+        muted
+          ? "bg-muted/50 text-muted-foreground/60"
+          : "bg-primary/10 text-primary"
+      }`}
+    >
+      {day}
     </div>
   );
 }
@@ -237,10 +336,18 @@ function ComparisonPanel({
             >
               {row.label}
             </div>
-            <div className={`col-span-3 text-right text-sm tabular-nums ${isLast ? "font-semibold" : ""}`}>
+            <div
+              className={`col-span-3 text-right text-sm tabular-nums ${
+                isLast ? "font-semibold" : ""
+              }`}
+            >
               {fmt(row.document_total)} ₺
             </div>
-            <div className={`col-span-3 text-right text-sm tabular-nums ${isLast ? "font-semibold" : ""}`}>
+            <div
+              className={`col-span-3 text-right text-sm tabular-nums ${
+                isLast ? "font-semibold" : ""
+              }`}
+            >
               {fmt(row.summary_total)} ₺
             </div>
             <div className="col-span-1 text-right">
