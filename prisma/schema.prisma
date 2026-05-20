@@ -156,6 +156,13 @@ model DailyRecord {
   created_at       DateTime          @default(now())
   updated_at       DateTime          @updatedAt
 
+  // Müdür/admin'in gün sonu kasayı sayıp manuel girdiği nakit miktarı.
+  // StoreSummary.cash_sales ile karşılaştırılır — eksik/fazla varsa uyarı
+  // çıkar (kasa hırsızlığı tespiti).
+  reported_cash_try  Decimal?  @db.Decimal(14, 2)
+  reported_cash_note String?
+  reported_cash_at   DateTime?
+
   uploads         Upload[]
   pos_slips       PosSlip[]
   store_summary   StoreSummary? // 1:1 (her gün 1 özet)

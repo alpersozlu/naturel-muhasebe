@@ -15,6 +15,7 @@ import {
 } from "@/components/upload/upload-selectors";
 import { UploadCard } from "@/components/upload/upload-card";
 import { CashAdvanceCard } from "@/components/upload/cash-advance-card";
+import { DailyCashCard } from "@/components/upload/daily-cash-card";
 import { ManualInvoiceCard } from "@/components/upload/manual-invoice-card";
 import { UploadList } from "@/components/upload/upload-list";
 
@@ -79,6 +80,7 @@ export default function UploadPage() {
           storeId={sel.storeId}
           date={sel.date}
         />
+        <DailyCashCard storeId={sel.storeId} date={sel.date} />
         <ManualInvoiceCard storeId={sel.storeId} date={sel.date} />
         <CashAdvanceCard storeId={sel.storeId} date={sel.date} />
         <UploadCard

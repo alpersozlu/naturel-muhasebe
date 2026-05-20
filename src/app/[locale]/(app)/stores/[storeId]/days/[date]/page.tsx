@@ -1,5 +1,10 @@
 import { notFound } from "next/navigation";
-import { ChevronLeft, Store as StoreIcon, Upload as UploadIcon } from "lucide-react";
+import {
+  ChevronLeft,
+  Store as StoreIcon,
+  Upload as UploadIcon,
+  AlertTriangle,
+} from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { Link } from "@/i18n/navigation";
 import { requireSession } from "@/lib/auth/session";
@@ -94,6 +99,17 @@ export default async function DayDetailPage({
     ? dailyRecord.manual_invoices.reduce((s, i) => s + num(i.amount_try), 0)
     : 0;
 
+  const reportedCash = dailyRecord?.reported_cash_try
+    ? num(dailyRecord.reported_cash_try)
+    : null;
+  const summaryCash = dailyRecord?.store_summary?.cash_sales_try
+    ? num(dailyRecord.store_summary.cash_sales_try)
+    : null;
+  const cashDiff =
+    reportedCash !== null && summaryCash !== null
+      ? summaryCash - reportedCash
+      : null;
+
   const monthParam = `${date.slice(0, 4)}-${date.slice(5, 7)}`;
   const status = dailyRecord?.status ?? "draft";
   const statusMeta = STATUS_BADGE[status];
@@ -142,6 +158,21 @@ export default async function DayDetailPage({
           )}
         </div>
       </div>
+
+      {/* Cash mismatch warning banner */}
+      {verification?.notes && verification.notes.includes("Kasa") ? (
+        <div className="mb-6 rounded-xl border border-rose-200 bg-rose-50 p-4 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-rose-600 mt-0.5 shrink-0" />
+          <div>
+            <div className="font-semibold text-rose-900 text-sm">
+              Kasa Uyarısı
+            </div>
+            <div className="text-sm text-rose-800 mt-0.5">
+              {verification.notes}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* KPI strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
@@ -214,6 +245,31 @@ export default async function DayDetailPage({
                   <span className="tabular-nums">
                     {TRY_FMT.format(invoiceTotal)} ₺
                   </span>
+                </div>
+              ) : null}
+              {reportedCash !== null ? (
+                <div className="flex items-center justify-between pt-2 border-t text-xs">
+                  <span className="text-muted-foreground">
+                    Müdür kasa sayımı
+                  </span>
+                  <div className="flex items-center gap-3 tabular-nums">
+                    <span className="text-foreground">
+                      {TRY_FMT.format(reportedCash)} ₺
+                    </span>
+                    {cashDiff !== null && Math.abs(cashDiff) > 0.01 ? (
+                      <span
+                        className={
+                          cashDiff > 0 ? "text-rose-700" : "text-amber-700"
+                        }
+                      >
+                        {cashDiff > 0
+                          ? `${TRY_FMT.format(cashDiff)} ₺ eksik`
+                          : `${TRY_FMT.format(Math.abs(cashDiff))} ₺ fazla`}
+                      </span>
+                    ) : (
+                      <span className="text-emerald-700">✓ uyuşuyor</span>
+                    )}
+                  </div>
                 </div>
               ) : null}
             </div>

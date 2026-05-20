@@ -86,12 +86,16 @@ export async function computeDay(
     };
   }
 
-  const cash = num(dr.store_summary.cash_sales_try);
+  const summaryCash = num(dr.store_summary.cash_sales_try);
   const loyalty = num(dr.store_summary.loyalty_points_total_try);
   const ccTotal = num(dr.store_summary.credit_card_total_try);
   const summarySales = num(dr.store_summary.sales_total_try);
 
-  const expected_total = posSumTRY + cash + loyalty;
+  // Müdürün elden saydığı nakit (varsa). Yoksa fallback: store summary cash.
+  const reportedCash = dr.reported_cash_try ? num(dr.reported_cash_try) : null;
+  const effectiveCash = reportedCash ?? summaryCash;
+
+  const expected_total = posSumTRY + effectiveCash + loyalty;
   const actual_total = summarySales;
   const difference = actual_total - expected_total;
 
@@ -104,13 +108,22 @@ export async function computeDay(
       difference: ccTotal - posSumTRY,
       matches: Math.abs(ccTotal - posSumTRY) <= TOLERANCE_TL,
     },
-    {
-      label: "Nakit Satışlar",
-      document_total: cash,
-      summary_total: cash,
-      difference: 0,
-      matches: true, // doğrudan rapordan
-    },
+    // Müdür nakit girişi varsa kasa karşılaştırması yap; aksi halde tek satır.
+    reportedCash !== null
+      ? {
+          label: "Nakit (Müdür sayımı vs Mağaza özeti)",
+          document_total: reportedCash,
+          summary_total: summaryCash,
+          difference: summaryCash - reportedCash,
+          matches: Math.abs(summaryCash - reportedCash) <= TOLERANCE_TL,
+        }
+      : {
+          label: "Nakit (yalnızca özet, müdür sayımı yok)",
+          document_total: summaryCash,
+          summary_total: summaryCash,
+          difference: 0,
+          matches: true,
+        },
     {
       label: "Kartuş Puan",
       document_total: loyalty,
@@ -131,16 +144,30 @@ export async function computeDay(
     ? "match"
     : "mismatch";
 
+  // Kasa eksiklik/fazlalık uyarısı (müdür nakit girişi varsa)
+  const cashRow = rows[1];
+  const cashMismatch =
+    reportedCash !== null && !cashRow.matches
+      ? cashRow.difference > 0
+        ? `Kasa eksiklik: Müdür ${reportedCash.toFixed(2)} TL saydı ama özette ${summaryCash.toFixed(2)} TL → ${cashRow.difference.toFixed(2)} TL eksik (potansiyel kayıp).`
+        : `Kasa fazlalık: Müdür ${reportedCash.toFixed(2)} TL saydı ama özette ${summaryCash.toFixed(2)} TL → ${Math.abs(cashRow.difference).toFixed(2)} TL fazla.`
+      : null;
+
+  const noteParts: string[] = [];
+  if (cashMismatch) noteParts.push(cashMismatch);
+  if (status !== "match") {
+    noteParts.push(
+      `Genel fark ${difference.toFixed(2)} TL (tolerans ±${TOLERANCE_TL} TL).`
+    );
+  }
+
   return {
     rows,
     expected_total,
     actual_total,
     difference,
     status,
-    notes:
-      status === "match"
-        ? null
-        : `Fark ${difference.toFixed(2)} TL (tolerans ±${TOLERANCE_TL} TL)`,
+    notes: noteParts.length > 0 ? noteParts.join(" ") : null,
   };
 }
 

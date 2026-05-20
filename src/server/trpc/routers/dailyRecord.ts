@@ -1,6 +1,9 @@
 import { TRPCError } from "@trpc/server";
-import { router } from "../trpc";
-import { dailyRecordIdSchema } from "@/lib/zod-schemas/verification";
+import { router, protectedProcedure } from "../trpc";
+import {
+  dailyRecordIdSchema,
+  setReportedCashSchema,
+} from "@/lib/zod-schemas/verification";
 import { withAudit } from "../middleware/audit";
 import { assertCanAccessStore, isAdmin } from "@/lib/auth/permissions";
 import {
@@ -47,6 +50,65 @@ export const dailyRecordRouter = router({
         },
         include: { verification: true },
       });
+    }),
+
+  /** Mevcut müdür nakit girişini oku (form'u doldurmak için). */
+  getReportedCash: protectedProcedure
+    .input(setReportedCashSchema.pick({ store_id: true, date: true }))
+    .query(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      const dateObj = new Date(`${input.date}T00:00:00.000Z`);
+      const dr = await ctx.prisma.dailyRecord.findUnique({
+        where: {
+          store_id_date: { store_id: input.store_id, date: dateObj },
+        },
+        select: {
+          reported_cash_try: true,
+          reported_cash_note: true,
+          reported_cash_at: true,
+        },
+      });
+      return dr;
+    }),
+
+  /**
+   * Müdür/admin'in günü kapatırken elden saydığı nakit toplamını kaydet.
+   * StoreSummary.cash_sales ile karşılaştırılır — fark çıkarsa kasa
+   * eksikliği/fazlalığı uyarısı verilir.
+   */
+  setReportedCash: protectedProcedure
+    .input(setReportedCashSchema)
+    .mutation(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      const dateObj = new Date(`${input.date}T00:00:00.000Z`);
+
+      // DailyRecord yoksa oluştur (lazy)
+      const dr = await ctx.prisma.dailyRecord.upsert({
+        where: {
+          store_id_date: { store_id: input.store_id, date: dateObj },
+        },
+        create: {
+          store_id: input.store_id,
+          date: dateObj,
+          status: "draft",
+          reported_cash_try: input.amount,
+          reported_cash_note: input.note ?? null,
+          reported_cash_at: new Date(),
+        },
+        update: {
+          reported_cash_try: input.amount,
+          reported_cash_note: input.note ?? null,
+          reported_cash_at: new Date(),
+        },
+      });
+
+      if (dr.status === "locked" && !isAdmin(ctx.user)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Gün kilitli, yalnızca admin değiştirebilir",
+        });
+      }
+      return dr;
     }),
 
   /** Unlock a locked day. Admin only. */
