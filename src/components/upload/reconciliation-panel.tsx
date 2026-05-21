@@ -416,6 +416,15 @@ type Row = {
   summary_total: number;
   difference: number;
   matches: boolean;
+  z_compliance?: {
+    status: "passed" | "below_visa" | "above_sales" | "no_z";
+    z_report_total: number;
+    manual_invoice_total: number;
+    visa_total: number;
+    visa_floor: number;
+    sales_ceiling: number;
+    cash_present: boolean;
+  };
 };
 
 function ComparisonTable({
@@ -441,28 +450,64 @@ function ComparisonTable({
         <tbody>
           {rows.map((r, i) => {
             const isTotal = r.label === "GENEL TOPLAM";
+            const isZ = r.z_compliance !== undefined;
             return (
               <tr
                 key={i}
                 className={
                   isTotal
                     ? "border-t-2 border-border bg-slate-50/60 font-semibold"
-                    : "border-t border-border/60"
+                    : isZ
+                      ? "border-t border-border/60 bg-sky-50/30"
+                      : "border-t border-border/60"
                 }
               >
-                <td className="py-2.5 px-3 text-foreground">{r.label}</td>
+                <td className="py-2.5 px-3 text-foreground">
+                  {r.label}
+                  {isZ && r.z_compliance ? (
+                    <div className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
+                      {r.z_compliance.z_report_total > 0
+                        ? `Z: ${TRY_FMT.format(r.z_compliance.z_report_total)}`
+                        : null}
+                      {r.z_compliance.z_report_total > 0 &&
+                      r.z_compliance.manual_invoice_total > 0
+                        ? " + "
+                        : ""}
+                      {r.z_compliance.manual_invoice_total > 0
+                        ? `El Fat: ${TRY_FMT.format(r.z_compliance.manual_invoice_total)}`
+                        : null}
+                    </div>
+                  ) : null}
+                </td>
                 <td className="py-2.5 px-3 text-right tabular-nums">
                   {TRY_FMT.format(r.document_total)} ₺
                 </td>
                 <td className="py-2.5 px-1 text-center text-muted-foreground">→</td>
                 <td className="py-2.5 px-3 text-right tabular-nums text-muted-foreground">
-                  {TRY_FMT.format(r.summary_total)} ₺
+                  {isZ && r.z_compliance ? (
+                    <span title="Alt sınır: Visa (nakit varsa ×1.05)">
+                      {TRY_FMT.format(r.z_compliance.visa_floor)} ₺
+                      <div className="text-[10px] opacity-70">
+                        {r.z_compliance.cash_present ? "Visa × 1.05" : "Visa"}
+                      </div>
+                    </span>
+                  ) : (
+                    <>{TRY_FMT.format(r.summary_total)} ₺</>
+                  )}
                 </td>
                 <td className="py-2.5 px-3 text-right tabular-nums">
-                  <KasaFarki diff={r.difference} matches={r.matches} />
+                  {isZ ? (
+                    <ZFarkBadge diff={r.difference} status={r.z_compliance!.status} />
+                  ) : (
+                    <KasaFarki diff={r.difference} matches={r.matches} />
+                  )}
                 </td>
                 <td className="py-2.5 px-3 text-right">
-                  <StatusBadge matches={r.matches} isTotal={isTotal} />
+                  {isZ && r.z_compliance ? (
+                    <ZStatusBadge status={r.z_compliance.status} />
+                  ) : (
+                    <StatusBadge matches={r.matches} isTotal={isTotal} />
+                  )}
                 </td>
               </tr>
             );
@@ -488,6 +533,67 @@ function KasaFarki({ diff, matches }: { diff: number; matches: boolean }) {
   return (
     <span className={`${tone} font-medium`}>
       {positive ? "+" : ""}
+      {TRY_FMT.format(diff)} ₺
+    </span>
+  );
+}
+
+function ZStatusBadge({
+  status,
+}: {
+  status: "passed" | "below_visa" | "above_sales" | "no_z";
+}) {
+  if (status === "passed") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+        <Check className="h-3 w-3" />
+        Uygun
+      </span>
+    );
+  }
+  if (status === "below_visa") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+        <AlertTriangle className="h-3 w-3" />
+        Visa Altı
+      </span>
+    );
+  }
+  if (status === "above_sales") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+        <AlertTriangle className="h-3 w-3" />
+        Satış Üstü
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-muted/40 text-muted-foreground border border-border">
+      Veri Yok
+    </span>
+  );
+}
+
+function ZFarkBadge({
+  diff,
+  status,
+}: {
+  diff: number;
+  status: "passed" | "below_visa" | "above_sales" | "no_z";
+}) {
+  if (status === "no_z") {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  const tone =
+    status === "passed"
+      ? "text-emerald-700"
+      : status === "below_visa"
+        ? "text-rose-700"
+        : "text-amber-700";
+  const sign = diff > 0 ? "+" : "";
+  return (
+    <span className={`${tone} font-medium`}>
+      {sign}
       {TRY_FMT.format(diff)} ₺
     </span>
   );

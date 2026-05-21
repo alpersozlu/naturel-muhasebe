@@ -8,6 +8,16 @@ export type ComparisonRow = {
   summary_total: number; // Mağaza Özeti'nden ilgili kalem (TRY)
   difference: number;
   matches: boolean;
+  /** Z compliance satırı için ek meta — UI farklı badge gösterir */
+  z_compliance?: {
+    status: "passed" | "below_visa" | "above_sales" | "no_z";
+    z_report_total: number;
+    manual_invoice_total: number;
+    visa_total: number;
+    visa_floor: number;
+    sales_ceiling: number;
+    cash_present: boolean;
+  };
 };
 
 export type DayComputeResult = {
@@ -49,6 +59,8 @@ export async function computeDay(
     include: {
       pos_slips: { include: { upload: { select: { status: true } } } },
       store_summary: true,
+      z_reports: { select: { net_sales_try: true } },
+      manual_invoices: { select: { amount_try: true } },
     },
   });
   if (!dr) {
@@ -101,6 +113,32 @@ export async function computeDay(
   // Negatif = eksik (kayıp/hırsızlık sinyali); pozitif = fazla.
   const difference = expected_total - actual_total;
 
+  // Z compliance — Toplam Z (Z Raporu + El Faturası)
+  const zReportTotal = dr.z_reports.reduce(
+    (s, z) => s + num(z.net_sales_try),
+    0
+  );
+  const manualInvoiceTotal = dr.manual_invoices.reduce(
+    (s, m) => s + num(m.amount_try),
+    0
+  );
+  const combinedZ = zReportTotal + manualInvoiceTotal;
+  const cashPresent = effectiveCash > TOLERANCE_TL;
+  const visaFloor =
+    posSumTRY > 0 ? (cashPresent ? posSumTRY * 1.05 : posSumTRY) : 0;
+  const salesCeiling = summarySales;
+
+  let zStatus: "passed" | "below_visa" | "above_sales" | "no_z";
+  if (combinedZ <= TOLERANCE_TL) {
+    zStatus = "no_z";
+  } else if (visaFloor > 0 && combinedZ < visaFloor - TOLERANCE_TL) {
+    zStatus = "below_visa";
+  } else if (salesCeiling > 0 && combinedZ > salesCeiling + TOLERANCE_TL) {
+    zStatus = "above_sales";
+  } else {
+    zStatus = "passed";
+  }
+
   // Satır satır karşılaştırma (UI için) — aynı konvansiyon: doc − summary
   const rows: ComparisonRow[] = [
     {
@@ -132,6 +170,31 @@ export async function computeDay(
       summary_total: loyalty,
       difference: 0,
       matches: true,
+    },
+    {
+      label:
+        zReportTotal > 0 && manualInvoiceTotal > 0
+          ? "Toplam Z (Z Raporu + El Faturası)"
+          : zReportTotal > 0
+            ? "Z Raporu"
+            : manualInvoiceTotal > 0
+              ? "El Faturası (Z yerine)"
+              : "Toplam Z",
+      document_total: combinedZ,
+      // Reference olarak Visa eşiği — alt sınır
+      summary_total: visaFloor,
+      // Pozitif = Visa üstünde (sağlıklı), negatif = altta
+      difference: combinedZ - visaFloor,
+      matches: zStatus === "passed",
+      z_compliance: {
+        status: zStatus,
+        z_report_total: zReportTotal,
+        manual_invoice_total: manualInvoiceTotal,
+        visa_total: posSumTRY,
+        visa_floor: visaFloor,
+        sales_ceiling: salesCeiling,
+        cash_present: cashPresent,
+      },
     },
     {
       label: "GENEL TOPLAM",
