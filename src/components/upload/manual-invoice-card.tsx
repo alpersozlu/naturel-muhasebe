@@ -103,9 +103,29 @@ export function ManualInvoiceCard({
     create.mutateAsync({ ...vals, store_id: storeId, date });
 
   // Validation hatalarını sessiz bırakmamak için — kullanıcı neden kaydedemediğini görsün
+  const FIELD_LABELS: Record<string, string> = {
+    store_id: "Mağaza",
+    date: "Gün tarihi",
+    amount: "Tutar",
+    currency: "Para birimi",
+    invoice_no: "Fatura no",
+    invoice_date: "Fatura tarihi",
+    description: "Açıklama",
+  };
   const onInvalid = (errs: Record<string, { message?: string }>) => {
-    const firstMsg = Object.values(errs)[0]?.message;
-    toast.error(firstMsg ?? "Lütfen tüm zorunlu alanları doldurun");
+    if (typeof window !== "undefined") {
+      // Console'da net görmek için — debug'ta kullanılır
+      console.warn("Manuel fatura validation errors:", errs);
+    }
+    const entries = Object.entries(errs);
+    if (entries.length === 0) {
+      toast.error("Lütfen tüm zorunlu alanları doldurun");
+      return;
+    }
+    const [field, err] = entries[0]!;
+    const label = FIELD_LABELS[field] ?? field;
+    const msg = err?.message ?? "geçersiz değer";
+    toast.error(`${label}: ${msg}`);
   };
 
   return (
