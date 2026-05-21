@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useForm, Controller, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -104,6 +105,7 @@ export function ManualInvoiceCard({
     handleSubmit,
     reset,
     control,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<ManualInvoiceCreateInput>({
     resolver: zodResolver(
@@ -119,6 +121,14 @@ export function ManualInvoiceCard({
       description: "",
     },
   });
+
+  // storeId/date prop'ları değiştiğinde form değerlerini güncelle.
+  // defaultValues sadece ilk render'da uygulandığı için, sonradan seçilen
+  // mağaza/tarih form içine yansımıyordu — validation "Mağaza seçilmedi" diyordu.
+  useEffect(() => {
+    setValue("store_id", storeId);
+    setValue("date", date);
+  }, [storeId, date, setValue]);
 
   const onSubmit = (vals: ManualInvoiceCreateInput) =>
     create.mutateAsync({ ...vals, store_id: storeId, date });
