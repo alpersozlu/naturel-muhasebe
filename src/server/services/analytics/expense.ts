@@ -13,6 +13,24 @@ export type ExpenseSummary = {
     employee_name: string;
     total: number;
   }>;
+  /**
+   * Yıllık + projeksiyon — kurumsal görünüm için.
+   * Filter.year boyunca her ay için: actual = geçmiş aylar (cari ay dahil),
+   * projected = gelecek aylar (cari sonrasından Aralık'a kadar).
+   * Cari ay her ikisinde de aynı değere sahip ki çizgi sürekli görünsün.
+   */
+  yearly_with_projection: Array<{
+    month: number;
+    label: string;
+    actual: number | null;
+    projected: number | null;
+  }>;
+  /** Cari yılbaşından cari aya kadar toplam */
+  ytd_total: number;
+  /** Cari hızda yıl sonuna kadar tahmini toplam */
+  projected_year_end: number;
+  /** YTD aylık ortalama — projeksiyonun temeli */
+  projected_monthly_avg: number;
 };
 
 function num(v: { toNumber: () => number } | null | undefined): number {
@@ -41,8 +59,8 @@ export async function expenseSummary(
   // For the selected month
   const monthStart = new Date(Date.UTC(filter.year, filter.month - 1, 1));
   const monthEnd = new Date(Date.UTC(filter.year, filter.month, 1));
-  // For trend: last 6 months
-  const trendStart = new Date(Date.UTC(filter.year, filter.month - 6, 1));
+  // For trend: cari yılın başından cari ay sonuna kadar — YTD + projeksiyon için
+  const trendStart = new Date(Date.UTC(filter.year, 0, 1));
 
   let storeIds: string[] | undefined = filter.store_id ? [filter.store_id] : undefined;
   if (!storeIds && filter.brand_id) {
@@ -165,6 +183,7 @@ export async function expenseSummary(
     const key = `${y}-${m}`;
     monthlyMap[key] = (monthlyMap[key] ?? 0) + num(a.amount_try);
   }
+  // ---- Mevcut monthly_trend: son 6 ay (geriye uyumluluk) ----
   const monthly_trend: Array<{ month: string; total: number }> = [];
   for (let i = 5; i >= 0; i--) {
     const date = new Date(Date.UTC(filter.year, filter.month - 1 - i, 1));
@@ -174,6 +193,54 @@ export async function expenseSummary(
       total: monthlyMap[key] ?? 0,
     });
   }
+
+  // ---- Yıllık seri + projeksiyon ----
+  // YTD: filter.year Ocak'tan cari ayın sonuna kadar (cari ay dahil)
+  let ytd_total = 0;
+  for (let m = 0; m < filter.month; m++) {
+    const key = `${filter.year}-${m}`;
+    ytd_total += monthlyMap[key] ?? 0;
+  }
+  // Aylık ortalama — kalan ayları doldurmak için
+  const projected_monthly_avg = filter.month > 0 ? ytd_total / filter.month : 0;
+
+  const yearly_with_projection: ExpenseSummary["yearly_with_projection"] = [];
+  for (let m = 0; m < 12; m++) {
+    const date = new Date(Date.UTC(filter.year, m, 1));
+    const key = `${filter.year}-${m}`;
+    const monthLabel = `${MONTH_LABELS[m]} ${filter.year}`;
+    const monthNumber = m + 1;
+    if (monthNumber < filter.month) {
+      // Geçmiş ay: sadece actual
+      yearly_with_projection.push({
+        month: monthNumber,
+        label: monthLabel,
+        actual: monthlyMap[key] ?? 0,
+        projected: null,
+      });
+    } else if (monthNumber === filter.month) {
+      // Cari ay: actual + projeksiyon başlangıç noktası
+      const cur = monthlyMap[key] ?? 0;
+      yearly_with_projection.push({
+        month: monthNumber,
+        label: monthLabel,
+        actual: cur,
+        projected: cur, // çizgilerin birleşmesi için
+      });
+    } else {
+      // Gelecek ay: sadece projected
+      yearly_with_projection.push({
+        month: monthNumber,
+        label: monthLabel,
+        actual: null,
+        projected: projected_monthly_avg,
+      });
+    }
+    void date; // tip uyumu için tutulan referans
+  }
+  // Yıl sonu projeksiyon = YTD + (12 - filter.month) × aylık ortalama
+  const remainingMonths = Math.max(0, 12 - filter.month);
+  const projected_year_end = ytd_total + remainingMonths * projected_monthly_avg;
 
   return {
     total,
@@ -192,5 +259,9 @@ export async function expenseSummary(
         total: v.total,
       }))
       .sort((a, b) => b.total - a.total),
+    yearly_with_projection,
+    ytd_total,
+    projected_year_end,
+    projected_monthly_avg,
   };
 }
