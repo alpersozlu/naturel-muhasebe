@@ -7,7 +7,14 @@ export type ExpenseSummary = {
   count: number;
   monthly_trend: Array<{ month: string; total: number }>;
   by_category: Array<{ category: string; total: number; count: number }>;
-  by_store: Array<{ store_id: string; store_name: string; total: number }>;
+  by_store: Array<{
+    store_id: string;
+    store_name: string;
+    total: number;
+    prev_month_total: number;
+  }>;
+  /** Cari ayın günlük serisi (zero-filled) */
+  daily_series: Array<{ day: number; total: number }>;
   by_employee: Array<{
     employee_id: string | null;
     employee_name: string;
@@ -105,13 +112,17 @@ export async function expenseSummary(
     },
   });
 
-  // Trend window
+  // Trend window — store_id de seçilir ki per-store MoM hesaplanabilsin
   const trendExpenses = await prisma.expense.findMany({
     where: {
       ...baseWhere,
       expense_date: { gte: trendStart, lt: monthEnd },
     },
-    select: { expense_date: true, amount_try: true },
+    select: {
+      expense_date: true,
+      amount_try: true,
+      daily_record: { select: { store_id: true } },
+    },
   });
   const trendAdvances = await prisma.cashAdvance.findMany({
     where: {
@@ -121,7 +132,11 @@ export async function expenseSummary(
         date: { gte: trendStart, lt: monthEnd },
       },
     },
-    select: { created_at: true, amount_try: true, daily_record: { select: { date: true } } },
+    select: {
+      created_at: true,
+      amount_try: true,
+      daily_record: { select: { date: true, store_id: true } },
+    },
   });
 
   let total = 0;
@@ -169,20 +184,50 @@ export async function expenseSummary(
     byEmployeeMap[empKey].total += v;
   }
 
-  // Monthly trend (last 6 months)
+  // Monthly trend (YTD) + per-store monthly map (MoM için)
   const monthlyMap: Record<string, number> = {};
+  // monthlyByStore[store_id][year-monthIdx] = total
+  const monthlyByStore: Record<string, Record<string, number>> = {};
   for (const e of trendExpenses) {
     const y = e.expense_date.getUTCFullYear();
     const m = e.expense_date.getUTCMonth();
     const key = `${y}-${m}`;
-    monthlyMap[key] = (monthlyMap[key] ?? 0) + num(e.amount_try);
+    const v = num(e.amount_try);
+    monthlyMap[key] = (monthlyMap[key] ?? 0) + v;
+    const sid = e.daily_record.store_id;
+    monthlyByStore[sid] ??= {};
+    monthlyByStore[sid]![key] = (monthlyByStore[sid]![key] ?? 0) + v;
   }
   for (const a of trendAdvances) {
     const y = a.daily_record.date.getUTCFullYear();
     const m = a.daily_record.date.getUTCMonth();
     const key = `${y}-${m}`;
-    monthlyMap[key] = (monthlyMap[key] ?? 0) + num(a.amount_try);
+    const v = num(a.amount_try);
+    monthlyMap[key] = (monthlyMap[key] ?? 0) + v;
+    const sid = a.daily_record.store_id;
+    monthlyByStore[sid] ??= {};
+    monthlyByStore[sid]![key] = (monthlyByStore[sid]![key] ?? 0) + v;
   }
+
+  // Geçen ay (yıl sınırı dahil)
+  const prevMonthDate = new Date(Date.UTC(filter.year, filter.month - 2, 1));
+  const prevMonthKey = `${prevMonthDate.getUTCFullYear()}-${prevMonthDate.getUTCMonth()}`;
+
+  // Günlük seri — cari ay (zero-filled)
+  const daysInMonth = new Date(Date.UTC(filter.year, filter.month, 0)).getUTCDate();
+  const dailyMap: Record<number, number> = {};
+  for (const e of expenses) {
+    const d = e.expense_date.getUTCDate();
+    dailyMap[d] = (dailyMap[d] ?? 0) + num(e.amount_try);
+  }
+  for (const a of advances) {
+    const d = a.daily_record.date.getUTCDate();
+    dailyMap[d] = (dailyMap[d] ?? 0) + num(a.amount_try);
+  }
+  const daily_series = Array.from({ length: daysInMonth }, (_, i) => ({
+    day: i + 1,
+    total: dailyMap[i + 1] ?? 0,
+  }));
   // ---- Mevcut monthly_trend: son 6 ay (geriye uyumluluk) ----
   const monthly_trend: Array<{ month: string; total: number }> = [];
   for (let i = 5; i >= 0; i--) {
@@ -250,8 +295,14 @@ export async function expenseSummary(
       .map(([category, v]) => ({ category, total: v.total, count: v.count }))
       .sort((a, b) => b.total - a.total),
     by_store: Object.entries(byStoreMap)
-      .map(([id, v]) => ({ store_id: id, store_name: v.name, total: v.total }))
+      .map(([id, v]) => ({
+        store_id: id,
+        store_name: v.name,
+        total: v.total,
+        prev_month_total: monthlyByStore[id]?.[prevMonthKey] ?? 0,
+      }))
       .sort((a, b) => b.total - a.total),
+    daily_series,
     by_employee: Object.entries(byEmployeeMap)
       .map(([id, v]) => ({
         employee_id: id === "_" ? null : id,

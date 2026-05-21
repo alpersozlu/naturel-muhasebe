@@ -15,7 +15,17 @@ import {
   ReferenceLine,
   Legend,
 } from "recharts";
-import { Wallet, Receipt, Users, Store, TrendingUp, Target } from "lucide-react";
+import {
+  Wallet,
+  Receipt,
+  Store,
+  TrendingUp,
+  Target,
+  ArrowDownRight,
+  ArrowUpRight,
+  CalendarDays,
+  Layers,
+} from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatCard } from "./stat-card";
@@ -105,7 +115,6 @@ export function ExpenseDashboard({
 
   const topCategory = data.by_category[0];
   const topStore = data.by_store[0];
-  const topEmployee = data.by_employee[0];
 
   return (
     <div className="space-y-6">
@@ -136,12 +145,12 @@ export function ExpenseDashboard({
           hint="En çok harcayan mağaza"
         />
         <StatCard
-          icon={Users}
-          label={topEmployee?.employee_name ?? "—"}
-          value={topEmployee?.total ?? 0}
+          icon={TrendingUp}
+          label="Yıl Sonu Tahmini"
+          value={data.projected_year_end}
           color="text-purple-600"
           bgColor="bg-purple-50"
-          hint="En çok harcayan çalışan"
+          hint="Mevcut hızda toplam"
         />
       </div>
 
@@ -151,78 +160,14 @@ export function ExpenseDashboard({
       {/* Pareto */}
       <ParetoCard data={data} />
 
-      {/* Bottom row: Employee + Store */}
+      {/* Bottom row: Category Distribution + Store Comparison */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardContent className="p-5">
-            <div className="font-semibold mb-1">Çalışana Göre</div>
-            <div className="text-xs text-muted-foreground mb-4">Kişi başına harcama</div>
-            {data.by_employee.length === 0 ? (
-              <div className="text-sm text-muted-foreground text-center py-6">Veri yok</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={Math.max(180, data.by_employee.length * 36)}>
-                <BarChart data={data.by_employee} layout="vertical" margin={{ left: 10 }}>
-                  <XAxis
-                    type="number"
-                    fontSize={11}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v) => `${TRY.format(v / 1000)}K`}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="employee_name"
-                    fontSize={11}
-                    tickLine={false}
-                    axisLine={false}
-                    width={120}
-                  />
-                  <Tooltip
-                    formatter={(v) => [`${TRY2.format(Number(v))} ₺`, "Gider"]}
-                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                  />
-                  <Bar dataKey="total" fill="#8B5CF6" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-5">
-            <div className="font-semibold mb-1">Mağazaya Göre</div>
-            <div className="text-xs text-muted-foreground mb-4">Mağaza başına harcama</div>
-            {data.by_store.length === 0 ? (
-              <div className="text-sm text-muted-foreground text-center py-6">Veri yok</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={Math.max(180, data.by_store.length * 36)}>
-                <BarChart data={data.by_store} layout="vertical" margin={{ left: 10 }}>
-                  <XAxis
-                    type="number"
-                    fontSize={11}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v) => `${TRY.format(v / 1000)}K`}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="store_name"
-                    fontSize={11}
-                    tickLine={false}
-                    axisLine={false}
-                    width={100}
-                  />
-                  <Tooltip
-                    formatter={(v) => [`${TRY2.format(Number(v))} ₺`, "Gider"]}
-                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                  />
-                  <Bar dataKey="total" fill="#6366F1" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
+        <CategoryDistribution data={data} />
+        <StoreComparison data={data} month={month} year={year} />
       </div>
+
+      {/* Full-width: Daily View */}
+      <DailyView data={data} month={month} year={year} />
     </div>
   );
 }
@@ -488,6 +433,278 @@ function ParetoCard({
               dot={{ r: 3, fill: PARETO_LINE_COLOR }}
             />
           </ComposedChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ───── Category Distribution (leaderboard) ─────
+function CategoryDistribution({ data }: { data: ExpenseSummary }) {
+  if (data.by_category.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-5">
+          <div className="font-semibold mb-1 flex items-center gap-2">
+            <Layers className="h-4 w-4 text-rose-600" />
+            Gider Kategori Dağılımı
+          </div>
+          <div className="text-sm text-muted-foreground text-center py-8">Veri yok</div>
+        </CardContent>
+      </Card>
+    );
+  }
+  const max = data.by_category[0]?.total ?? 0;
+  const palette = ["#EF4444", "#F59E0B", "#8B5CF6", "#10B981", "#06B6D4", "#EC4899", "#0EA5E9", "#84CC16"];
+  return (
+    <Card className="animate-fade-in">
+      <CardContent className="p-5">
+        <div className="font-semibold mb-1 flex items-center gap-2">
+          <Layers className="h-4 w-4 text-rose-600" />
+          Gider Kategori Dağılımı
+        </div>
+        <div className="text-xs text-muted-foreground mb-4">
+          Bu ay kategori bazında — toplam payına göre
+        </div>
+        <div className="space-y-3">
+          {data.by_category.map((c, i) => {
+            const share = data.total > 0 ? (c.total / data.total) * 100 : 0;
+            const widthPct = max > 0 ? (c.total / max) * 100 : 0;
+            const color = palette[i % palette.length] ?? PARETO_BAR_COLOR;
+            return (
+              <div key={c.category}>
+                <div className="flex items-baseline justify-between mb-1.5">
+                  <div className="text-sm font-medium text-foreground flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground tabular-nums w-4">
+                      {i + 1}
+                    </span>
+                    {CATEGORY_LABEL[c.category] ?? c.category}
+                    <span className="text-[10px] text-muted-foreground">· {c.count} kayıt</span>
+                  </div>
+                  <div className="text-sm tabular-nums">
+                    <span className="font-semibold">{fmtMoneyShort(c.total)}</span>
+                    <span className="text-muted-foreground ml-1.5">₺</span>
+                    <span className="text-xs text-muted-foreground ml-2">
+                      %{share.toFixed(1)}
+                    </span>
+                  </div>
+                </div>
+                <div className="h-2 rounded-full bg-muted/50 overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-700 ease-out"
+                    style={{ width: `${widthPct}%`, backgroundColor: color }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ───── Store Comparison (MoM) ─────
+const MONTH_LABELS_SHORT = [
+  "Oca", "Şub", "Mar", "Nis", "May", "Haz",
+  "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara",
+];
+
+function StoreComparison({
+  data,
+  month,
+  year,
+}: {
+  data: ExpenseSummary;
+  month: number;
+  year: number;
+}) {
+  const prevMonthIdx = month === 1 ? 12 : month - 1;
+  const prevMonthYear = month === 1 ? year - 1 : year;
+  const prevLabel = `${MONTH_LABELS_SHORT[prevMonthIdx - 1]} ${prevMonthYear}`;
+  const currLabel = `${MONTH_LABELS_SHORT[month - 1]} ${year}`;
+
+  if (data.by_store.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-5">
+          <div className="font-semibold mb-1 flex items-center gap-2">
+            <Store className="h-4 w-4 text-indigo-600" />
+            Mağaza Kıyaslama
+          </div>
+          <div className="text-sm text-muted-foreground text-center py-8">Veri yok</div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const chartData = data.by_store.map((s) => ({
+    store_name: s.store_name,
+    bu_ay: s.total,
+    gecen_ay: s.prev_month_total,
+  }));
+
+  return (
+    <Card className="animate-fade-in">
+      <CardContent className="p-5">
+        <div className="font-semibold mb-1 flex items-center gap-2">
+          <Store className="h-4 w-4 text-indigo-600" />
+          Mağaza Kıyaslama
+        </div>
+        <div className="text-xs text-muted-foreground mb-4">
+          {currLabel} ile {prevLabel} mağaza bazında
+        </div>
+
+        <ResponsiveContainer width="100%" height={Math.max(180, data.by_store.length * 56)}>
+          <BarChart data={chartData} layout="vertical" margin={{ left: 10 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+            <XAxis
+              type="number"
+              fontSize={11}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v) => `${TRY.format(v / 1000)}K`}
+            />
+            <YAxis
+              type="category"
+              dataKey="store_name"
+              fontSize={11}
+              tickLine={false}
+              axisLine={false}
+              width={110}
+            />
+            <Tooltip
+              formatter={(v, name) => [
+                `${TRY2.format(Number(v))} ₺`,
+                name === "bu_ay" ? currLabel : prevLabel,
+              ]}
+              contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}
+            />
+            <Legend
+              wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
+              formatter={(name) => (name === "bu_ay" ? currLabel : prevLabel)}
+            />
+            <Bar dataKey="gecen_ay" fill="#CBD5E1" radius={[0, 4, 4, 0]} />
+            <Bar dataKey="bu_ay" fill="#6366F1" radius={[0, 4, 4, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+
+        {/* Mağaza başı MoM özeti */}
+        <div className="mt-3 pt-3 border-t border-border/40 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {data.by_store.map((s) => {
+            const mom =
+              s.prev_month_total > 0
+                ? ((s.total - s.prev_month_total) / s.prev_month_total) * 100
+                : null;
+            return (
+              <div
+                key={s.store_id}
+                className="flex items-baseline justify-between text-xs tabular-nums"
+              >
+                <span className="text-foreground truncate pr-2">{s.store_name}</span>
+                <MomTrend value={mom} />
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MomTrend({ value }: { value: number | null }) {
+  if (value === null) {
+    return (
+      <span className="text-muted-foreground inline-flex items-center gap-0.5">
+        <ArrowUpRight className="h-3 w-3" />— vs. geçen ay
+      </span>
+    );
+  }
+  const positive = value >= 0;
+  const Icon = positive ? ArrowUpRight : ArrowDownRight;
+  const tone = positive ? "text-rose-600" : "text-emerald-600";
+  return (
+    <span className={`inline-flex items-center gap-0.5 font-medium ${tone}`}>
+      <Icon className="h-3 w-3" />
+      {`${positive ? "+" : ""}${value.toFixed(Math.abs(value) < 10 ? 1 : 0)}%`}
+      <span className="text-muted-foreground font-normal ml-1">vs. geçen ay</span>
+    </span>
+  );
+}
+
+// ───── Daily View ─────
+function DailyView({
+  data,
+  month,
+  year,
+}: {
+  data: ExpenseSummary;
+  month: number;
+  year: number;
+}) {
+  if (data.daily_series.length === 0 || data.daily_series.every((d) => d.total === 0)) {
+    return null;
+  }
+  const monthLabel = `${MONTH_LABELS_SHORT[month - 1]} ${year}`;
+  const maxDay = [...data.daily_series].sort((a, b) => b.total - a.total)[0];
+  const activeDays = data.daily_series.filter((d) => d.total > 0).length;
+  const dayAvg = activeDays > 0 ? data.total / activeDays : 0;
+  const chartData = data.daily_series.map((d) => ({
+    ...d,
+    isMax: d.day === maxDay?.day && d.total > 0,
+  }));
+
+  return (
+    <Card className="animate-fade-in">
+      <CardContent className="p-5">
+        <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
+          <div>
+            <div className="font-semibold flex items-center gap-2">
+              <CalendarDays className="h-4 w-4 text-rose-600" />
+              Günlük Görünüm — {monthLabel}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">
+              Ayın her gününde toplam gider — en yoğun gün koyu kırmızı
+            </div>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Pill
+              label="En Yoğun Gün"
+              value={maxDay ? `${maxDay.day} · ${fmtMoneyShort(maxDay.total)}` : "—"}
+              tone="amber"
+            />
+            <Pill label="Aktif Gün" value={`${activeDays}`} tone="slate" />
+            <Pill label="Aktif Gün Ort." value={fmtMoneyShort(dayAvg)} tone="violet" />
+          </div>
+        </div>
+
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+            <XAxis dataKey="day" fontSize={10} tickLine={false} axisLine={false} />
+            <YAxis
+              fontSize={11}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v) => `${TRY.format(v / 1000)}K`}
+              width={42}
+            />
+            <Tooltip
+              formatter={(v) => [`${TRY2.format(Number(v))} ₺`, "Gider"]}
+              labelFormatter={(d) => `${d} ${monthLabel.split(" ")[0]}`}
+              contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}
+              cursor={{ fill: "#f8fafc" }}
+            />
+            <Bar dataKey="total" radius={[4, 4, 0, 0]}>
+              {chartData.map((d, i) => (
+                <Cell
+                  key={i}
+                  fill={d.isMax ? "#DC2626" : "#FCA5A5"}
+                  fillOpacity={d.total > 0 ? 1 : 0.3}
+                />
+              ))}
+            </Bar>
+          </BarChart>
         </ResponsiveContainer>
       </CardContent>
     </Card>

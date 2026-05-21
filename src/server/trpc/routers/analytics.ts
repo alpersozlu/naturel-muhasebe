@@ -73,6 +73,7 @@ export const analyticsRouter = router({
             by_category: [],
             by_store: [],
             by_employee: [],
+            daily_series: [],
             yearly_with_projection: [],
             ytd_total: 0,
             projected_year_end: 0,
