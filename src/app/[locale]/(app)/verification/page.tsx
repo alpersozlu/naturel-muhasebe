@@ -7,7 +7,6 @@ import {
   type VerificationSelection,
 } from "@/components/verification/filters";
 import { DayList } from "@/components/verification/day-list";
-import { CashVarianceBlock } from "@/components/verification/cash-variance-block";
 import { trpc } from "@/lib/trpc";
 
 export default function VerificationPage() {
@@ -32,12 +31,6 @@ export default function VerificationPage() {
         description="Mağazalar genelindeki günlük doğrulama durumunu takip edin."
       />
       <VerificationFilters value={sel} onChange={setSel} />
-      <CashVarianceBlock
-        brandId={sel.brandId}
-        storeId={sel.storeId}
-        year={sel.year}
-        month={sel.month}
-      />
       <DayList
         storeId={sel.storeId}
         year={sel.year}
