@@ -99,7 +99,18 @@ export function ReconciliationPanel({
 
         {/* Checklist */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5">
-          <CheckItem ok={data.has_z} label="Z Raporu" />
+          <CheckItem
+            ok={data.has_z}
+            label={
+              data.has_z_report && data.has_manual_invoice
+                ? "Z Raporu + El Faturası"
+                : data.has_z_report
+                  ? "Z Raporu"
+                  : data.has_manual_invoice
+                    ? "El Faturası (Z yerine)"
+                    : "Z Raporu veya El Faturası"
+            }
+          />
           <CheckItem
             ok={data.pos_count > 0}
             label={
@@ -302,6 +313,8 @@ type ReconData = {
     | "error";
   failed_count: number;
   has_z: boolean;
+  has_z_report: boolean;
+  has_manual_invoice: boolean;
   has_summary: boolean;
   pos_count: number;
   verification: {
@@ -327,7 +340,7 @@ function StatusBanner({ data }: { data: ReconData }) {
   if (data.status === "incomplete") {
     const missing: string[] = [];
     if (!data.has_summary) missing.push("Mağaza Özeti");
-    if (!data.has_z) missing.push("Z Raporu");
+    if (!data.has_z) missing.push("Z Raporu veya El Faturası");
     if (data.pos_count === 0) missing.push("POS Fişi");
     return (
       <Banner

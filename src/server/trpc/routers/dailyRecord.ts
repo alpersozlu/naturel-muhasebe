@@ -87,6 +87,8 @@ export const dailyRecordRouter = router({
           exists: false,
           status: "empty" as const,
           has_z: false,
+          has_z_report: false,
+          has_manual_invoice: false,
           has_summary: false,
           pos_count: 0,
           has_reported_cash: false,
@@ -102,7 +104,10 @@ export const dailyRecordRouter = router({
         };
       }
 
-      const hasZ = dr.z_reports.length > 0;
+      // "Z" = Z raporu fişi VEYA el faturası (ya da ikisi). Toplam Z = ikisinin toplamı.
+      const hasZReport = dr.z_reports.length > 0;
+      const hasManualInvoice = dr.manual_invoices.length > 0;
+      const hasZ = hasZReport || hasManualInvoice;
       const hasSummary = dr.store_summary !== null;
       const posCount = dr.pos_slips.filter(
         (p) => p.upload.status === "parsed" || p.upload.status === "confirmed"
@@ -138,6 +143,8 @@ export const dailyRecordRouter = router({
         exists: true,
         status,
         has_z: hasZ,
+        has_z_report: hasZReport,
+        has_manual_invoice: hasManualInvoice,
         has_summary: hasSummary,
         pos_count: posCount,
         has_reported_cash: hasReportedCash,
