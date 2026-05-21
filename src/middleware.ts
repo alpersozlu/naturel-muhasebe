@@ -61,6 +61,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL(`/${locale}/admin`, request.url));
   }
 
+  // Path'i header'a yaz ki AppLayout role-based redirect yapabilsin
+  response.headers.set("x-pathname", pathname);
+
   return response;
 }
 
