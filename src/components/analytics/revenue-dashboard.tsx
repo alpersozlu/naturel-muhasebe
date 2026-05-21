@@ -17,7 +17,6 @@ import {
   ArrowUpRight,
   Banknote,
   CreditCard,
-  Gift,
   Sparkles,
   TrendingUp,
   Wallet,
@@ -719,136 +718,6 @@ function DailySeries({ data }: { data: RevenueSummary }) {
   );
 }
 
-// ───────────────── Loyalty (Kartuş Puan) Usage ─────────────────
-function LoyaltyUsage({ data }: { data: RevenueSummary }) {
-  // Sadece loyalty > 0 olan mağazalar — Derimod (Nebim) hep 0 olur, filtrelenir
-  const stores = data.by_store.filter((s) => s.loyalty > 0);
-  if (stores.length === 0 || data.loyalty === 0) return null;
-
-  // Yüzdesi yüksekten düşüğe sırala (asıl ilgi: hangi mağaza en çok puan kullandırıyor?)
-  const ranked = [...stores]
-    .map((s) => ({
-      ...s,
-      pct: s.total > 0 ? (s.loyalty / s.total) * 100 : 0,
-    }))
-    .sort((a, b) => b.pct - a.pct);
-
-  const overallPct = data.total > 0 ? (data.loyalty / data.total) * 100 : 0;
-  const avgStorePct =
-    ranked.reduce((sum, s) => sum + s.pct, 0) / Math.max(1, ranked.length);
-  const top = ranked[0];
-  const maxLoyalty = Math.max(...ranked.map((s) => s.loyalty));
-
-  return (
-    <Card className="animate-fade-in">
-      <CardContent className="p-5 lg:p-6">
-        <div className="flex items-start justify-between gap-4 mb-5 flex-wrap">
-          <div>
-            <div className="font-semibold flex items-center gap-2">
-              <Gift className="h-4 w-4 text-fuchsia-600" />
-              Kartuş Puan Kullanımı
-            </div>
-            <div className="text-xs text-muted-foreground mt-1">
-              Sadakat puanları satışın ne kadarını oluşturuyor — mağaza bazında
-              {top
-                ? ` · ${top.store_name} en yoğun puan kullanılan mağaza (%${top.pct.toFixed(1)})`
-                : ""}
-            </div>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <LoyaltyPill
-              label="Toplam Kullanım"
-              value={fmtMoneyShort(data.loyalty)}
-              unit="₺"
-            />
-            <LoyaltyPill label="Satıştaki Payı" value={`%${overallPct.toFixed(2)}`} />
-            <LoyaltyPill
-              label="Mağaza Ort."
-              value={`%${avgStorePct.toFixed(2)}`}
-              hint={`${ranked.length} mağaza`}
-            />
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          {ranked.map((s, i) => {
-            const widthPct = maxLoyalty > 0 ? (s.loyalty / maxLoyalty) * 100 : 0;
-            // Heat tone — yüksek %: yoğun fuchsia, düşük: soluk
-            const heatIntensity = Math.min(1, s.pct / 5); // %5 ve üzeri full doygun
-            return (
-              <div key={s.store_id}>
-                <div className="flex items-baseline justify-between mb-1.5">
-                  <div className="text-sm font-medium text-foreground flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground tabular-nums w-4">
-                      {i + 1}
-                    </span>
-                    {s.store_name}
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                      · Satış {fmtMoneyShort(s.total)} ₺
-                    </span>
-                  </div>
-                  <div className="text-sm tabular-nums flex items-baseline gap-3">
-                    <span className="text-muted-foreground">{fmtMoneyShort(s.loyalty)} ₺</span>
-                    <span
-                      className="font-semibold tabular-nums w-14 text-right"
-                      style={{
-                        color: `rgba(192, 38, 211, ${0.5 + heatIntensity * 0.5})`,
-                      }}
-                    >
-                      %{s.pct.toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-                <div className="h-2 rounded-full bg-muted/50 overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-700 ease-out"
-                    style={{
-                      width: `${widthPct}%`,
-                      backgroundColor: `rgba(192, 38, 211, ${0.4 + heatIntensity * 0.6})`,
-                    }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Footer açıklama */}
-        <div className="mt-4 pt-4 border-t border-border/40 text-xs text-muted-foreground leading-relaxed">
-          Sıralama satıştaki yüzdeye göre. Müşterilerin daha çok puan kullandığı
-          mağazalar üstte; bu, sadakat programının o lokasyonda ne kadar aktif
-          işlediğini gösterir.
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function LoyaltyPill({
-  label,
-  value,
-  unit,
-  hint,
-}: {
-  label: string;
-  value: string;
-  unit?: string;
-  hint?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-fuchsia-200/70 bg-fuchsia-50/40 px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wider text-fuchsia-700 opacity-80">
-        {label}
-      </div>
-      <div className="text-sm font-semibold tabular-nums text-fuchsia-900">
-        {value}
-        {unit ? <span className="text-xs font-normal opacity-70 ml-1">{unit}</span> : null}
-      </div>
-      {hint ? <div className="text-[10px] text-fuchsia-700/70 mt-0.5">{hint}</div> : null}
-    </div>
-  );
-}
-
 // ───────────────── Bank breakdown (existing) ─────────────────
 function BankBreakdown({ data }: { data: RevenueSummary }) {
   if (data.by_bank.length === 0) return null;
@@ -954,8 +823,6 @@ export function RevenueDashboard({
         <BrandSplit data={data} month={month} year={year} />
         <CashHealth data={data} />
       </div>
-
-      <LoyaltyUsage data={data} />
 
       <DailySeries data={data} />
       <BankBreakdown data={data} />

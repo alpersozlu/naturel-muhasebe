@@ -23,6 +23,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   CalendarDays,
+  Gift,
   Layers,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -161,6 +162,14 @@ export function ExpenseDashboard({
 
       {/* P&L Summary (replaces Pareto) */}
       <PnLCard
+        brandId={brandId}
+        storeId={storeId}
+        month={month}
+        year={year}
+      />
+
+      {/* Kartuş Puan (loyalty-as-effective-discount) */}
+      <LoyaltyUsage
         brandId={brandId}
         storeId={storeId}
         month={month}
@@ -849,6 +858,125 @@ function DailyView({
             </Bar>
           </BarChart>
         </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ───── Loyalty (Kartuş Puan) — efektif indirim gideri ─────
+function LoyaltyUsage({
+  brandId,
+  storeId,
+  month,
+  year,
+}: {
+  brandId: string;
+  storeId: string;
+  month: number;
+  year: number;
+}) {
+  const { data, isLoading } = trpc.analytics.revenue.useQuery({
+    brand_id: brandId || undefined,
+    store_id: storeId || undefined,
+    year,
+    month,
+  });
+
+  if (isLoading || !data) return null;
+  const stores = data.by_store.filter((s) => s.loyalty > 0);
+  if (stores.length === 0 || data.loyalty === 0) return null;
+
+  // Yüzdesi yüksekten düşüğe sırala
+  const ranked = stores
+    .map((s) => ({
+      ...s,
+      pct: s.total > 0 ? (s.loyalty / s.total) * 100 : 0,
+    }))
+    .sort((a, b) => b.pct - a.pct);
+
+  const overallPct = data.total > 0 ? (data.loyalty / data.total) * 100 : 0;
+  const avgStorePct =
+    ranked.reduce((sum, s) => sum + s.pct, 0) / Math.max(1, ranked.length);
+  const top = ranked[0];
+  const maxLoyalty = Math.max(...ranked.map((s) => s.loyalty));
+
+  return (
+    <Card className="animate-fade-in">
+      <CardContent className="p-5 lg:p-6">
+        <div className="flex items-start justify-between gap-4 mb-5 flex-wrap">
+          <div>
+            <div className="font-semibold flex items-center gap-2">
+              <Gift className="h-4 w-4 text-fuchsia-600" />
+              Kartuş Puan Kullanımı · Efektif İndirim
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">
+              Müşterilerin sadakat puanıyla ödediği tutar — satıştan düşülen
+              indirim {top ? `· ${top.store_name} en yoğun (%${top.pct.toFixed(1)})` : ""}
+            </div>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Pill
+              label="Toplam İndirim"
+              value={fmtMoneyShort(data.loyalty)}
+              tone="violet"
+            />
+            <Pill label="Satıştaki Payı" value={`%${overallPct.toFixed(2)}`} tone="slate" />
+            <Pill
+              label="Mağaza Ortalaması"
+              value={`%${avgStorePct.toFixed(2)}`}
+              tone="amber"
+              hint={`${ranked.length} mağaza`}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {ranked.map((s, i) => {
+            const widthPct = maxLoyalty > 0 ? (s.loyalty / maxLoyalty) * 100 : 0;
+            const heatIntensity = Math.min(1, s.pct / 5);
+            return (
+              <div key={s.store_id}>
+                <div className="flex items-baseline justify-between mb-1.5">
+                  <div className="text-sm font-medium text-foreground flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground tabular-nums w-4">
+                      {i + 1}
+                    </span>
+                    {s.store_name}
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                      · Satış {fmtMoneyShort(s.total)} ₺
+                    </span>
+                  </div>
+                  <div className="text-sm tabular-nums flex items-baseline gap-3">
+                    <span className="text-muted-foreground">{fmtMoneyShort(s.loyalty)} ₺</span>
+                    <span
+                      className="font-semibold tabular-nums w-14 text-right"
+                      style={{
+                        color: `rgba(192, 38, 211, ${0.5 + heatIntensity * 0.5})`,
+                      }}
+                    >
+                      %{s.pct.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+                <div className="h-2 rounded-full bg-muted/50 overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-700 ease-out"
+                    style={{
+                      width: `${widthPct}%`,
+                      backgroundColor: `rgba(192, 38, 211, ${0.4 + heatIntensity * 0.6})`,
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-border/40 text-xs text-muted-foreground leading-relaxed">
+          Sıralama satıştaki yüzdeye göre. Daha yüksek yüzdeli mağazalar
+          satışlarının daha büyük kısmını sadakat puanı olarak iade ediyor —
+          efektif olarak daha fazla indirim veriyor.
+        </div>
       </CardContent>
     </Card>
   );
