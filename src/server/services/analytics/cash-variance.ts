@@ -21,6 +21,8 @@ export type DayVariance = {
   difference: number;
   notes: string | null;
   locked: boolean;
+  /** |difference| <= TOLERANCE_TL */
+  within_tolerance: boolean;
 };
 
 export type StoreCashVariance = {
@@ -35,7 +37,7 @@ export type StoreCashVariance = {
   total_surplus: number;
   /** Tolerans dışı (|Δ| > 5 TL) günler sayısı */
   days_with_variance: number;
-  /** Tolerans dışı tüm günler (kronolojik), notlarıyla */
+  /** Mağaza özeti yüklenmiş tüm günler (tolerans içinde olanlar da dahil) */
   days: DayVariance[];
 };
 
@@ -152,14 +154,18 @@ export async function cashVarianceSummary(
     if (!bucket) continue;
 
     bucket.net_diff += diff;
-    if (Math.abs(diff) > TOLERANCE_TL) {
+    const withinTolerance = Math.abs(diff) <= TOLERANCE_TL;
+    // Tüm summary'li günler days[]'a eklenir — UI tarafında tolerans içinde
+    // olanlar pasif (gri), olmayanlar vurgulu gösterilir.
+    bucket.days.push({
+      date: dr.date.toISOString().slice(0, 10),
+      difference: diff,
+      notes: dr.reconciliation_notes,
+      locked: dr.status === "locked",
+      within_tolerance: withinTolerance,
+    });
+    if (!withinTolerance) {
       bucket.days_with_variance += 1;
-      bucket.days.push({
-        date: dr.date.toISOString().slice(0, 10),
-        difference: diff,
-        notes: dr.reconciliation_notes,
-        locked: dr.status === "locked",
-      });
       if (diff < 0) {
         bucket.total_deficit += Math.abs(diff);
       } else {
