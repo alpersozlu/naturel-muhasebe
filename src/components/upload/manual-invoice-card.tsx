@@ -63,7 +63,28 @@ export function ManualInvoiceCard({
         description: "",
       });
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => {
+      // Debug için tam hata
+      if (typeof window !== "undefined") {
+        console.error("Manuel fatura mutation error:", e);
+      }
+      // tRPC zod hatalarını JSON'dan ayıkla — okunaklı göster
+      let msg = e.message;
+      try {
+        const parsed = JSON.parse(msg);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          msg = parsed
+            .map((i) => {
+              const path = Array.isArray(i.path) ? i.path.join(".") : "";
+              return path ? `${path}: ${i.message}` : i.message;
+            })
+            .join(" · ");
+        }
+      } catch {
+        /* zod JSON değil — düz mesaj olarak göster */
+      }
+      toast.error(msg);
+    },
   });
 
   const del = trpc.manualInvoice.delete.useMutation({
