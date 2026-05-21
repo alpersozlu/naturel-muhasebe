@@ -5,6 +5,10 @@ import {
 } from "@/lib/zod-schemas/analytics";
 import { revenueSummary } from "@/server/services/analytics/revenue";
 import { expenseSummary } from "@/server/services/analytics/expense";
+import {
+  bankCommissionSummary,
+  type BankCommissionSummary,
+} from "@/server/services/analytics/bank-commission";
 import { buildRevenueExcel } from "@/server/services/exports/excel/revenue";
 import { buildExpenseExcel } from "@/server/services/exports/excel/expense";
 import { isAdmin, getAccessibleStoreIds } from "@/lib/auth/permissions";
@@ -74,6 +78,30 @@ export const analyticsRouter = router({
         filter.store_id = ids[0];
       }
       return expenseSummary(ctx.prisma, filter);
+    }),
+
+  bankCommission: protectedProcedure
+    .input(analyticsFilterSchema)
+    .query(async ({ ctx, input }): Promise<BankCommissionSummary> => {
+      const filter = { ...input };
+      if (!isAdmin(ctx.user) && !filter.store_id && !filter.brand_id) {
+        const ids = await getAccessibleStoreIds(ctx.user);
+        if (ids.length === 0) {
+          return {
+            total: 0,
+            total_gross: 0,
+            effective_rate: 0,
+            active_days: 0,
+            prev_month_total: 0,
+            prev_year_total: 0,
+            sparkline: [],
+            yearly_compare: { current_ytd: 0, prev_ytd: 0, months: [] },
+            by_bank: [],
+          };
+        }
+        filter.store_id = ids[0];
+      }
+      return bankCommissionSummary(ctx.prisma, filter);
     }),
 
   exportRevenue: protectedProcedure

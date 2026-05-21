@@ -7,6 +7,7 @@ import {
   type AnalyticsSelection,
 } from "@/components/analytics/analytics-filters";
 import { ExpenseDashboard } from "@/components/analytics/expense-dashboard";
+import { BankCommissionBlock } from "@/components/analytics/bank-commission-block";
 import { ExportExcelButton } from "@/components/analytics/export-button";
 import { trpc } from "@/lib/trpc";
 
@@ -45,6 +46,14 @@ export default function ExpensesPage() {
         year={sel.year}
         month={sel.month}
       />
+      <div className="mt-8">
+        <BankCommissionBlock
+          brandId={sel.brandId}
+          storeId={sel.storeId}
+          year={sel.year}
+          month={sel.month}
+        />
+      </div>
     </div>
   );
 }
