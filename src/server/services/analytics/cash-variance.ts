@@ -7,12 +7,13 @@ import { TOLERANCE_TL } from "@/lib/constants";
  * Kasa Farkı Analitiği
  *
  * Mağazaların gün-gün uzlaşma farklarını toplar:
- *   - actual = StoreSummary.sales_total
- *   - expected = POS toplam + Nakit (müdür sayımı varsa) + Kartuş puan
- *   - difference = actual − expected
+ *   - documents = POS toplam + Nakit (müdür sayımı varsa) + Kartuş puan
+ *     (elimize geçen)
+ *   - summary = StoreSummary.sales_total (olması gereken)
+ *   - difference = documents − summary
  *
- * Negatif = belgelerimiz özette görünen satıştan az → eksik (kayıp/hırsızlık sinyali).
- * Pozitif = belgelerimiz özetten fazla → fazla nakit alındı (üst kalmış vb.)
+ * Negatif = elimize geçen olması gerekenden az → EKSİK (kayıp/hırsızlık sinyali).
+ * Pozitif = elimize geçen olması gerekenden fazla → fazla nakit / üst kalmış.
  */
 
 export type DayVariance = {
@@ -141,9 +142,10 @@ export async function cashVarianceSummary(
     const reportedCash = dr.reported_cash_try ? num(dr.reported_cash_try) : null;
     const effectiveCash = reportedCash ?? summaryCash;
 
-    const expected = posSum + effectiveCash + loyalty;
-    const actual = summarySales;
-    const diff = actual - expected;
+    const documents = posSum + effectiveCash + loyalty;
+    const summary = summarySales;
+    // Sign konvansiyonu: docs − summary (elime geçen − olması gereken)
+    const diff = documents - summary;
 
     // Tolerans içindeyse yine de net_diff'e ekle ama days listesine alma
     const bucket = byStoreMap[dr.store_id];

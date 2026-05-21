@@ -97,16 +97,18 @@ export async function computeDay(
 
   const expected_total = posSumTRY + effectiveCash + loyalty;
   const actual_total = summarySales;
-  const difference = actual_total - expected_total;
+  // Sign konvansiyonu: docs − summary (elime geçen − olması gereken).
+  // Negatif = eksik (kayıp/hırsızlık sinyali); pozitif = fazla.
+  const difference = expected_total - actual_total;
 
-  // Satır satır karşılaştırma (UI için)
+  // Satır satır karşılaştırma (UI için) — aynı konvansiyon: doc − summary
   const rows: ComparisonRow[] = [
     {
       label: "POS Fişleri Toplamı",
       document_total: posSumTRY,
       summary_total: ccTotal,
-      difference: ccTotal - posSumTRY,
-      matches: Math.abs(ccTotal - posSumTRY) <= TOLERANCE_TL,
+      difference: posSumTRY - ccTotal,
+      matches: Math.abs(posSumTRY - ccTotal) <= TOLERANCE_TL,
     },
     // Müdür nakit girişi varsa kasa karşılaştırması yap; aksi halde tek satır.
     reportedCash !== null
@@ -114,8 +116,8 @@ export async function computeDay(
           label: "Nakit (Müdür sayımı vs Mağaza özeti)",
           document_total: reportedCash,
           summary_total: summaryCash,
-          difference: summaryCash - reportedCash,
-          matches: Math.abs(summaryCash - reportedCash) <= TOLERANCE_TL,
+          difference: reportedCash - summaryCash,
+          matches: Math.abs(reportedCash - summaryCash) <= TOLERANCE_TL,
         }
       : {
           label: "Nakit (yalnızca özet, müdür sayımı yok)",
@@ -144,13 +146,16 @@ export async function computeDay(
     ? "match"
     : "mismatch";
 
-  // Kasa eksiklik/fazlalık uyarısı (müdür nakit girişi varsa)
+  // Kasa eksiklik/fazlalık uyarısı (müdür nakit girişi varsa).
+  // Yeni konvansiyon: cashRow.difference = reportedCash − summaryCash
+  //   negatif → müdür saydığı, özetten az → EKSİK (kayıp)
+  //   pozitif → müdür saydığı, özetten fazla → FAZLA
   const cashRow = rows[1];
   const cashMismatch =
     reportedCash !== null && !cashRow.matches
-      ? cashRow.difference > 0
-        ? `Kasa eksiklik: Müdür ${reportedCash.toFixed(2)} TL saydı ama özette ${summaryCash.toFixed(2)} TL → ${cashRow.difference.toFixed(2)} TL eksik (potansiyel kayıp).`
-        : `Kasa fazlalık: Müdür ${reportedCash.toFixed(2)} TL saydı ama özette ${summaryCash.toFixed(2)} TL → ${Math.abs(cashRow.difference).toFixed(2)} TL fazla.`
+      ? cashRow.difference < 0
+        ? `Kasa eksiklik: Müdür ${reportedCash.toFixed(2)} TL saydı ama özette ${summaryCash.toFixed(2)} TL → ${Math.abs(cashRow.difference).toFixed(2)} TL eksik (potansiyel kayıp).`
+        : `Kasa fazlalık: Müdür ${reportedCash.toFixed(2)} TL saydı ama özette ${summaryCash.toFixed(2)} TL → ${cashRow.difference.toFixed(2)} TL fazla.`
       : null;
 
   const noteParts: string[] = [];
