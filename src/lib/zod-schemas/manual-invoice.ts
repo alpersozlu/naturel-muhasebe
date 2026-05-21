@@ -16,9 +16,8 @@ const optionalIsoDate = z
   .transform((v) => (v === "" || v == null ? undefined : v))
   .pipe(dateOnly.optional());
 
-export const manualInvoiceCreateSchema = z.object({
-  store_id: z.string().uuid("Mağaza seçilmedi"),
-  date: dateOnly,
+/** Sadece form'da kullanıcının girdiği alanlar — store_id/date prop'lardan gelir. */
+export const manualInvoiceFormSchema = z.object({
   amount: z.coerce
     .number({ message: "Tutar bir sayı olmalı" })
     .positive("Tutar 0'dan büyük olmalı"),
@@ -28,6 +27,12 @@ export const manualInvoiceCreateSchema = z.object({
   description: optionalString,
 });
 
+/** API'ye gönderilen tam payload — store_id/date dahil. */
+export const manualInvoiceCreateSchema = manualInvoiceFormSchema.extend({
+  store_id: z.string().uuid("Mağaza seçilmedi"),
+  date: dateOnly,
+});
+
 export const manualInvoiceIdSchema = z.object({ id: z.string().uuid() });
 
 export const manualInvoicesForStoreDateSchema = z.object({
@@ -35,5 +40,6 @@ export const manualInvoicesForStoreDateSchema = z.object({
   date: dateOnly,
 });
 
+export type ManualInvoiceFormInput = z.input<typeof manualInvoiceFormSchema>;
 export type ManualInvoiceCreateInput = z.input<typeof manualInvoiceCreateSchema>;
 export type ManualInvoiceCreateOutput = z.output<typeof manualInvoiceCreateSchema>;

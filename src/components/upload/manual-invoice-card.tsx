@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { useForm, Controller, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -9,8 +8,8 @@ import { formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
 import { trpc } from "@/lib/trpc";
 import {
-  manualInvoiceCreateSchema,
-  type ManualInvoiceCreateInput,
+  manualInvoiceFormSchema,
+  type ManualInvoiceFormInput,
 } from "@/lib/zod-schemas/manual-invoice";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -55,8 +54,6 @@ export function ManualInvoiceCard({
       // Z raporu durumunu güncelle (mevcut Z varsa kural yeniden değerlendirilebilir)
       utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
       reset({
-        store_id: storeId,
-        date,
         amount: 0,
         currency: "TRY",
         invoice_no: "",
@@ -105,15 +102,12 @@ export function ManualInvoiceCard({
     handleSubmit,
     reset,
     control,
-    setValue,
     formState: { errors, isSubmitting },
-  } = useForm<ManualInvoiceCreateInput>({
+  } = useForm<ManualInvoiceFormInput>({
     resolver: zodResolver(
-      manualInvoiceCreateSchema
-    ) as Resolver<ManualInvoiceCreateInput>,
+      manualInvoiceFormSchema
+    ) as Resolver<ManualInvoiceFormInput>,
     defaultValues: {
-      store_id: storeId,
-      date,
       amount: 0,
       currency: "TRY",
       invoice_no: "",
@@ -122,16 +116,19 @@ export function ManualInvoiceCard({
     },
   });
 
-  // storeId/date prop'ları değiştiğinde form değerlerini güncelle.
-  // defaultValues sadece ilk render'da uygulandığı için, sonradan seçilen
-  // mağaza/tarih form içine yansımıyordu — validation "Mağaza seçilmedi" diyordu.
-  useEffect(() => {
-    setValue("store_id", storeId);
-    setValue("date", date);
-  }, [storeId, date, setValue]);
-
-  const onSubmit = (vals: ManualInvoiceCreateInput) =>
-    create.mutateAsync({ ...vals, store_id: storeId, date });
+  // store_id ve date form alanı değil — prop olarak gelir, submit anında eklenir.
+  // Bu sayede prop değişimine bağlı stale form state sorunu yaşanmaz.
+  const onSubmit = (vals: ManualInvoiceFormInput) => {
+    if (!storeId || !date) {
+      toast.error("Mağaza ve tarih seçilmedi");
+      return;
+    }
+    return create.mutateAsync({
+      ...vals,
+      store_id: storeId,
+      date,
+    });
+  };
 
   // Validation hatalarını sessiz bırakmamak için — kullanıcı neden kaydedemediğini görsün
   const FIELD_LABELS: Record<string, string> = {
