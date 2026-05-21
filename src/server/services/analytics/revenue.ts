@@ -11,7 +11,14 @@ export type RevenueSummary = {
   daily_avg: number;
   active_days: number;
   daily_series: Array<{ day: number; cash: number; pos: number; total: number }>;
-  by_store: Array<{ store_id: string; store_name: string; total: number; cash: number; pos: number }>;
+  by_store: Array<{
+    store_id: string;
+    store_name: string;
+    total: number;
+    cash: number;
+    pos: number;
+    loyalty: number;
+  }>;
   by_bank: Array<{ bank_name: string; total: number }>;
 
   // ---- Trends ----
@@ -114,7 +121,7 @@ export async function revenueSummary(
   let loyalty = 0;
   const activeDays = new Set<string>();
   const daily: Record<number, { cash: number; pos: number; total: number }> = {};
-  const byStoreMap: Record<string, { name: string; total: number; cash: number; pos: number }> = {};
+  const byStoreMap: Record<string, { name: string; total: number; cash: number; pos: number; loyalty: number }> = {};
   const weekdayTotals: Array<{ total: number; daySet: Set<string> }> = Array.from(
     { length: 7 },
     () => ({ total: 0, daySet: new Set<string>() })
@@ -159,10 +166,11 @@ export async function revenueSummary(
       daily[dayN].total += sTotal;
 
       const sid = s.daily_record.store_id;
-      byStoreMap[sid] ??= { name: s.daily_record.store.name, total: 0, cash: 0, pos: 0 };
+      byStoreMap[sid] ??= { name: s.daily_record.store.name, total: 0, cash: 0, pos: 0, loyalty: 0 };
       byStoreMap[sid].total += sTotal;
       byStoreMap[sid].cash += sCash;
       byStoreMap[sid].pos += sCC;
+      byStoreMap[sid].loyalty += sLoyalty;
 
       // Per-brand store map (current month only)
       currentStoresByBrand[brandId] ??= {};
@@ -205,6 +213,7 @@ export async function revenueSummary(
       total: v.total,
       cash: v.cash,
       pos: v.pos,
+      loyalty: v.loyalty,
     }))
     .sort((a, b) => b.total - a.total);
 
