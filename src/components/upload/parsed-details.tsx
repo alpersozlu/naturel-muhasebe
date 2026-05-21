@@ -144,9 +144,10 @@ export function ZReportDetails({
     passed: boolean;
     reasons: string[];
     combined: number;
-    cc_threshold: number | null;
+    cc_floor: number | null;
     cc_total?: number;
     total_sales: number | null;
+    cash_present?: boolean;
   } | null;
 }) {
   return (
@@ -212,9 +213,10 @@ export function ZReportDetails({
               </ul>
             ) : (
               <div className="text-emerald-700/80">
-                Z + El faturaları {fmt(approval.combined)} ₺ · KK eşiği{" "}
-                {fmt(approval.cc_threshold ?? 0)} ₺ · Toplam satış{" "}
-                {fmt(approval.total_sales ?? 0)} ₺
+                Toplam Z {fmt(approval.combined)} ₺ · Visa alt sınır{" "}
+                {fmt(approval.cc_floor ?? 0)} ₺
+                {approval.cash_present ? " (×1.05 nakit kuralı)" : ""} · Toplam
+                satış {fmt(approval.total_sales ?? 0)} ₺
               </div>
             )}
           </div>
