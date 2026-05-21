@@ -85,13 +85,22 @@ export function ReconciliationPanel({
           />
           <CheckItem ok={data.has_summary} label="Mağaza Özeti" />
           <CheckItem
-            ok={data.has_reported_cash || data.has_bank_receipt}
-            label={
+            ok={
+              !data.requires_cash_proof ||
+              data.has_reported_cash ||
               data.has_bank_receipt
-                ? "İban Dekontu"
-                : data.has_reported_cash
-                  ? "Günlük Nakit"
-                  : "Günlük Nakit / İban Dekontu"
+            }
+            optional={!data.requires_cash_proof}
+            label={
+              !data.requires_cash_proof
+                ? data.has_summary
+                  ? "Nakit Yok (POS-only gün)"
+                  : "Günlük Nakit (özet bekleniyor)"
+                : data.has_bank_receipt
+                  ? "İban Dekontu"
+                  : data.has_reported_cash
+                    ? "Günlük Nakit"
+                    : "Günlük Nakit / İban Dekontu"
             }
           />
         </div>
@@ -140,14 +149,24 @@ export function ReconciliationPanel({
   );
 }
 
-function CheckItem({ ok, label }: { ok: boolean; label: string }) {
+function CheckItem({
+  ok,
+  label,
+  optional,
+}: {
+  ok: boolean;
+  label: string;
+  optional?: boolean;
+}) {
+  // Opsiyonel kalem: işaret yumuşak (slate), zorunlu değil
+  const cls = optional
+    ? "bg-slate-50 text-slate-600"
+    : ok
+      ? "bg-emerald-50 text-emerald-800"
+      : "bg-muted/30 text-muted-foreground";
   return (
     <div
-      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${
-        ok
-          ? "bg-emerald-50 text-emerald-800"
-          : "bg-muted/30 text-muted-foreground"
-      }`}
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${cls}`}
     >
       {ok ? (
         <Check className="h-4 w-4 shrink-0" />
@@ -169,6 +188,9 @@ type ReconData = {
     | "locked"
     | "error";
   failed_count: number;
+  has_z: boolean;
+  has_summary: boolean;
+  pos_count: number;
   verification: {
     status: "match" | "mismatch" | "no_data" | "no_summary";
     expected_total: number;
@@ -190,12 +212,20 @@ function StatusSummary({ data }: { data: ReconData }) {
     );
   }
   if (data.status === "incomplete") {
+    const missing: string[] = [];
+    if (!data.has_summary) missing.push("Mağaza Özeti");
+    if (!data.has_z) missing.push("Z Raporu");
+    if (data.pos_count === 0) missing.push("POS Fişi");
+    const msg =
+      missing.length > 0
+        ? `Eksik: ${missing.join(", ")}. Bunlar yüklenince mutabakat hesaplanır.`
+        : "Mutabakat için zorunlu kalemler tamamlanmalı.";
     return (
       <Banner
         tone="amber"
         icon={<AlertTriangle className="h-4 w-4" />}
         title="Eksik var"
-        message="Mutabakat için yukardaki tüm kalemler tamamlanmalı."
+        message={msg}
       />
     );
   }

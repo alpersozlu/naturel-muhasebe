@@ -90,6 +90,7 @@ export const dailyRecordRouter = router({
           pos_count: 0,
           has_reported_cash: false,
           has_bank_receipt: false,
+          requires_cash_proof: false,
           manual_invoice_count: 0,
           failed_count: 0,
           daily_record_status: null,
@@ -105,6 +106,9 @@ export const dailyRecordRouter = router({
       const hasReportedCash = dr.reported_cash_try !== null;
       const hasBankReceipt = dr.bank_receipts.length > 0;
       const failedCount = dr.uploads.filter((u) => u.status === "failed").length;
+      // Mağaza özeti nakit > 0 ise dekont/sayım gerekli; 0 ise POS-only gün, gerekmez
+      const cashSales = dr.store_summary?.cash_sales_try?.toNumber() ?? 0;
+      const requiresCashProof = hasSummary && cashSales > 0.01;
 
       // Mutabakat hesaplayabilir miyiz? Mağaza Özeti gerekli.
       const verification = hasSummary
@@ -134,6 +138,7 @@ export const dailyRecordRouter = router({
         pos_count: posCount,
         has_reported_cash: hasReportedCash,
         has_bank_receipt: hasBankReceipt,
+        requires_cash_proof: requiresCashProof,
         manual_invoice_count: dr.manual_invoices.length,
         failed_count: failedCount,
         daily_record_status: dr.status,
