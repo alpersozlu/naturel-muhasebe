@@ -11,7 +11,6 @@ import {
   LineChart,
   Line,
   Cell,
-  ComposedChart,
   ReferenceLine,
   Legend,
 } from "recharts";
@@ -63,9 +62,12 @@ const CATEGORY_LABEL: Record<string, string> = {
 
 const TREND_COLOR = "#8B5CF6";
 const PROJECTION_COLOR = "#C4B5FD"; // violet-300
-const PARETO_BAR_COLOR = "#EF4444";
-const PARETO_LINE_COLOR = "#1E293B"; // slate-800 — cumulative line
-const REF_80_COLOR = "#F59E0B"; // amber-500 — 80% reference
+const PARETO_BAR_COLOR = "#EF4444"; // CategoryDistribution fallback rengi
+
+const MONTH_LABELS_SHORT = [
+  "Oca", "Şub", "Mar", "Nis", "May", "Haz",
+  "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara",
+];
 
 export function ExpenseDashboard({
   brandId,
@@ -157,8 +159,13 @@ export function ExpenseDashboard({
       {/* Yearly Trend + Projection */}
       <YearlyTrendCard data={data} month={month} year={year} />
 
-      {/* Pareto */}
-      <ParetoCard data={data} />
+      {/* P&L Summary (replaces Pareto) */}
+      <PnLCard
+        brandId={brandId}
+        storeId={storeId}
+        month={month}
+        year={year}
+      />
 
       {/* Bottom row: Category Distribution + Store Comparison */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -313,129 +320,269 @@ function Pill({
   );
 }
 
-// ───── Pareto / 80-20 ─────
-function ParetoCard({
-  data,
+// ───── P&L (Kar/Zarar) Card ─────
+function PnLCard({
+  brandId,
+  storeId,
+  month,
+  year,
 }: {
-  data: ExpenseSummary;
+  brandId: string;
+  storeId: string;
+  month: number;
+  year: number;
 }) {
-  if (data.by_category.length === 0 || data.total === 0) return null;
-
-  // Sıralı kategoriler + cumulative %
-  let cumulative = 0;
-  const items = data.by_category.map((c) => {
-    const share = (c.total / data.total) * 100;
-    cumulative += share;
-    return {
-      label: CATEGORY_LABEL[c.category] ?? c.category,
-      total: c.total,
-      share,
-      cumulative,
-    };
+  const { data, isLoading } = trpc.analytics.profitLoss.useQuery({
+    brand_id: brandId || undefined,
+    store_id: storeId || undefined,
+    year,
+    month,
   });
 
-  // %80'i kapsayan en küçük N
-  let nFor80 = items.length;
-  for (let i = 0; i < items.length; i++) {
-    if (items[i]!.cumulative >= 80) {
-      nFor80 = i + 1;
-      break;
-    }
+  if (isLoading) {
+    return <ChartSkeleton height={320} />;
   }
-  const pctOfCategories = (nFor80 / items.length) * 100;
-  const insightLine =
-    items.length === 1
-      ? `Tüm gider tek bir kategoride toplanmış: ${items[0]!.label}. Risk yoğunluğu yüksek.`
-      : `${nFor80} kategori (toplam kategori sayısının %${pctOfCategories.toFixed(0)}'i) giderlerin %80'ini oluşturuyor.`;
+  if (!data) return null;
+
+  const monthLabel = `${MONTH_LABELS_SHORT[month - 1]} ${year}`;
+  const cur = data.current;
+  const isEmpty = cur.revenue === 0 && cur.commission === 0 && cur.expense === 0;
+
+  // Net kazanç MoM/YoY
+  const netMom =
+    data.prev_month.net !== 0
+      ? ((cur.net - data.prev_month.net) / Math.abs(data.prev_month.net)) * 100
+      : null;
+  const netYoy =
+    data.prev_year.net !== 0
+      ? ((cur.net - data.prev_year.net) / Math.abs(data.prev_year.net)) * 100
+      : null;
+
+  // Gider/Gelir oranı sağlık bandı (%0-100)
+  const ratioPct = cur.ratio * 100;
+  let bandLabel = "Sağlıklı";
+  let bandTone = "emerald";
+  if (ratioPct >= 35) {
+    bandLabel = "Yüksek";
+    bandTone = "rose";
+  } else if (ratioPct >= 25) {
+    bandLabel = "Dikkat";
+    bandTone = "amber";
+  } else if (ratioPct >= 15) {
+    bandLabel = "İzlenmeli";
+    bandTone = "amber";
+  }
+
+  const commissionShare = cur.revenue > 0 ? (cur.commission / cur.revenue) * 100 : 0;
+  const expenseShare = cur.revenue > 0 ? (cur.expense / cur.revenue) * 100 : 0;
+  const netShare = cur.revenue > 0 ? (cur.net / cur.revenue) * 100 : 0;
 
   return (
     <Card className="animate-fade-in">
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between gap-4 mb-1 flex-wrap">
+      <CardContent className="p-5 lg:p-6">
+        <div className="flex items-start justify-between gap-4 mb-5 flex-wrap">
           <div>
             <div className="font-semibold flex items-center gap-2">
-              <Target className="h-4 w-4 text-rose-600" />
-              Pareto Analizi · 80/20
+              <Target className="h-4 w-4 text-emerald-600" />
+              {monthLabel} · Kar / Zarar Özeti
             </div>
-            <div className="text-xs text-muted-foreground mt-1">{insightLine}</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              Cironun ne kadarı gidere, ne kadarı net kazanca dönüştü
+            </div>
           </div>
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-3">
-            <span className="flex items-center gap-1.5">
-              <span className="h-2 w-3 rounded-sm" style={{ backgroundColor: PARETO_BAR_COLOR }} />
-              Kategori payı (₺)
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span
-                className="h-0.5 w-4 inline-block"
-                style={{ backgroundColor: PARETO_LINE_COLOR }}
-              />
-              Kümülatif %
-            </span>
+          <div className="flex gap-2 flex-wrap">
+            <NetTrendChip
+              value={netMom}
+              periodLabel={`${MONTH_LABELS_SHORT[(month === 1 ? 12 : month - 1) - 1]} ${
+                month === 1 ? year - 1 : year
+              }`}
+            />
+            <NetTrendChip
+              value={netYoy}
+              periodLabel={`${MONTH_LABELS_SHORT[month - 1]} ${year - 1}`}
+            />
           </div>
         </div>
 
-        <ResponsiveContainer width="100%" height={280}>
-          <ComposedChart data={items} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-            <XAxis dataKey="label" fontSize={11} tickLine={false} axisLine={false} interval={0} />
-            <YAxis
-              yAxisId="left"
-              fontSize={11}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={(v) => `${TRY.format(v / 1000)}K`}
-              width={48}
-            />
-            <YAxis
-              yAxisId="right"
-              orientation="right"
-              fontSize={11}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={(v) => `%${v}`}
-              domain={[0, 100]}
-              width={40}
-            />
-            <Tooltip
-              formatter={(v, name) => {
-                if (name === "cumulative") return [`%${Number(v).toFixed(1)}`, "Kümülatif"];
-                return [`${TRY2.format(Number(v))} ₺`, "Kategori"];
-              }}
-              contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}
-            />
-            <ReferenceLine
-              yAxisId="right"
-              y={80}
-              stroke={REF_80_COLOR}
-              strokeDasharray="4 4"
-              label={{
-                value: "%80",
-                position: "right",
-                fontSize: 10,
-                fill: REF_80_COLOR,
-              }}
-            />
-            <Bar yAxisId="left" dataKey="total" radius={[6, 6, 0, 0]}>
-              {items.map((_, i) => (
-                <Cell
-                  key={i}
-                  fill={i < nFor80 ? PARETO_BAR_COLOR : "#FCA5A5"}
-                  fillOpacity={i < nFor80 ? 1 : 0.6}
-                />
-              ))}
-            </Bar>
-            <Line
-              yAxisId="right"
-              type="monotone"
-              dataKey="cumulative"
-              stroke={PARETO_LINE_COLOR}
-              strokeWidth={2}
-              dot={{ r: 3, fill: PARETO_LINE_COLOR }}
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
+        {isEmpty ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <div className="font-medium text-foreground">Bu ay için yeterli veri yok</div>
+            <div className="text-sm mt-1">
+              POS slipleri ve gider belgeleri yüklendikçe burada parlar.
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* P&L satırları */}
+            <div className="space-y-2 max-w-2xl">
+              <PnLRow label="Brüt Gelir" value={cur.revenue} kind="positive" />
+              <PnLRow
+                label="− Banka POS Komisyonu"
+                value={-cur.commission}
+                share={commissionShare}
+                kind="negative"
+                indent
+              />
+              <PnLRow
+                label="− Kategori Giderleri"
+                value={-cur.expense}
+                share={expenseShare}
+                kind="negative"
+                indent
+              />
+              <div className="border-t border-border/60 my-2"></div>
+              <PnLRow
+                label="Net Kazanç"
+                value={cur.net}
+                share={netShare}
+                kind="net"
+              />
+            </div>
+
+            {/* Gider/Gelir oranı sağlık göstergesi */}
+            <div className="mt-6 pt-5 border-t border-border/60">
+              <div className="flex items-baseline justify-between mb-2">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
+                  Gider / Gelir Oranı
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-semibold tabular-nums tracking-tight">
+                    %{ratioPct.toFixed(1)}
+                  </span>
+                  <HealthBadge tone={bandTone} label={bandLabel} />
+                </div>
+              </div>
+              <HealthGauge ratioPct={ratioPct} />
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
+  );
+}
+
+function PnLRow({
+  label,
+  value,
+  share,
+  kind,
+  indent,
+}: {
+  label: string;
+  value: number;
+  share?: number;
+  kind: "positive" | "negative" | "net";
+  indent?: boolean;
+}) {
+  const valueTone =
+    kind === "negative"
+      ? "text-rose-600"
+      : kind === "net"
+        ? value >= 0
+          ? "text-emerald-700"
+          : "text-rose-700"
+        : "text-foreground";
+  const fontWeight = kind === "net" ? "font-bold text-lg" : "font-medium";
+  const labelTone = kind === "net" ? "text-foreground font-semibold" : "text-foreground";
+  return (
+    <div
+      className={`flex items-baseline justify-between ${indent ? "pl-4" : ""}`}
+    >
+      <span className={`text-sm ${labelTone}`}>{label}</span>
+      <div className="flex items-baseline gap-3">
+        {share !== undefined ? (
+          <span className="text-xs text-muted-foreground tabular-nums w-12 text-right">
+            %{share.toFixed(1)}
+          </span>
+        ) : (
+          <span className="w-12"></span>
+        )}
+        <span className={`tabular-nums ${fontWeight} ${valueTone} w-40 text-right`}>
+          {TRY2.format(value)}
+          <span className="text-xs font-normal text-muted-foreground ml-1">₺</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function HealthBadge({ tone, label }: { tone: string; label: string }) {
+  const cls = {
+    emerald: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    amber: "bg-amber-50 text-amber-700 border-amber-200",
+    rose: "bg-rose-50 text-rose-700 border-rose-200",
+  }[tone] ?? "bg-slate-50 text-slate-700 border-slate-200";
+  return (
+    <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+function HealthGauge({ ratioPct }: { ratioPct: number }) {
+  // 0-50% görselleştirme aralığı; daha üstü clamp
+  const clamped = Math.min(50, Math.max(0, ratioPct));
+  const positionPct = (clamped / 50) * 100;
+  return (
+    <div className="relative">
+      {/* Gradient bar */}
+      <div
+        className="h-2.5 rounded-full"
+        style={{
+          background:
+            "linear-gradient(to right, #10B981 0%, #10B981 30%, #F59E0B 50%, #F59E0B 70%, #EF4444 90%)",
+        }}
+      />
+      {/* Indicator */}
+      <div
+        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2"
+        style={{ left: `${positionPct}%` }}
+      >
+        <div className="h-4 w-4 rounded-full bg-white border-2 border-slate-700 shadow-sm" />
+      </div>
+      {/* Tick labels */}
+      <div className="mt-2 grid grid-cols-4 text-[10px] text-muted-foreground tabular-nums">
+        <span>%0</span>
+        <span className="text-center">%15</span>
+        <span className="text-center">%25</span>
+        <span className="text-right">%35+</span>
+      </div>
+      <div className="mt-1 grid grid-cols-4 text-[9px] uppercase tracking-wider text-muted-foreground">
+        <span>Sağlıklı</span>
+        <span className="text-center">İzlenmeli</span>
+        <span className="text-center">Dikkat</span>
+        <span className="text-right">Yüksek</span>
+      </div>
+    </div>
+  );
+}
+
+function NetTrendChip({
+  value,
+  periodLabel,
+}: {
+  value: number | null;
+  periodLabel: string;
+}) {
+  if (value === null) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600">
+        <ArrowUpRight className="h-3.5 w-3.5" />
+        <span>vs. {periodLabel}</span>
+      </span>
+    );
+  }
+  // Net için: artış iyi (yeşil), azalış kötü (kırmızı) — gider tarafının tersi
+  const positive = value >= 0;
+  const Icon = positive ? ArrowUpRight : ArrowDownRight;
+  const tone = positive ? "text-emerald-600" : "text-rose-600";
+  const sign = positive ? "+" : "";
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium tabular-nums ${tone}`}>
+      <Icon className="h-3.5 w-3.5" />
+      <span>{`${sign}${value.toFixed(Math.abs(value) < 10 ? 1 : 0)}%`}</span>
+      <span className={`font-normal ${tone}`}>vs. {periodLabel}</span>
+    </span>
   );
 }
 
@@ -505,10 +652,6 @@ function CategoryDistribution({ data }: { data: ExpenseSummary }) {
 }
 
 // ───── Store Comparison (MoM) ─────
-const MONTH_LABELS_SHORT = [
-  "Oca", "Şub", "Mar", "Nis", "May", "Haz",
-  "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara",
-];
 
 function StoreComparison({
   data,

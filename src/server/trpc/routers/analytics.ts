@@ -9,6 +9,10 @@ import {
   bankCommissionSummary,
   type BankCommissionSummary,
 } from "@/server/services/analytics/bank-commission";
+import {
+  profitLossSummary,
+  type ProfitLossSummary,
+} from "@/server/services/analytics/profit-loss";
 import { buildRevenueExcel } from "@/server/services/exports/excel/revenue";
 import { buildExpenseExcel } from "@/server/services/exports/excel/expense";
 import { isAdmin, getAccessibleStoreIds } from "@/lib/auth/permissions";
@@ -107,6 +111,21 @@ export const analyticsRouter = router({
         filter.store_id = ids[0];
       }
       return bankCommissionSummary(ctx.prisma, filter);
+    }),
+
+  profitLoss: protectedProcedure
+    .input(analyticsFilterSchema)
+    .query(async ({ ctx, input }): Promise<ProfitLossSummary> => {
+      const filter = { ...input };
+      if (!isAdmin(ctx.user) && !filter.store_id && !filter.brand_id) {
+        const ids = await getAccessibleStoreIds(ctx.user);
+        if (ids.length === 0) {
+          const empty = { revenue: 0, commission: 0, expense: 0, net: 0, ratio: 0 };
+          return { current: empty, prev_month: empty, prev_year: empty };
+        }
+        filter.store_id = ids[0];
+      }
+      return profitLossSummary(ctx.prisma, filter);
     }),
 
   exportRevenue: protectedProcedure
