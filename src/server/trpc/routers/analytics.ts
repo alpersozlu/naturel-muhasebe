@@ -13,6 +13,10 @@ import {
   profitLossSummary,
   type ProfitLossSummary,
 } from "@/server/services/analytics/profit-loss";
+import {
+  cashVarianceSummary,
+  type CashVarianceSummary,
+} from "@/server/services/analytics/cash-variance";
 import { buildRevenueExcel } from "@/server/services/exports/excel/revenue";
 import { buildExpenseExcel } from "@/server/services/exports/excel/expense";
 import { isAdmin, getAccessibleStoreIds } from "@/lib/auth/permissions";
@@ -111,6 +115,28 @@ export const analyticsRouter = router({
         filter.store_id = ids[0];
       }
       return bankCommissionSummary(ctx.prisma, filter);
+    }),
+
+  cashVariance: protectedProcedure
+    .input(analyticsFilterSchema)
+    .query(async ({ ctx, input }): Promise<CashVarianceSummary> => {
+      const filter = { ...input };
+      if (!isAdmin(ctx.user) && !filter.store_id && !filter.brand_id) {
+        const ids = await getAccessibleStoreIds(ctx.user);
+        if (ids.length === 0) {
+          return {
+            period_label: "",
+            total_deficit: 0,
+            total_surplus: 0,
+            net: 0,
+            stores_with_deficit: 0,
+            stores_count: 0,
+            by_store: [],
+          };
+        }
+        filter.store_id = ids[0];
+      }
+      return cashVarianceSummary(ctx.prisma, filter);
     }),
 
   profitLoss: protectedProcedure
