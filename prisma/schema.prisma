@@ -90,11 +90,12 @@ model User {
   store_access    UserStoreAccess[]
   audit_logs      AuditLog[]
   manual_invoices ManualInvoice[]
-  uploads         Upload[]          @relation("UploadedByUser")
-  approved_days   DailyRecord[]     @relation("ApprovedByUser")
-  verifications   Verification[]
-  cash_advances   CashAdvance[]
-  expenses        Expense[]
+  uploads               Upload[]      @relation("UploadedByUser")
+  approved_days         DailyRecord[] @relation("ApprovedByUser")
+  reconciled_days       DailyRecord[] @relation("ReconciliationNotesByUser")
+  verifications         Verification[]
+  cash_advances         CashAdvance[]
+  expenses              Expense[]
 
   @@index([role])
 }
@@ -162,6 +163,14 @@ model DailyRecord {
   reported_cash_try  Decimal?  @db.Decimal(14, 2)
   reported_cash_note String?
   reported_cash_at   DateTime?
+
+  // Mutabakat farkı için açıklayıcı not (müdür ya da admin).
+  // Örn. "müşteri 500 TL fazla nakit verdi, üstü unutulmuş";
+  //      "POS terminali geri ödeme yaptı, raporlanmadı".
+  reconciliation_notes      String?
+  reconciliation_notes_at   DateTime?
+  reconciliation_notes_by   String?
+  reconciliation_notes_user User?     @relation("ReconciliationNotesByUser", fields: [reconciliation_notes_by], references: [id])
 
   uploads         Upload[]
   pos_slips       PosSlip[]

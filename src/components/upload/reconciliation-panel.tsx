@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   ShieldCheck,
@@ -9,6 +10,9 @@ import {
   Lock,
   Loader2,
   XCircle,
+  Save,
+  RefreshCw,
+  Pencil,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,7 +25,9 @@ const TRY_FMT = new Intl.NumberFormat("tr-TR", {
 
 /**
  * Gün sonu Mutabakat / Uzlaşma paneli — /upload sayfasının altında durur.
- * Hangi belgeler var/eksik, mutabakat durumu ve onay aksiyonu burada.
+ * Üst kısım: hangi belgeler var/eksik (checklist).
+ * Orta kısım: belge tutarı vs mağaza özeti karşılaştırma tablosu + kasa farkı.
+ * Alt kısım: notlar (fark açıklaması) + Kaydet + Yeniden + (admin) Kilitle.
  */
 export function ReconciliationPanel({
   storeId,
@@ -34,13 +40,11 @@ export function ReconciliationPanel({
 }) {
   const disabled = !storeId || !date;
   const utils = trpc.useUtils();
-  const { data, isLoading } = trpc.dailyRecord.reconciliation.useQuery(
-    { store_id: storeId, date },
-    {
-      enabled: !disabled,
-      refetchInterval: 5000, // güncel kalsın (upload sonrası otomatik tazele)
-    }
-  );
+  const { data, isLoading, refetch, isRefetching } =
+    trpc.dailyRecord.reconciliation.useQuery(
+      { store_id: storeId, date },
+      { enabled: !disabled, refetchInterval: 5000 }
+    );
 
   const approve = trpc.dailyRecord.approveAndLock.useMutation({
     onSuccess: () => {
@@ -51,9 +55,29 @@ export function ReconciliationPanel({
     onError: (e) => toast.error(e.message),
   });
 
+  const saveNotes = trpc.dailyRecord.saveReconciliationNotes.useMutation({
+    onSuccess: () => {
+      toast.success("Notlar kaydedildi");
+      utils.dailyRecord.reconciliation.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // Local notes state — server'dan gelen notla initialize edilir
+  const [notes, setNotes] = useState("");
+  const [notesDirty, setNotesDirty] = useState(false);
+  useEffect(() => {
+    if (!notesDirty && data?.reconciliation_notes !== undefined) {
+      setNotes(data?.reconciliation_notes ?? "");
+    }
+  }, [data?.reconciliation_notes, notesDirty]);
+
   if (disabled || isLoading || !data) {
     return null;
   }
+
+  const isLocked = data.daily_record_status === "locked";
+  const v = data.verification;
 
   return (
     <Card className="mt-6 border-primary/30">
@@ -62,12 +86,13 @@ export function ReconciliationPanel({
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary shrink-0">
             <ShieldCheck className="h-5 w-5" />
           </div>
-          <div>
+          <div className="flex-1">
             <div className="text-base font-semibold leading-tight">
               Gün Uzlaşması
             </div>
             <div className="text-sm text-muted-foreground mt-0.5">
-              Yüklenen belgeleri Mağaza Özeti ile karşılaştır.
+              Yüklenen belgeleri Mağaza Özeti ile karşılaştır — kasa farkını
+              tespit et.
             </div>
           </div>
         </div>
@@ -105,32 +130,125 @@ export function ReconciliationPanel({
           />
         </div>
 
-        {/* Status & verification */}
-        <StatusSummary data={data} />
+        {/* Status banner — incomplete/error/locked durumları */}
+        <StatusBanner data={data} />
 
-        {/* Approve button (admin only) */}
-        {canApprove ? (
-          <div className="mt-5 pt-5 border-t flex flex-wrap items-center justify-between gap-3">
-            <div className="text-xs text-muted-foreground">
-              {data.daily_record_status === "locked"
-                ? "Bu gün kilitli."
-                : data.status === "match"
-                  ? "Tüm kontroller geçti — onaylamaya hazır."
-                  : data.status === "mismatch"
-                    ? "Fark var. Onay yine de yapılabilir (admin override)."
-                    : "Onay için Mağaza Özeti + Z + POS gerekli."}
-            </div>
-            {data.daily_record_status === "locked" ? null : (
+        {/* Comparison table — sadece verification varsa */}
+        {v && v.rows && v.rows.length > 0 ? (
+          <ComparisonTable rows={v.rows} difference={v.difference} />
+        ) : null}
+
+        {/* Notes — sadece tablo gösteriliyorsa veya kilitli notlar varsa */}
+        {(v || data.reconciliation_notes) ? (
+          <div className="mt-5">
+            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <Pencil className="h-3.5 w-3.5" />
+              Mutabakat Notu
+              {data.reconciliation_notes_at ? (
+                <span className="text-[10px] text-muted-foreground/70 normal-case font-normal tracking-normal ml-1">
+                  · son güncelleme{" "}
+                  {new Date(data.reconciliation_notes_at).toLocaleString("tr-TR", {
+                    day: "2-digit",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+              ) : null}
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => {
+                setNotes(e.target.value);
+                setNotesDirty(true);
+              }}
+              placeholder={
+                v && Math.abs(v.difference) > 1
+                  ? "Farkı açıkla: örn. müşteri fazla nakit verdi, üstü unutuldu; POS terminali iade yaptı; vb."
+                  : "Bu gün için not (opsiyonel)..."
+              }
+              rows={2}
+              disabled={isLocked && !canApprove}
+              className="mt-2 w-full text-sm rounded-lg border border-input bg-background px-3 py-2 resize-y focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+        ) : null}
+
+        {/* Action bar */}
+        <div className="mt-5 pt-5 border-t flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs text-muted-foreground flex-1 min-w-[200px]">
+            {isLocked
+              ? "Bu gün kilitli."
+              : data.status === "match"
+                ? "Tüm kalemler tutuyor — onaylamaya hazır."
+                : data.status === "mismatch"
+                  ? "Fark var. Notla açıklayıp kaydedebilir, admin onayına bırakabilirsin."
+                  : data.status === "incomplete"
+                    ? "Eksik belgeler tamamlanınca mutabakat hesaplanır."
+                    : "Doğrulamaya hazır."}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setNotesDirty(false);
+                refetch();
+              }}
+              disabled={isRefetching}
+            >
+              {isRefetching ? (
+                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-1.5" />
+              )}
+              Yeniden Mutabakat
+            </Button>
+            {!isLocked && (v || notesDirty) ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  saveNotes.mutate(
+                    { store_id: storeId, date, notes },
+                    {
+                      onSuccess: () => setNotesDirty(false),
+                    }
+                  );
+                }}
+                disabled={saveNotes.isPending || !notesDirty}
+              >
+                {saveNotes.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-1.5" />
+                )}
+                Notu Kaydet
+              </Button>
+            ) : null}
+            {canApprove && !isLocked && data.daily_record_id ? (
               <Button
                 size="sm"
                 onClick={() => {
-                  if (!data.daily_record_id) return;
-                  approve.mutate({ id: data.daily_record_id });
+                  // Önce notu kaydet (varsa), sonra kilitle
+                  if (notesDirty) {
+                    saveNotes.mutate(
+                      { store_id: storeId, date, notes },
+                      {
+                        onSuccess: () => {
+                          setNotesDirty(false);
+                          approve.mutate({ id: data.daily_record_id! });
+                        },
+                      }
+                    );
+                  } else {
+                    approve.mutate({ id: data.daily_record_id! });
+                  }
                 }}
                 disabled={
                   approve.isPending ||
-                  !data.has_summary ||
-                  !data.daily_record_id
+                  saveNotes.isPending ||
+                  !data.has_summary
                 }
                 className="bg-slate-900 hover:bg-slate-800"
               >
@@ -141,9 +259,9 @@ export function ReconciliationPanel({
                 )}
                 Onayla ve Kilitle
               </Button>
-            )}
+            ) : null}
           </div>
-        ) : null}
+        </div>
       </CardContent>
     </Card>
   );
@@ -158,7 +276,6 @@ function CheckItem({
   label: string;
   optional?: boolean;
 }) {
-  // Opsiyonel kalem: işaret yumuşak (slate), zorunlu değil
   const cls = optional
     ? "bg-slate-50 text-slate-600"
     : ok
@@ -168,11 +285,7 @@ function CheckItem({
     <div
       className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${cls}`}
     >
-      {ok ? (
-        <Check className="h-4 w-4 shrink-0" />
-      ) : (
-        <X className="h-4 w-4 shrink-0" />
-      )}
+      {ok ? <Check className="h-4 w-4 shrink-0" /> : <X className="h-4 w-4 shrink-0" />}
       <span className="truncate">{label}</span>
     </div>
   );
@@ -200,7 +313,7 @@ type ReconData = {
   } | null;
 };
 
-function StatusSummary({ data }: { data: ReconData }) {
+function StatusBanner({ data }: { data: ReconData }) {
   if (data.status === "empty") {
     return (
       <Banner
@@ -216,16 +329,16 @@ function StatusSummary({ data }: { data: ReconData }) {
     if (!data.has_summary) missing.push("Mağaza Özeti");
     if (!data.has_z) missing.push("Z Raporu");
     if (data.pos_count === 0) missing.push("POS Fişi");
-    const msg =
-      missing.length > 0
-        ? `Eksik: ${missing.join(", ")}. Bunlar yüklenince mutabakat hesaplanır.`
-        : "Mutabakat için zorunlu kalemler tamamlanmalı.";
     return (
       <Banner
         tone="amber"
         icon={<AlertTriangle className="h-4 w-4" />}
         title="Eksik var"
-        message={msg}
+        message={
+          missing.length > 0
+            ? `Eksik: ${missing.join(", ")}. Bunlar yüklenince mutabakat hesaplanır.`
+            : "Mutabakat için zorunlu kalemler tamamlanmalı."
+        }
       />
     );
   }
@@ -249,45 +362,7 @@ function StatusSummary({ data }: { data: ReconData }) {
       />
     );
   }
-  if (data.status === "ready") {
-    return (
-      <Banner
-        tone="emerald"
-        icon={<Check className="h-4 w-4" />}
-        title="Doğrulamaya hazır"
-        message="Tüm kalemler yüklü. Admin onayı bekliyor."
-      />
-    );
-  }
-
-  const v = data.verification!;
-  if (data.status === "match") {
-    return (
-      <Banner
-        tone="emerald"
-        icon={<Check className="h-4 w-4" />}
-        title="Uzlaşma sağlandı"
-        message={`Belge toplamı ${TRY_FMT.format(v.expected_total)} ₺ · Özet toplamı ${TRY_FMT.format(v.actual_total)} ₺ · Fark ${TRY_FMT.format(Math.abs(v.difference))} ₺ (tolerans içinde).`}
-      />
-    );
-  }
-
-  // mismatch
-  return (
-    <div>
-      <Banner
-        tone="rose"
-        icon={<XCircle className="h-4 w-4" />}
-        title="Uzlaşma sağlanmadı"
-        message={`Belge ${TRY_FMT.format(v.expected_total)} ₺ vs Özet ${TRY_FMT.format(v.actual_total)} ₺ — Fark ${TRY_FMT.format(Math.abs(v.difference))} ₺.`}
-      />
-      {v.notes ? (
-        <div className="mt-2 rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-xs text-rose-800">
-          {v.notes}
-        </div>
-      ) : null}
-    </div>
-  );
+  return null;
 }
 
 function Banner({
@@ -316,6 +391,158 @@ function Banner({
         <div className="text-sm font-semibold">{title}</div>
         <div className="text-xs mt-0.5 leading-relaxed">{message}</div>
       </div>
+    </div>
+  );
+}
+
+// ───────────────── Comparison Table ─────────────────
+
+type Row = {
+  label: string;
+  document_total: number;
+  summary_total: number;
+  difference: number;
+  matches: boolean;
+};
+
+function ComparisonTable({
+  rows,
+  difference: dayDiff,
+}: {
+  rows: Row[];
+  difference: number;
+}) {
+  return (
+    <div className="mt-4 rounded-lg border border-border overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">
+            <th className="text-left font-medium py-2 px-3">Belge Türü</th>
+            <th className="text-right font-medium py-2 px-3">Belge Tutarı</th>
+            <th className="py-2 px-1 w-6"></th>
+            <th className="text-right font-medium py-2 px-3">Mağaza Özeti</th>
+            <th className="text-right font-medium py-2 px-3">Kasa Farkı</th>
+            <th className="text-right font-medium py-2 px-3 w-24">Durum</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            const isTotal = r.label === "GENEL TOPLAM";
+            return (
+              <tr
+                key={i}
+                className={
+                  isTotal
+                    ? "border-t-2 border-border bg-slate-50/60 font-semibold"
+                    : "border-t border-border/60"
+                }
+              >
+                <td className="py-2.5 px-3 text-foreground">{r.label}</td>
+                <td className="py-2.5 px-3 text-right tabular-nums">
+                  {TRY_FMT.format(r.document_total)} ₺
+                </td>
+                <td className="py-2.5 px-1 text-center text-muted-foreground">→</td>
+                <td className="py-2.5 px-3 text-right tabular-nums text-muted-foreground">
+                  {TRY_FMT.format(r.summary_total)} ₺
+                </td>
+                <td className="py-2.5 px-3 text-right tabular-nums">
+                  <KasaFarki diff={r.difference} matches={r.matches} />
+                </td>
+                <td className="py-2.5 px-3 text-right">
+                  <StatusBadge matches={r.matches} isTotal={isTotal} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {/* Toplam kasa farkı vurgusu */}
+      <ToplamKasaFarkiFooter difference={dayDiff} />
+    </div>
+  );
+}
+
+function KasaFarki({ diff, matches }: { diff: number; matches: boolean }) {
+  if (Math.abs(diff) < 0.01) {
+    return <span className="text-emerald-600">0,00 ₺</span>;
+  }
+  const positive = diff > 0;
+  const tone = matches
+    ? "text-emerald-600"
+    : positive
+      ? "text-emerald-700"
+      : "text-rose-700";
+  return (
+    <span className={`${tone} font-medium`}>
+      {positive ? "+" : ""}
+      {TRY_FMT.format(diff)} ₺
+    </span>
+  );
+}
+
+function StatusBadge({
+  matches,
+  isTotal,
+}: {
+  matches: boolean;
+  isTotal?: boolean;
+}) {
+  if (matches) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+        <Check className="h-3 w-3" />
+        Eşleşti
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border ${
+        isTotal
+          ? "bg-rose-50 text-rose-700 border-rose-200"
+          : "bg-amber-50 text-amber-700 border-amber-200"
+      }`}
+    >
+      <XCircle className="h-3 w-3" />
+      Eşleşmiyor
+    </span>
+  );
+}
+
+function ToplamKasaFarkiFooter({ difference }: { difference: number }) {
+  const TOLERANCE = 5;
+  const abs = Math.abs(difference);
+  if (abs <= TOLERANCE) {
+    return (
+      <div className="bg-emerald-50/60 border-t border-emerald-200/60 px-4 py-2.5 text-xs flex items-center justify-between">
+        <span className="text-emerald-800 font-medium">
+          ✓ Toplam Kasa Farkı (tolerans içinde)
+        </span>
+        <span className="tabular-nums text-emerald-700 font-semibold">
+          {difference >= 0 ? "+" : ""}
+          {TRY_FMT.format(difference)} ₺
+        </span>
+      </div>
+    );
+  }
+  const positive = difference > 0;
+  return (
+    <div
+      className={`border-t px-4 py-2.5 text-xs flex items-center justify-between ${
+        positive
+          ? "bg-amber-50 border-amber-200 text-amber-900"
+          : "bg-rose-50 border-rose-200 text-rose-900"
+      }`}
+    >
+      <span className="font-medium">
+        {positive
+          ? "↑ Toplam Kasa Farkı (FAZLA — belgelerimiz özetten fazla)"
+          : "↓ Toplam Kasa Farkı (EKSİK — özette belgelerimizden fazla satış görünüyor)"}
+      </span>
+      <span className="tabular-nums font-semibold text-base">
+        {positive ? "+" : ""}
+        {TRY_FMT.format(difference)} ₺
+      </span>
     </div>
   );
 }

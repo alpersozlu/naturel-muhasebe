@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
 import {
   dailyRecordIdSchema,
@@ -94,6 +95,9 @@ export const dailyRecordRouter = router({
           manual_invoice_count: 0,
           failed_count: 0,
           daily_record_status: null,
+          daily_record_id: null,
+          reconciliation_notes: null,
+          reconciliation_notes_at: null,
           verification: null,
         };
       }
@@ -143,6 +147,8 @@ export const dailyRecordRouter = router({
         failed_count: failedCount,
         daily_record_status: dr.status,
         daily_record_id: dr.id,
+        reconciliation_notes: dr.reconciliation_notes,
+        reconciliation_notes_at: dr.reconciliation_notes_at,
         verification: verification
           ? {
               status: verification.status,
@@ -150,6 +156,7 @@ export const dailyRecordRouter = router({
               actual_total: verification.actual_total,
               difference: verification.difference,
               notes: verification.notes,
+              rows: verification.rows,
             }
           : null,
       };
@@ -172,6 +179,56 @@ export const dailyRecordRouter = router({
         },
       });
       return dr;
+    }),
+
+  /**
+   * Mutabakat farkı için müdür/admin notu kaydet.
+   * Fark varsa açıklama, müşteri fazla ödedi vb. Kilitli günler hariç
+   * herkes (mağaza yetkisi olan) güncelleyebilir.
+   */
+  saveReconciliationNotes: protectedProcedure
+    .input(
+      z.object({
+        store_id: z.string().uuid(),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        notes: z.string().max(1000),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      const dateObj = new Date(`${input.date}T00:00:00.000Z`);
+
+      const dr = await ctx.prisma.dailyRecord.findUnique({
+        where: { store_id_date: { store_id: input.store_id, date: dateObj } },
+        select: { id: true, status: true },
+      });
+      if (!dr) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Bu gün için kayıt bulunamadı — önce belge yükleyin",
+        });
+      }
+      if (dr.status === "locked" && !isAdmin(ctx.user)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Gün kilitli — sadece admin not güncelleyebilir",
+        });
+      }
+
+      const trimmed = input.notes.trim();
+      return ctx.prisma.dailyRecord.update({
+        where: { id: dr.id },
+        data: {
+          reconciliation_notes: trimmed.length > 0 ? trimmed : null,
+          reconciliation_notes_by: ctx.user.id,
+          reconciliation_notes_at: new Date(),
+        },
+        select: {
+          id: true,
+          reconciliation_notes: true,
+          reconciliation_notes_at: true,
+        },
+      });
     }),
 
   /**
