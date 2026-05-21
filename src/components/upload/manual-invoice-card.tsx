@@ -102,6 +102,12 @@ export function ManualInvoiceCard({
   const onSubmit = (vals: ManualInvoiceCreateInput) =>
     create.mutateAsync({ ...vals, store_id: storeId, date });
 
+  // Validation hatalarını sessiz bırakmamak için — kullanıcı neden kaydedemediğini görsün
+  const onInvalid = (errs: Record<string, { message?: string }>) => {
+    const firstMsg = Object.values(errs)[0]?.message;
+    toast.error(firstMsg ?? "Lütfen tüm zorunlu alanları doldurun");
+  };
+
   return (
     <Card className={disabled ? "opacity-50" : ""}>
       <CardContent className="p-5">
@@ -113,16 +119,21 @@ export function ManualInvoiceCard({
           {disabled ? "Önce mağaza ve tarih seç" : "Manuel giriş (OCR yok)"}
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
+        <form
+          onSubmit={handleSubmit(onSubmit, onInvalid)}
+          className="space-y-3"
+        >
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label htmlFor="mi-amount" className="text-xs">
-                Tutar
+                Tutar <span className="text-rose-600">*</span>
               </Label>
               <Input
                 id="mi-amount"
                 type="number"
                 step="0.01"
+                min="0.01"
+                placeholder="örn. 1500,00"
                 disabled={disabled}
                 {...register("amount", { valueAsNumber: true })}
               />
