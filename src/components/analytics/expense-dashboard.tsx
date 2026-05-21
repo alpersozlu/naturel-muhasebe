@@ -384,6 +384,7 @@ function PnLCard({
 
   const commissionShare = cur.revenue > 0 ? (cur.commission / cur.revenue) * 100 : 0;
   const expenseShare = cur.revenue > 0 ? (cur.expense / cur.revenue) * 100 : 0;
+  const loyaltyShare = cur.revenue > 0 ? (cur.loyalty / cur.revenue) * 100 : 0;
   const netShare = cur.revenue > 0 ? (cur.net / cur.revenue) * 100 : 0;
 
   return (
@@ -432,6 +433,15 @@ function PnLCard({
                 kind="negative"
                 indent
               />
+              {cur.loyalty > 0 ? (
+                <PnLRow
+                  label="− Kartuş Puan Kullanımı (sadakat indirimi)"
+                  value={-cur.loyalty}
+                  share={loyaltyShare}
+                  kind="negative"
+                  indent
+                />
+              ) : null}
               <PnLRow
                 label="− Kategori Giderleri"
                 value={-cur.expense}
@@ -452,7 +462,12 @@ function PnLCard({
             <div className="mt-6 pt-5 border-t border-border/60">
               <div className="flex items-baseline justify-between mb-2">
                 <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
-                  Gider / Gelir Oranı
+                  Toplam Yük / Gelir Oranı
+                  {cur.loyalty > 0 ? (
+                    <span className="ml-1 normal-case text-[10px] tracking-normal opacity-70">
+                      (komisyon + gider + kartuş)
+                    </span>
+                  ) : null}
                 </div>
                 <div className="flex items-baseline gap-2">
                   <span className="text-2xl font-semibold tabular-nums tracking-tight">

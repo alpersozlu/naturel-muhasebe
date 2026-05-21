@@ -120,7 +120,7 @@ export const analyticsRouter = router({
       if (!isAdmin(ctx.user) && !filter.store_id && !filter.brand_id) {
         const ids = await getAccessibleStoreIds(ctx.user);
         if (ids.length === 0) {
-          const empty = { revenue: 0, commission: 0, expense: 0, net: 0, ratio: 0 };
+          const empty = { revenue: 0, commission: 0, expense: 0, loyalty: 0, net: 0, ratio: 0 };
           return { current: empty, prev_month: empty, prev_year: empty };
         }
         filter.store_id = ids[0];

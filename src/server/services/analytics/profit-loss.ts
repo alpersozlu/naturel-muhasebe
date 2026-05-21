@@ -16,8 +16,10 @@ export type ProfitLossPeriod = {
   revenue: number;
   commission: number;
   expense: number;
+  /** Kartuş Puan kullanımı — müşteriye verilen efektif indirim (Mavi sadakat). */
+  loyalty: number;
   net: number;
-  /** Gider oranı = (commission + expense) / revenue, 0-1 */
+  /** Toplam gider oranı = (commission + expense + loyalty) / revenue, 0-1 */
   ratio: number;
 };
 
@@ -31,10 +33,15 @@ function num(v: { toNumber: () => number } | null | undefined): number {
   return v ? v.toNumber() : 0;
 }
 
-function compute(rev: number, comm: number, exp: number): ProfitLossPeriod {
-  const net = rev - comm - exp;
-  const ratio = rev > 0 ? (comm + exp) / rev : 0;
-  return { revenue: rev, commission: comm, expense: exp, net, ratio };
+function compute(
+  rev: number,
+  comm: number,
+  exp: number,
+  loy: number
+): ProfitLossPeriod {
+  const net = rev - comm - exp - loy;
+  const ratio = rev > 0 ? (comm + exp + loy) / rev : 0;
+  return { revenue: rev, commission: comm, expense: exp, loyalty: loy, net, ratio };
 }
 
 const monthKey = (d: Date) =>
@@ -69,6 +76,7 @@ export async function profitLossSummary(
       },
       select: {
         sales_total_try: true,
+        loyalty_points_total_try: true,
         daily_record: { select: { date: true } },
       },
     }),
@@ -104,10 +112,12 @@ export async function profitLossSummary(
   const revByMonth: Record<string, number> = {};
   const commByMonth: Record<string, number> = {};
   const expByMonth: Record<string, number> = {};
+  const loyByMonth: Record<string, number> = {};
 
   for (const s of summaries) {
     const k = monthKey(s.daily_record.date);
     revByMonth[k] = (revByMonth[k] ?? 0) + num(s.sales_total_try);
+    loyByMonth[k] = (loyByMonth[k] ?? 0) + num(s.loyalty_points_total_try);
   }
   for (const p of slips) {
     const k = monthKey(p.daily_record.date);
@@ -135,17 +145,20 @@ export async function profitLossSummary(
     current: compute(
       revByMonth[curKey] ?? 0,
       commByMonth[curKey] ?? 0,
-      expByMonth[curKey] ?? 0
+      expByMonth[curKey] ?? 0,
+      loyByMonth[curKey] ?? 0
     ),
     prev_month: compute(
       revByMonth[prevMonthKey] ?? 0,
       commByMonth[prevMonthKey] ?? 0,
-      expByMonth[prevMonthKey] ?? 0
+      expByMonth[prevMonthKey] ?? 0,
+      loyByMonth[prevMonthKey] ?? 0
     ),
     prev_year: compute(
       revByMonth[prevYearKey] ?? 0,
       commByMonth[prevYearKey] ?? 0,
-      expByMonth[prevYearKey] ?? 0
+      expByMonth[prevYearKey] ?? 0,
+      loyByMonth[prevYearKey] ?? 0
     ),
   };
 }
