@@ -255,28 +255,136 @@ function FilledDayRow({
 
       {open ? (
         <div className="border-t bg-muted/20 px-5 py-4">
-          {previewQuery.isLoading ? (
-            <div className="text-sm text-muted-foreground py-4 text-center">
-              <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
-              Mutabakat hesaplanıyor
+          <div className="flex flex-col lg:flex-row gap-4 items-stretch">
+            {/* Sol: karşılaştırma tablosu */}
+            <div className="flex-1 min-w-0">
+              {previewQuery.isLoading ? (
+                <div className="text-sm text-muted-foreground py-4 text-center">
+                  <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                  Mutabakat hesaplanıyor
+                </div>
+              ) : previewQuery.data ? (
+                <ComparisonPanel result={previewQuery.data} />
+              ) : null}
             </div>
-          ) : previewQuery.data ? (
-            <ComparisonPanel result={previewQuery.data} />
-          ) : null}
 
-          {isLocked ? (
-            <div className="pt-3 mt-3 border-t flex justify-end">
-              <Badge
-                variant="secondary"
-                className="bg-emerald-100 text-emerald-700"
-              >
-                <Check className="h-3 w-3 mr-1" />
-                Gün Doğrulandı ve Kilitli
-              </Badge>
+            {/* Sağ: status pill + ana aksiyon */}
+            <div className="flex flex-col gap-2 lg:w-60 shrink-0 lg:self-start">
+              <DayStatusPill
+                isLocked={isLocked}
+                verStatus={verStatus}
+                hasSummary={hasSummary}
+                docCount={docCount}
+              />
+              {!isLocked && hasSummary ? (
+                <button
+                  type="button"
+                  onClick={() => approve.mutate({ id: record.id })}
+                  disabled={approve.isPending}
+                  className="flex items-center justify-center gap-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-5 py-4 transition-colors shadow-sm"
+                >
+                  {approve.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Lock className="h-4 w-4" />
+                  )}
+                  <span>Doğrula ve Kilitle</span>
+                </button>
+              ) : isLocked && canUnlock ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm("Kilidi açmak istediğine emin misin?")) {
+                      unlock.mutate({ id: record.id });
+                    }
+                  }}
+                  disabled={unlock.isPending}
+                  className="flex items-center justify-center gap-2.5 rounded-2xl bg-white hover:bg-muted/40 border border-border disabled:opacity-50 text-foreground font-semibold px-5 py-4 transition-colors"
+                >
+                  {unlock.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Unlock className="h-4 w-4" />
+                  )}
+                  <span>Kilidi Aç</span>
+                </button>
+              ) : null}
             </div>
-          ) : null}
+          </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** Doğrulama sayfasındaki büyük status pill — duruma göre renk değişir */
+function DayStatusPill({
+  isLocked,
+  verStatus,
+  hasSummary,
+  docCount,
+}: {
+  isLocked: boolean;
+  verStatus: "match" | "mismatch" | "manual_override" | undefined;
+  hasSummary: boolean;
+  docCount: number;
+}) {
+  if (isLocked) {
+    return (
+      <div className="rounded-2xl bg-emerald-500 text-white px-5 py-4 flex items-center gap-2.5 shadow-sm">
+        <Lock className="h-4 w-4 shrink-0" />
+        <span className="font-semibold text-sm leading-tight">
+          Gün Doğrulandı ve Kilitlendi
+        </span>
+      </div>
+    );
+  }
+  if (verStatus === "match") {
+    return (
+      <div className="rounded-2xl bg-amber-500 text-white px-5 py-4 flex items-center gap-2.5 shadow-sm">
+        <Check className="h-4 w-4 shrink-0" />
+        <span className="font-semibold text-sm leading-tight">
+          Gün Mutabakatı Sağlandı
+        </span>
+      </div>
+    );
+  }
+  if (verStatus === "mismatch") {
+    return (
+      <div className="rounded-2xl bg-rose-500 text-white px-5 py-4 flex items-center gap-2.5 shadow-sm">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        <span className="font-semibold text-sm leading-tight">
+          Mutabakat Sağlanmadı
+        </span>
+      </div>
+    );
+  }
+  if (!hasSummary) {
+    return (
+      <div className="rounded-2xl bg-amber-100 text-amber-800 border border-amber-200 px-5 py-4 flex items-center gap-2.5">
+        <AlertCircle className="h-4 w-4 shrink-0" />
+        <span className="font-semibold text-sm leading-tight">
+          Mağaza Özeti Eksik
+        </span>
+      </div>
+    );
+  }
+  if (docCount === 0) {
+    return (
+      <div className="rounded-2xl bg-slate-100 text-slate-700 border border-slate-200 px-5 py-4 flex items-center gap-2.5">
+        <AlertCircle className="h-4 w-4 shrink-0" />
+        <span className="font-semibold text-sm leading-tight">
+          Belge Yok
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-2xl bg-slate-100 text-slate-700 border border-slate-200 px-5 py-4 flex items-center gap-2.5">
+      <Loader2 className="h-4 w-4 shrink-0" />
+      <span className="font-semibold text-sm leading-tight">
+        Beklemede
+      </span>
     </div>
   );
 }
