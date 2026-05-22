@@ -185,61 +185,71 @@ export function ReconciliationPanel({
           </div>
         ) : null}
 
-        {/* Action bar */}
-        <div className="mt-5 pt-5 border-t flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs text-muted-foreground flex-1 min-w-[200px]">
-            {isLocked
-              ? "Bu gün kilitli."
-              : data.status === "match"
-                ? "Tüm kalemler tutuyor — onaylamaya hazır."
-                : data.status === "mismatch"
-                  ? "Fark var. Notla açıklayıp kaydedebilir, admin onayına bırakabilirsin."
-                  : data.status === "incomplete"
-                    ? "Eksik belgeler tamamlanınca mutabakat hesaplanır."
-                    : "Doğrulamaya hazır."}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setNotesDirty(false);
-                refetch();
-              }}
-              disabled={isRefetching}
-            >
-              {isRefetching ? (
-                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-1.5" />
-              )}
-              Yeniden Mutabakat
-            </Button>
-            {!isLocked && (v || notesDirty) ? (
+        {/* Action bar — sol açıklama + sağda dikey status/aksiyon paneli */}
+        <div className="mt-5 pt-5 border-t flex flex-col sm:flex-row items-stretch gap-4">
+          {/* Sol: durum metni + ufak utility butonlar */}
+          <div className="flex-1 flex flex-col gap-3 justify-between min-w-0">
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              {isLocked
+                ? "Bu gün kilitli — değişiklik yapılamaz."
+                : data.status === "match"
+                  ? "Tüm kalemler tutuyor — onaylamaya hazır."
+                  : data.status === "mismatch"
+                    ? "Fark var. Notla açıklayıp kaydedebilir, admin onayına bırakabilirsin."
+                    : data.status === "incomplete"
+                      ? "Eksik belgeler tamamlanınca mutabakat hesaplanır."
+                      : "Doğrulamaya hazır."}
+            </div>
+            <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
-                variant="secondary"
+                variant="ghost"
+                className="h-8 px-3"
                 onClick={() => {
-                  saveNotes.mutate(
-                    { store_id: storeId, date, notes },
-                    {
-                      onSuccess: () => setNotesDirty(false),
-                    }
-                  );
+                  setNotesDirty(false);
+                  refetch();
                 }}
-                disabled={saveNotes.isPending || !notesDirty}
+                disabled={isRefetching}
               >
-                {saveNotes.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                {isRefetching ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
                 ) : (
-                  <Save className="h-4 w-4 mr-1.5" />
+                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
                 )}
-                Notu Kaydet
+                <span className="text-xs">Yeniden Mutabakat</span>
               </Button>
-            ) : null}
+              {!isLocked && (v || notesDirty) ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-3"
+                  onClick={() => {
+                    saveNotes.mutate(
+                      { store_id: storeId, date, notes },
+                      {
+                        onSuccess: () => setNotesDirty(false),
+                      }
+                    );
+                  }}
+                  disabled={saveNotes.isPending || !notesDirty}
+                >
+                  {saveNotes.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <Save className="h-3.5 w-3.5 mr-1.5" />
+                  )}
+                  <span className="text-xs">Notu Kaydet</span>
+                </Button>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Sağ: dikey status pill + ana aksiyon butonu */}
+          <div className="flex flex-col gap-2 sm:w-60 shrink-0">
+            <StatusPill status={data.status} isLocked={isLocked} />
             {canApprove && !isLocked && data.daily_record_id ? (
-              <Button
-                size="sm"
+              <button
+                type="button"
                 onClick={() => {
                   // Önce notu kaydet (varsa), sonra kilitle
                   if (notesDirty) {
@@ -261,20 +271,99 @@ export function ReconciliationPanel({
                   saveNotes.isPending ||
                   !data.has_summary
                 }
-                className="bg-slate-900 hover:bg-slate-800"
+                className="flex items-center justify-center gap-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-5 py-4 transition-colors shadow-sm"
               >
                 {approve.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Lock className="h-4 w-4 mr-1.5" />
+                  <Lock className="h-4 w-4" />
                 )}
-                Onayla ve Kilitle
-              </Button>
+                <span>Doğrula ve Kilitle</span>
+              </button>
             ) : null}
           </div>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** Sağ panelin üstündeki büyük status pill — duruma göre renk değişir */
+function StatusPill({
+  status,
+  isLocked,
+}: {
+  status: ReconData["status"];
+  isLocked: boolean;
+}) {
+  // Locked durumu rengi belirler — kilitli + match birleşik
+  if (isLocked) {
+    return (
+      <div className="rounded-2xl bg-emerald-500 text-white px-5 py-4 flex items-center gap-2.5 shadow-sm">
+        <Lock className="h-4 w-4 shrink-0" />
+        <span className="font-semibold text-sm leading-tight">
+          Gün Doğrulandı ve Kilitlendi
+        </span>
+      </div>
+    );
+  }
+  if (status === "match") {
+    return (
+      <div className="rounded-2xl bg-amber-500 text-white px-5 py-4 flex items-center gap-2.5 shadow-sm">
+        <Check className="h-4 w-4 shrink-0" />
+        <span className="font-semibold text-sm leading-tight">
+          Gün Mutabakatı Sağlandı
+        </span>
+      </div>
+    );
+  }
+  if (status === "mismatch") {
+    return (
+      <div className="rounded-2xl bg-rose-500 text-white px-5 py-4 flex items-center gap-2.5 shadow-sm">
+        <XCircle className="h-4 w-4 shrink-0" />
+        <span className="font-semibold text-sm leading-tight">
+          Mutabakat Sağlanmadı
+        </span>
+      </div>
+    );
+  }
+  if (status === "ready") {
+    return (
+      <div className="rounded-2xl bg-sky-500 text-white px-5 py-4 flex items-center gap-2.5 shadow-sm">
+        <Check className="h-4 w-4 shrink-0" />
+        <span className="font-semibold text-sm leading-tight">
+          Doğrulamaya Hazır
+        </span>
+      </div>
+    );
+  }
+  if (status === "incomplete") {
+    return (
+      <div className="rounded-2xl bg-amber-100 text-amber-800 border border-amber-200 px-5 py-4 flex items-center gap-2.5">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        <span className="font-semibold text-sm leading-tight">
+          Eksik Belge Var
+        </span>
+      </div>
+    );
+  }
+  if (status === "error") {
+    return (
+      <div className="rounded-2xl bg-rose-100 text-rose-800 border border-rose-200 px-5 py-4 flex items-center gap-2.5">
+        <XCircle className="h-4 w-4 shrink-0" />
+        <span className="font-semibold text-sm leading-tight">
+          Yükleme Hatası
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-2xl bg-slate-100 text-slate-700 border border-slate-200 px-5 py-4 flex items-center gap-2.5">
+      <AlertTriangle className="h-4 w-4 shrink-0" />
+      <span className="font-semibold text-sm leading-tight">
+        Henüz Yükleme Yok
+      </span>
+    </div>
   );
 }
 
