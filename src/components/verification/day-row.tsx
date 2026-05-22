@@ -445,9 +445,10 @@ function ComparisonPanel({
       {/* Tablo */}
       <div className="rounded-xl border border-border/70 overflow-hidden bg-card">
         <div className="grid grid-cols-12 gap-2 px-5 py-2.5 bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-          <div className="col-span-5">Belge Türü</div>
+          <div className="col-span-4">Belge Türü</div>
           <div className="col-span-3 text-right">Belge Tutarı</div>
-          <div className="col-span-3 text-right">Mağaza Özeti</div>
+          <div className="col-span-2 text-right">Mağaza Özeti</div>
+          <div className="col-span-2 text-right">Fark</div>
           <div className="col-span-1 text-right">Durum</div>
         </div>
         <div>
@@ -464,14 +465,17 @@ function ComparisonPanel({
                       : "border-t border-border/40"
                 }`}
               >
-                <div className="col-span-5 text-sm text-foreground">
+                <div className="col-span-4 text-sm text-foreground">
                   {row.label}
                 </div>
                 <div className="col-span-3 text-right text-sm tabular-nums text-foreground">
                   {fmt(row.document_total)} ₺
                 </div>
-                <div className="col-span-3 text-right text-sm tabular-nums text-muted-foreground">
+                <div className="col-span-2 text-right text-sm tabular-nums text-muted-foreground">
                   {fmt(row.summary_total)} ₺
+                </div>
+                <div className="col-span-2 text-right text-sm tabular-nums">
+                  <FarkCell diff={row.difference} matches={row.matches} />
                 </div>
                 <div className="col-span-1 text-right">
                   {row.matches ? (
@@ -501,6 +505,35 @@ function ComparisonPanel({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function FarkCell({ diff, matches }: { diff: number; matches: boolean }) {
+  // Konvansiyon: docs − summary
+  //   pozitif → elimizdeki belge özetten fazla (fazla)
+  //   negatif → belge özetten az (eksik)
+  //   |diff| ≤ tolerans (matches=true) → 0,00 (yeşil, eşleşti)
+  if (Math.abs(diff) < 0.01) {
+    return <span className="text-emerald-600">0,00 ₺</span>;
+  }
+  if (matches) {
+    // Tolerans içinde ama sıfır değil — yeşil ama "minor"
+    const positive = diff > 0;
+    return (
+      <span className="text-emerald-600 font-medium">
+        {positive ? "+" : ""}
+        {fmt(diff)} ₺
+      </span>
+    );
+  }
+  // Tolerans dışı: pozitif = fazla (amber), negatif = eksik (rose)
+  const positive = diff > 0;
+  const tone = positive ? "text-amber-700" : "text-rose-700";
+  return (
+    <span className={`${tone} font-medium`}>
+      {positive ? "+" : ""}
+      {fmt(diff)} ₺
+    </span>
   );
 }
 
