@@ -213,19 +213,21 @@ export async function computeDay(
   // Yeni konvansiyon: cashRow.difference = reportedCash − summaryCash
   //   negatif → müdür saydığı, özetten az → EKSİK (kayıp)
   //   pozitif → müdür saydığı, özetten fazla → FAZLA
+  const fmtTL = (n: number) =>
+    n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const cashRow = rows[1];
   const cashMismatch =
     reportedCash !== null && !cashRow.matches
       ? cashRow.difference < 0
-        ? `Kasa eksiklik: Müdür ${reportedCash.toFixed(2)} TL saydı ama özette ${summaryCash.toFixed(2)} TL → ${Math.abs(cashRow.difference).toFixed(2)} TL eksik (potansiyel kayıp).`
-        : `Kasa fazlalık: Müdür ${reportedCash.toFixed(2)} TL saydı ama özette ${summaryCash.toFixed(2)} TL → ${cashRow.difference.toFixed(2)} TL fazla.`
+        ? `Kasa eksiklik: Müdür ${fmtTL(reportedCash)} ₺ saydı ama özette ${fmtTL(summaryCash)} ₺ → ${fmtTL(Math.abs(cashRow.difference))} ₺ eksik (potansiyel kayıp).`
+        : `Kasa fazlalık: Müdür ${fmtTL(reportedCash)} ₺ saydı ama özette ${fmtTL(summaryCash)} ₺ → ${fmtTL(cashRow.difference)} ₺ fazla.`
       : null;
 
   const noteParts: string[] = [];
   if (cashMismatch) noteParts.push(cashMismatch);
   if (status !== "match") {
     noteParts.push(
-      `Genel fark ${difference.toFixed(2)} TL (tolerans ±${TOLERANCE_TL} TL).`
+      `Genel fark ${fmtTL(difference)} ₺ (tolerans ±${TOLERANCE_TL} ₺).`
     );
   }
 

@@ -312,7 +312,7 @@ function ComparisonPanel({
 }) {
   if (result.status === "no_summary") {
     return (
-      <div className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-3 flex items-start gap-2">
+      <div className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-3 flex items-start gap-2 border border-amber-200/60">
         <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
         Bu güne ait Mağaza Özeti yüklenmedi — mutabakat yapılamıyor.
       </div>
@@ -324,57 +324,99 @@ function ComparisonPanel({
     );
   }
 
+  // Açıklama notlarını parçala (cümle bazlı) — her biri ayrı pill
+  const noteList = result.notes
+    ? result.notes
+        .split(/(?<=\.)\s+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
   return (
-    <div className="space-y-1.5">
-      <div className="grid grid-cols-12 gap-2 px-2 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-        <div className="col-span-5">Belge Türü</div>
-        <div className="col-span-3 text-right">Belge Tutarı</div>
-        <div className="col-span-3 text-right">Mağaza Özeti</div>
-        <div className="col-span-1 text-right">Durum</div>
+    <div>
+      {/* Tablo */}
+      <div className="rounded-xl border border-border/70 overflow-hidden bg-card">
+        <div className="grid grid-cols-12 gap-2 px-5 py-2.5 bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+          <div className="col-span-5">Belge Türü</div>
+          <div className="col-span-3 text-right">Belge Tutarı</div>
+          <div className="col-span-3 text-right">Mağaza Özeti</div>
+          <div className="col-span-1 text-right">Durum</div>
+        </div>
+        <div>
+          {result.rows.map((row, i) => {
+            const isLast = i === result.rows.length - 1;
+            return (
+              <div
+                key={row.label}
+                className={`grid grid-cols-12 gap-2 px-5 py-3 items-baseline ${
+                  isLast
+                    ? "border-t-2 border-border bg-slate-50/40 font-semibold"
+                    : i === 0
+                      ? ""
+                      : "border-t border-border/40"
+                }`}
+              >
+                <div className="col-span-5 text-sm text-foreground">
+                  {row.label}
+                </div>
+                <div className="col-span-3 text-right text-sm tabular-nums text-foreground">
+                  {fmt(row.document_total)} ₺
+                </div>
+                <div className="col-span-3 text-right text-sm tabular-nums text-muted-foreground">
+                  {fmt(row.summary_total)} ₺
+                </div>
+                <div className="col-span-1 text-right">
+                  {row.matches ? (
+                    <Check
+                      className="h-4 w-4 text-emerald-600 inline"
+                      aria-label="Eşleşti"
+                    />
+                  ) : (
+                    <AlertTriangle
+                      className="h-4 w-4 text-rose-600 inline"
+                      aria-label="Eşleşmiyor"
+                    />
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
-      {result.rows.map((row, i) => {
-        const isLast = i === result.rows.length - 1;
-        return (
-          <div
-            key={row.label}
-            className={`grid grid-cols-12 gap-2 px-2 py-2 rounded ${
-              isLast ? "bg-card border" : ""
-            }`}
-          >
-            <div
-              className={`col-span-5 text-sm ${isLast ? "font-semibold" : ""}`}
-            >
-              {row.label}
-            </div>
-            <div
-              className={`col-span-3 text-right text-sm tabular-nums ${
-                isLast ? "font-semibold" : ""
-              }`}
-            >
-              {fmt(row.document_total)} ₺
-            </div>
-            <div
-              className={`col-span-3 text-right text-sm tabular-nums ${
-                isLast ? "font-semibold" : ""
-              }`}
-            >
-              {fmt(row.summary_total)} ₺
-            </div>
-            <div className="col-span-1 text-right">
-              {row.matches ? (
-                <Check className="h-4 w-4 text-emerald-600 inline" />
-              ) : (
-                <AlertTriangle className="h-4 w-4 text-rose-600 inline" />
-              )}
-            </div>
-          </div>
-        );
-      })}
-      {result.notes ? (
-        <div className="text-xs text-rose-700 bg-rose-50 rounded px-3 py-2 mt-2">
-          {result.notes}
+
+      {/* Açıklama notları — varsa */}
+      {noteList.length > 0 ? (
+        <div className="mt-3 space-y-1.5">
+          {noteList.map((note, i) => (
+            <NoteCard key={i} text={note} />
+          ))}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function NoteCard({ text }: { text: string }) {
+  // İlk iki kelimeyi başlık olarak gösterelim ("Kasa eksiklik:", "Kasa fazlalık:")
+  const colonIdx = text.indexOf(":");
+  const label = colonIdx > 0 ? text.slice(0, colonIdx) : null;
+  const body = colonIdx > 0 ? text.slice(colonIdx + 1).trim() : text;
+
+  // Eksik = kırmızı; Fazla = amber; diğer = rose (default)
+  const isDeficit = /eksik/i.test(label ?? "");
+  const tone = isDeficit
+    ? "bg-rose-50 border-rose-200 text-rose-800"
+    : "bg-amber-50 border-amber-200 text-amber-800";
+
+  return (
+    <div
+      className={`text-sm rounded-lg border px-4 py-2.5 flex items-start gap-2.5 ${tone}`}
+    >
+      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 opacity-80" />
+      <div className="leading-relaxed">
+        {label ? <span className="font-semibold">{label}:</span> : null}{" "}
+        <span>{body}</span>
+      </div>
     </div>
   );
 }
