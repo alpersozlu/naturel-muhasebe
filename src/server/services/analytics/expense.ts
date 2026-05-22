@@ -38,6 +38,27 @@ export type ExpenseSummary = {
   projected_year_end: number;
   /** YTD aylık ortalama — projeksiyonun temeli */
   projected_monthly_avg: number;
+  /**
+   * Mağaza × ay matrisi (filter.year boyunca).
+   * Her hücre: faturalı (upload_id var) + faturasız (upload_id null) ayrımı.
+   * CashAdvance bu matriste sayılmaz — sadece Expense tablosu.
+   */
+  by_store_year_matrix: Array<{
+    store_id: string;
+    store_name: string;
+    brand_name: string;
+    months: Array<{
+      month: number; // 1-12
+      invoiced: number;
+      uninvoiced: number;
+    }>;
+    year_invoiced: number;
+    year_uninvoiced: number;
+    year_total: number;
+  }>;
+  /** Yıl boyu faturalı/faturasız toplamı (matristeki tüm mağazaların toplamı) */
+  year_invoiced_total: number;
+  year_uninvoiced_total: number;
 };
 
 function num(v: { toNumber: () => number } | null | undefined): number {
@@ -110,6 +131,44 @@ export async function expenseSummary(
       daily_record: { include: { store: true } },
       employee: { select: { full_name: true, email: true } },
     },
+  });
+
+  // Mağaza × ay matrisi için yıl boyu Expense (faturalı/faturasız ayrımı)
+  const yearStart = new Date(Date.UTC(filter.year, 0, 1));
+  const yearEnd = new Date(Date.UTC(filter.year + 1, 0, 1));
+  const yearExpenses = await prisma.expense.findMany({
+    where: {
+      ...baseWhere,
+      expense_date: { gte: yearStart, lt: yearEnd },
+    },
+    select: {
+      expense_date: true,
+      amount_try: true,
+      upload_id: true,
+      daily_record: {
+        select: {
+          store_id: true,
+          store: {
+            select: { name: true, brand: { select: { name: true } } },
+          },
+        },
+      },
+    },
+  });
+
+  // Matriste hangi mağazaların görüneceği — filtre ile sınırla
+  const matrixStoreWhere: { id?: { in: string[] }; brand_id?: string; deleted_at: null } = {
+    deleted_at: null,
+  };
+  if (storeIds) {
+    matrixStoreWhere.id = { in: storeIds };
+  } else if (filter.brand_id) {
+    matrixStoreWhere.brand_id = filter.brand_id;
+  }
+  const matrixStores = await prisma.store.findMany({
+    where: matrixStoreWhere,
+    select: { id: true, name: true, brand: { select: { name: true } } },
+    orderBy: [{ brand: { name: "asc" } }, { name: "asc" }],
   });
 
   // Trend window — store_id de seçilir ki per-store MoM hesaplanabilsin
@@ -287,6 +346,50 @@ export async function expenseSummary(
   const remainingMonths = Math.max(0, 12 - filter.month);
   const projected_year_end = ytd_total + remainingMonths * projected_monthly_avg;
 
+  // ---- Mağaza × Ay matrisi (faturalı/faturasız) ----
+  // matrix[store_id][monthIdx 0-11] = { invoiced, uninvoiced }
+  const matrix: Record<string, Array<{ invoiced: number; uninvoiced: number }>> = {};
+  for (const s of matrixStores) {
+    matrix[s.id] = Array.from({ length: 12 }, () => ({ invoiced: 0, uninvoiced: 0 }));
+  }
+  let year_invoiced_total = 0;
+  let year_uninvoiced_total = 0;
+  for (const e of yearExpenses) {
+    const sid = e.daily_record.store_id;
+    if (!matrix[sid]) continue; // mağaza filter dışındaysa atla
+    const monthIdx = e.expense_date.getUTCMonth();
+    const v = num(e.amount_try);
+    const cell = matrix[sid][monthIdx]!;
+    if (e.upload_id) {
+      cell.invoiced += v;
+      year_invoiced_total += v;
+    } else {
+      cell.uninvoiced += v;
+      year_uninvoiced_total += v;
+    }
+  }
+  const by_store_year_matrix: ExpenseSummary["by_store_year_matrix"] = matrixStores
+    .map((s) => {
+      const cells = matrix[s.id]!;
+      let yearInvoiced = 0;
+      let yearUninvoiced = 0;
+      const months = cells.map((c, idx) => {
+        yearInvoiced += c.invoiced;
+        yearUninvoiced += c.uninvoiced;
+        return { month: idx + 1, invoiced: c.invoiced, uninvoiced: c.uninvoiced };
+      });
+      return {
+        store_id: s.id,
+        store_name: s.name,
+        brand_name: s.brand.name,
+        months,
+        year_invoiced: yearInvoiced,
+        year_uninvoiced: yearUninvoiced,
+        year_total: yearInvoiced + yearUninvoiced,
+      };
+    })
+    .sort((a, b) => b.year_total - a.year_total);
+
   return {
     total,
     count: expenses.length + advances.length,
@@ -314,5 +417,8 @@ export async function expenseSummary(
     ytd_total,
     projected_year_end,
     projected_monthly_avg,
+    by_store_year_matrix,
+    year_invoiced_total,
+    year_uninvoiced_total,
   };
 }

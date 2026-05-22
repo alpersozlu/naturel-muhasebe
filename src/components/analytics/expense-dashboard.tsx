@@ -116,8 +116,9 @@ export function ExpenseDashboard({
     );
   }
 
-  const topCategory = data.by_category[0];
-  const topStore = data.by_store[0];
+  const summary = data as ExpenseSummary;
+  const topCategory = summary.by_category[0];
+  const topStore = summary.by_store[0];
 
   return (
     <div className="space-y-6">
@@ -158,7 +159,10 @@ export function ExpenseDashboard({
       </div>
 
       {/* Yearly Trend + Projection */}
-      <YearlyTrendCard data={data} month={month} year={year} />
+      <YearlyTrendCard data={summary} month={month} year={year} />
+
+      {/* Mağaza × Ay Faturalı/Faturasız Matrisi */}
+      <InvoiceStatusMatrix data={summary} year={year} />
 
       {/* P&L Summary (replaces Pareto) */}
       <PnLCard
@@ -178,12 +182,12 @@ export function ExpenseDashboard({
 
       {/* Bottom row: Category Distribution + Store Comparison */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <CategoryDistribution data={data} />
-        <StoreComparison data={data} month={month} year={year} />
+        <CategoryDistribution data={summary} />
+        <StoreComparison data={summary} month={month} year={year} />
       </div>
 
       {/* Full-width: Daily View */}
-      <DailyView data={data} month={month} year={year} />
+      <DailyView data={summary} month={month} year={year} />
     </div>
   );
 }
@@ -325,6 +329,168 @@ function Pill({
         <span className="text-xs font-normal opacity-70 ml-1">₺</span>
       </div>
       {hint ? <div className="text-[10px] opacity-70 mt-0.5">{hint}</div> : null}
+    </div>
+  );
+}
+
+// ───── Mağaza × Ay Faturalı / Faturasız Matrisi ─────
+function InvoiceStatusMatrix({
+  data,
+  year,
+}: {
+  data: ExpenseSummary;
+  year: number;
+}) {
+  const rows = data.by_store_year_matrix;
+  if (!rows || rows.length === 0) return null;
+
+  const totalInvoiced = data.year_invoiced_total;
+  const totalUninvoiced = data.year_uninvoiced_total;
+  const yearTotal = totalInvoiced + totalUninvoiced;
+  const uninvoicedRatio = yearTotal > 0 ? (totalUninvoiced / yearTotal) * 100 : 0;
+
+  // Renk tonu — faturasız oranı arttıkça uyarı
+  const ratioTone =
+    uninvoicedRatio >= 50
+      ? { bg: "bg-rose-50", text: "text-rose-700", border: "border-rose-200/70" }
+      : uninvoicedRatio >= 25
+        ? { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200/70" }
+        : { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200/70" };
+
+  return (
+    <Card className="animate-fade-in">
+      <CardContent className="p-5">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
+          <div>
+            <div className="font-semibold flex items-center gap-2">
+              <Layers className="h-4 w-4 text-slate-600" />
+              Mağaza × Ay — Faturalı vs Faturasız
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">
+              {year} yılında her mağazanın aylık faturalı (belge yüklü) ve faturasız (manuel) gider dağılımı
+            </div>
+          </div>
+          <div className={`rounded-xl border px-3 py-2 ${ratioTone.bg} ${ratioTone.text} ${ratioTone.border}`}>
+            <div className="text-[10px] uppercase tracking-wider opacity-80">Faturasız Oran</div>
+            <div className="text-lg font-semibold tabular-nums">
+              {uninvoicedRatio.toFixed(1)}%
+            </div>
+          </div>
+        </div>
+
+        {/* KPI strip */}
+        <div className="flex gap-2 flex-wrap mb-4">
+          <Pill label="Yıl Toplam" value={fmtMoneyShort(yearTotal)} tone="slate" />
+          <div className="rounded-xl border border-emerald-200/70 bg-emerald-50 text-emerald-700 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-wider opacity-80">Faturalı</div>
+            <div className="text-sm font-semibold tabular-nums">
+              {fmtMoneyShort(totalInvoiced)}
+              <span className="text-xs font-normal opacity-70 ml-1">₺</span>
+            </div>
+            <div className="text-[10px] opacity-70 mt-0.5">
+              {yearTotal > 0 ? `${((totalInvoiced / yearTotal) * 100).toFixed(0)}%` : "—"}
+            </div>
+          </div>
+          <div className="rounded-xl border border-amber-200/70 bg-amber-50 text-amber-700 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-wider opacity-80">Faturasız</div>
+            <div className="text-sm font-semibold tabular-nums">
+              {fmtMoneyShort(totalUninvoiced)}
+              <span className="text-xs font-normal opacity-70 ml-1">₺</span>
+            </div>
+            <div className="text-[10px] opacity-70 mt-0.5">
+              {yearTotal > 0 ? `${uninvoicedRatio.toFixed(0)}%` : "—"}
+            </div>
+          </div>
+        </div>
+
+        {/* Matrix table */}
+        <div className="overflow-x-auto -mx-5 px-5">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-slate-500">
+                <th className="text-left font-medium pb-2 pr-3 sticky left-0 bg-white z-10">
+                  Mağaza
+                </th>
+                {MONTH_LABELS_SHORT.map((m) => (
+                  <th key={m} className="text-right font-medium pb-2 px-2 tabular-nums">
+                    {m}
+                  </th>
+                ))}
+                <th className="text-right font-medium pb-2 pl-3 tabular-nums border-l border-slate-100">
+                  Yıl
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.store_id} className="border-t border-slate-100">
+                  <td className="py-2 pr-3 sticky left-0 bg-white z-10">
+                    <div className="font-medium text-slate-900 leading-tight">
+                      {row.store_name}
+                    </div>
+                    <div className="text-[10px] text-slate-400 leading-tight">
+                      {row.brand_name}
+                    </div>
+                  </td>
+                  {row.months.map((cell) => (
+                    <td key={cell.month} className="py-2 px-2 text-right tabular-nums">
+                      <MatrixCell invoiced={cell.invoiced} uninvoiced={cell.uninvoiced} />
+                    </td>
+                  ))}
+                  <td className="py-2 pl-3 text-right tabular-nums border-l border-slate-100">
+                    <div className="text-emerald-700 font-medium">
+                      {row.year_invoiced > 0 ? fmtMoneyShort(row.year_invoiced) : "—"}
+                    </div>
+                    <div className="text-amber-700">
+                      {row.year_uninvoiced > 0 ? fmtMoneyShort(row.year_uninvoiced) : "—"}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex gap-4 text-[11px] text-slate-500 mt-3 pt-3 border-t border-slate-100">
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+            Faturalı (belge yüklü)
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
+            Faturasız (manuel girilmiş)
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MatrixCell({ invoiced, uninvoiced }: { invoiced: number; uninvoiced: number }) {
+  const total = invoiced + uninvoiced;
+  if (total === 0) {
+    return <span className="text-slate-300">—</span>;
+  }
+  const invoicedRatio = total > 0 ? (invoiced / total) * 100 : 0;
+  return (
+    <div className="leading-tight">
+      <div className="text-emerald-700 font-medium">
+        {invoiced > 0 ? fmtMoneyShort(invoiced) : "·"}
+      </div>
+      <div className="text-amber-700">
+        {uninvoiced > 0 ? fmtMoneyShort(uninvoiced) : "·"}
+      </div>
+      <div className="mt-1 flex h-0.5 rounded-full overflow-hidden bg-slate-100">
+        <div
+          className="bg-emerald-500"
+          style={{ width: `${invoicedRatio}%` }}
+        />
+        <div
+          className="bg-amber-500"
+          style={{ width: `${100 - invoicedRatio}%` }}
+        />
+      </div>
     </div>
   );
 }
