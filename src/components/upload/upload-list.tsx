@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
@@ -14,6 +15,9 @@ import {
   AlertCircle,
   Check,
   Calculator,
+  ScanLine,
+  Sparkles,
+  ShieldCheck,
 } from "lucide-react";
 import type {
   UploadType,
@@ -480,15 +484,69 @@ function ParsedFields({ upload }: { upload: UploadRow }) {
       </div>
     );
   }
-  // OCR henüz tamamlanmadı
+  // OCR henüz tamamlanmadı — animasyonlu aşama göstergesi
   if (upload.status === "pending" || upload.status === "processing") {
-    return (
-      <div className="text-xs text-muted-foreground italic">
-        OCR çalışıyor…
-      </div>
-    );
+    return <OcrProgressIndicator />;
   }
   return null;
+}
+
+// Görsel amaçlı 3-aşama OCR göstergesi.
+// Gerçek backend aşaması değil — sadece kullanıcıya "iş yapılıyor" hissi verir.
+function OcrProgressIndicator() {
+  const stages = [
+    { icon: ScanLine, label: "Tanıma" },
+    { icon: Sparkles, label: "Çıkarım" },
+    { icon: ShieldCheck, label: "Doğrulama" },
+  ] as const;
+  const [active, setActive] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setActive((v) => (v + 1) % stages.length);
+    }, 1100);
+    return () => clearInterval(id);
+  }, [stages.length]);
+
+  return (
+    <div className="flex flex-col items-center gap-1.5 py-1">
+      <div className="flex items-center gap-1.5">
+        {stages.map((s, idx) => {
+          const Icon = s.icon;
+          const isActive = idx === active;
+          const isDone = idx < active;
+          return (
+            <div key={s.label} className="flex items-center gap-1.5">
+              <div
+                className={`relative h-7 w-7 rounded-full flex items-center justify-center transition-all duration-500 ${
+                  isActive
+                    ? "bg-violet-500 text-white shadow-md shadow-violet-500/40 scale-110"
+                    : isDone
+                      ? "bg-violet-100 text-violet-600"
+                      : "bg-slate-100 text-slate-400"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {isActive && (
+                  <span className="absolute inset-0 rounded-full bg-violet-400/30 animate-ping" />
+                )}
+              </div>
+              {idx < stages.length - 1 && (
+                <div
+                  className={`h-0.5 w-6 rounded-full transition-colors duration-500 ${
+                    idx < active ? "bg-violet-400" : "bg-slate-200"
+                  }`}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="text-[11px] font-medium text-violet-600 tabular-nums tracking-wide">
+        {stages[active]!.label}…
+      </div>
+    </div>
+  );
 }
 
 function MiniField({ label, value }: { label: string; value: string }) {
