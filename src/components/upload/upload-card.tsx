@@ -128,6 +128,8 @@ export function UploadCard({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const dragCounter = useRef(0); // child element'ler enter/leave'ı tetiklediğinde tutarlı sayım
   const utils = trpc.useUtils();
 
   const create = trpc.upload.create.useMutation();
@@ -193,13 +195,89 @@ export function UploadCard({
     if (inputRef.current) inputRef.current.value = "";
   };
 
+  const openPicker = () => {
+    if (disabled) return;
+    inputRef.current?.click();
+  };
+
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (disabled) return;
+    dragCounter.current += 1;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setDragActive(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (disabled) return;
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0) {
+      setDragActive(false);
+      dragCounter.current = 0;
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    // Drop'a izin vermek için preventDefault gerekli
+    e.preventDefault();
+    e.stopPropagation();
+    if (!disabled) e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current = 0;
+    setDragActive(false);
+    if (disabled) return;
+    const dropped = e.dataTransfer.files;
+    if (!dropped || dropped.length === 0) return;
+    // multiple=false ise sadece ilkini al
+    if (!multiple && dropped.length > 1) {
+      toast.message("Sadece ilk dosya yüklendi (bu kart tek dosya destekler)");
+      const dt = new DataTransfer();
+      dt.items.add(dropped[0]!);
+      handleFiles(dt.files);
+    } else {
+      handleFiles(dropped);
+    }
+  };
+
   return (
     <Card
-      className={`hover:border-primary/50 transition-colors ${disabled ? "opacity-50" : ""}`}
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled}
+      onClick={openPicker}
+      onKeyDown={(e) => {
+        if ((e.key === "Enter" || e.key === " ") && !disabled) {
+          e.preventDefault();
+          openPicker();
+        }
+      }}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      className={`group relative transition-all outline-none ${
+        disabled
+          ? "opacity-50 cursor-not-allowed"
+          : "cursor-pointer hover:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+      } ${
+        dragActive
+          ? "border-primary border-2 bg-primary/5 scale-[1.01] shadow-md"
+          : ""
+      }`}
     >
       <CardContent className="p-5">
         <div
-          className={`h-12 w-12 rounded-xl flex items-center justify-center ${iconBg} ${iconColor} mb-3`}
+          className={`h-12 w-12 rounded-xl flex items-center justify-center mb-3 transition-colors ${
+            dragActive ? "bg-primary/15 text-primary" : `${iconBg} ${iconColor}`
+          }`}
         >
           <Icon className="h-6 w-6" />
         </div>
@@ -207,9 +285,11 @@ export function UploadCard({
         <div className="text-xs text-muted-foreground mt-1 mb-3">
           {disabled && (!storeId || !date)
             ? "Önce mağaza ve tarih seç"
-            : multiple
-              ? "Birden fazla dosya seçilebilir"
-              : "Bir dosya seç"}
+            : dragActive
+              ? "Bırak — yüklenecek"
+              : multiple
+                ? "Sürükle bırak veya seçmek için tıkla"
+                : "Sürükle bırak veya seçmek için tıkla"}
         </div>
 
         <input
@@ -223,9 +303,9 @@ export function UploadCard({
         <Button
           variant="outline"
           size="sm"
-          className="w-full"
+          className="w-full pointer-events-none"
           disabled={disabled}
-          onClick={() => inputRef.current?.click()}
+          tabIndex={-1}
         >
           {uploading ? (
             <>
