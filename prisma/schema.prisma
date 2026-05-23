@@ -75,6 +75,22 @@ enum ExpenseCategory {
   other // Diğer
 }
 
+enum BudgetScope {
+  total // Tüm kategorilerin toplamı
+  category // Belirli bir kategoriye sınır
+}
+
+enum BudgetMode {
+  amount // Sabit TRY tutarı
+  ratio // Ciroya kıyasla yüzde (örn 15 = %15)
+}
+
+enum BudgetPeriod {
+  monthly // Her ay sıfırlanır
+  yearly // Her yıl sıfırlanır
+  custom // İki tarih aralığı (period_start ↔ period_end)
+}
+
 // ─────────────────────────────────────────────────────────────
 // AUTH & ORGANIZATION
 // ─────────────────────────────────────────────────────────────
@@ -124,6 +140,7 @@ model Store {
 
   user_access   UserStoreAccess[]
   daily_records DailyRecord[]
+  budget_limits BudgetLimit[]
 
   @@index([brand_id])
   @@index([deleted_at])
@@ -357,6 +374,41 @@ model CashAdvance {
 
   @@index([daily_record_id])
   @@index([employee_id])
+}
+
+// ─────────────────────────────────────────────────────────────
+// BUDGET LIMITS (gider limit takibi + alert)
+// ─────────────────────────────────────────────────────────────
+
+model BudgetLimit {
+  id    String  @id @default(uuid())
+  name  String? // Opsiyonel açıklayıcı isim ("Lefkoşa kira limiti" vs.)
+
+  // null = tüm mağazalar için global limit
+  store_id String?
+  store    Store?  @relation(fields: [store_id], references: [id])
+
+  scope    BudgetScope
+  category ExpenseCategory? // scope=category ise dolu olmalı
+
+  mode       BudgetMode
+  amount_try Decimal?   @db.Decimal(14, 2) // mode=amount ise (TRY)
+  ratio_pct  Decimal?   @db.Decimal(5, 2) // mode=ratio ise (örn 15 = %15)
+
+  period       BudgetPeriod
+  period_start DateTime?    @db.Date // period=custom ise
+  period_end   DateTime?    @db.Date // period=custom ise
+
+  alert_pct Decimal @default(80) @db.Decimal(5, 2) // %80'e ulaşınca erken uyarı
+
+  is_active  Boolean   @default(true)
+  notes      String?
+  created_by String?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+
+  @@index([store_id])
+  @@index([is_active])
 }
 
 // ─────────────────────────────────────────────────────────────

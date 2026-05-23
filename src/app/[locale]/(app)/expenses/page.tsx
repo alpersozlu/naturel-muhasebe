@@ -9,6 +9,10 @@ import {
 import { ExpenseDashboard } from "@/components/analytics/expense-dashboard";
 import { BankCommissionBlock } from "@/components/analytics/bank-commission-block";
 import { ExportExcelButton } from "@/components/analytics/export-button";
+import {
+  BudgetAlertBanner,
+  BudgetLimitsBlock,
+} from "@/components/budget/budget-limits-block";
 import { trpc } from "@/lib/trpc";
 
 export default function ExpensesPage() {
@@ -40,12 +44,16 @@ export default function ExpensesPage() {
         <ExportExcelButton onExport={handleExport} />
       </div>
       <AnalyticsFilters value={sel} onChange={setSel} />
+      <BudgetAlertBanner />
       <ExpenseDashboard
         brandId={sel.brandId}
         storeId={sel.storeId}
         year={sel.year}
         month={sel.month}
       />
+      <div className="mt-8">
+        <BudgetLimitsBlock />
+      </div>
       <div className="mt-8">
         <BankCommissionBlock
           brandId={sel.brandId}

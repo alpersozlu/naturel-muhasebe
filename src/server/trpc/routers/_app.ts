@@ -11,6 +11,7 @@ import { dailyRecordRouter } from "./dailyRecord";
 import { analyticsRouter } from "./analytics";
 import { historyRouter } from "./history";
 import { manualInvoiceRouter } from "./manualInvoice";
+import { budgetRouter } from "./budget";
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({
@@ -30,6 +31,7 @@ export const appRouter = router({
   analytics: analyticsRouter,
   history: historyRouter,
   manualInvoice: manualInvoiceRouter,
+  budget: budgetRouter,
 });
 
 export type AppRouter = typeof appRouter;

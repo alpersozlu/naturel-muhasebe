@@ -44,6 +44,24 @@ export const storeRouter = router({
       });
     }),
 
+  /** Admin için tüm mağazalar — marka bilgisi ile birlikte (select/limit UI'ları için). */
+  listAll: protectedProcedure.query(async ({ ctx }) => {
+    if (!isAdmin(ctx.user)) {
+      const accessibleIds = await getAccessibleStoreIds(ctx.user);
+      if (accessibleIds.length === 0) return [];
+      return ctx.prisma.store.findMany({
+        where: { id: { in: accessibleIds }, deleted_at: null },
+        include: { brand: { select: { name: true } } },
+        orderBy: [{ brand: { name: "asc" } }, { name: "asc" }],
+      });
+    }
+    return ctx.prisma.store.findMany({
+      where: { deleted_at: null },
+      include: { brand: { select: { name: true } } },
+      orderBy: [{ brand: { name: "asc" } }, { name: "asc" }],
+    });
+  }),
+
   get: protectedProcedure.input(storeIdSchema).query(async ({ ctx, input }) => {
     await assertCanAccessStore(ctx.user, input.id);
     const store = await ctx.prisma.store.findUnique({
