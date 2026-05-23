@@ -16,6 +16,7 @@ import {
 import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import type { UserRole } from "@prisma/client";
+import { NrLogo } from "@/components/brand/nr-logo";
 
 const NAV_ADMIN = [
   { href: "/", icon: LayoutDashboard, key: "today" as const },
@@ -45,9 +46,7 @@ export function Sidebar({ role }: { role: UserRole | null }) {
   return (
     <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 border-r border-border/70 bg-card/95 backdrop-blur-sm">
       <div className="flex items-center gap-3 px-6 py-5 border-b border-border/70">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold shadow-sm shrink-0">
-          NT
-        </div>
+        <NrLogo className="h-10 w-10 shrink-0" />
         <div className="min-w-0">
           <div className="font-semibold leading-tight tracking-tight">
             Naturel Ticaret
