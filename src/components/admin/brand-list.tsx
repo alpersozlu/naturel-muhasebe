@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Building2, Store, MoreVertical, Pencil, Trash2 } from "lucide-react";
+import { BrandLogo } from "@/components/brand/brand-logo";
 import { trpc } from "@/lib/trpc";
 import { Link } from "@/i18n/navigation";
 import { Card, CardContent } from "@/components/ui/card";
@@ -105,9 +106,12 @@ export function BrandList() {
 
             <Link href={`/admin/brands/${brand.id}`} className="block">
               <CardContent className="p-5">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary mb-3">
-                  <Building2 className="h-5 w-5" />
-                </div>
+                <BrandLogo
+                  name={brand.name}
+                  logoUrl={brand.logo_url}
+                  size="md"
+                  className="mb-3"
+                />
                 <div className="font-semibold leading-tight">{brand.name}</div>
                 <div className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
                   <Store className="h-3.5 w-3.5" />

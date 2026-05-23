@@ -21,6 +21,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BrandFormDialog } from "./brand-form-dialog";
 import { StoreFormDialog } from "./store-form-dialog";
+import { BrandLogo } from "@/components/brand/brand-logo";
 import { StoreStaffDialog } from "./store-staff-dialog";
 import { ListSkeleton } from "@/components/shared/skeleton";
 
@@ -113,9 +114,7 @@ function BrandRow({
             )}
           </button>
 
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary shrink-0">
-            <Building2 className="h-4.5 w-4.5" />
-          </div>
+          <BrandLogo name={name} logoUrl={logoUrl} size="sm" className="shrink-0" />
 
           <div
             className="flex-1 min-w-0 cursor-pointer"
