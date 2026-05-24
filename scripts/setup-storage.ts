@@ -12,16 +12,11 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { ACCEPTED_MIME_TYPES, MAX_UPLOAD_BYTES, UPLOAD_BUCKET } from "../src/lib/constants";
 
-const BUCKET = "uploads";
-const ALLOWED_MIME = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/heic",
-  "image/heif",
-  "application/pdf",
-];
+// Constants'tan oku — kaynak-of-truth tek yer
+const BUCKET = UPLOAD_BUCKET;
+const ALLOWED_MIME: string[] = [...ACCEPTED_MIME_TYPES];
 
 async function main() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -37,32 +32,32 @@ async function main() {
   });
 
   console.log(`📦 Bucket kontrolü: ${BUCKET}`);
+  console.log(`   ↳ izinli MIME (${ALLOWED_MIME.length}): ${ALLOWED_MIME.join(", ")}`);
+
   const { data: list, error: listErr } = await supabase.storage.listBuckets();
   if (listErr) throw listErr;
 
-  const exists = list?.some((b) => b.name === BUCKET);
-  if (exists) {
-    console.log(`   ↳ zaten var`);
+  const existing = list?.find((b) => b.name === BUCKET);
+  if (existing) {
+    console.log(`   ↳ var, MIME whitelist güncelleniyor`);
+    const { error } = await supabase.storage.updateBucket(BUCKET, {
+      public: false,
+      fileSizeLimit: MAX_UPLOAD_BYTES,
+      allowedMimeTypes: ALLOWED_MIME,
+    });
+    if (error) throw new Error(`Bucket güncellenemedi: ${error.message}`);
+    console.log(`   ✓ güncellendi`);
   } else {
     const { error } = await supabase.storage.createBucket(BUCKET, {
       public: false,
-      fileSizeLimit: 10 * 1024 * 1024,
+      fileSizeLimit: MAX_UPLOAD_BYTES,
       allowedMimeTypes: ALLOWED_MIME,
     });
     if (error) throw new Error(`Bucket oluşturulamadı: ${error.message}`);
-    console.log(`   ↳ oluşturuldu (private, max 10 MB, image/* + pdf)`);
+    console.log(`   ✓ oluşturuldu`);
   }
 
   console.log("\n✅ Storage hazır.");
-  console.log(
-    "\nSonraki adım — RLS policies'i Supabase Dashboard SQL Editor'de çalıştır:"
-  );
-  console.log(
-    "   https://supabase.com/dashboard/project/cnasyjbcnratrkoxokqk/sql/new"
-  );
-  console.log(
-    "   SQL dosyası: supabase/migrations/20260518_storage_policies.sql"
-  );
 }
 
 main().catch((e) => {
