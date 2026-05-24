@@ -7,6 +7,7 @@ import {
   Check,
   X,
   AlertTriangle,
+  ShieldAlert,
   Lock,
   Loader2,
   XCircle,
@@ -143,6 +144,9 @@ export function ReconciliationPanel({
 
         {/* Status banner — incomplete/error/locked durumları */}
         <StatusBanner data={data} />
+
+        {/* SAP Bayi Raporu vs Müdür Özeti — fark uyarı banner'ı (varsa) */}
+        {v && v.rows ? <SapAlertBanner rows={v.rows} /> : null}
 
         {/* Comparison table — sadece verification varsa */}
         {v && v.rows && v.rows.length > 0 ? (
@@ -492,6 +496,145 @@ function Banner({
       <div>
         <div className="text-sm font-semibold">{title}</div>
         <div className="text-xs mt-0.5 leading-relaxed">{message}</div>
+      </div>
+    </div>
+  );
+}
+
+// ───────────────── SAP Bayi Raporu vs Özet Uyarısı ─────────────────
+/**
+ * SAP Bayi Raporu yüklendiğinde Mağaza Özeti ile karşılaştırır.
+ * Sign konvansiyonu: difference = SAP − özet
+ *  - Pozitif → SAP > özet → MÜDÜR ÖZETİ AZ → hırsızlık sinyali (rose)
+ *  - Negatif → SAP < özet → MÜDÜR ÖZETİ ŞİŞMİŞ → anomali (amber)
+ *  - 0/tolerans → uyumlu (yeşil rozet, dikkat çekmez)
+ */
+function SapAlertBanner({ rows }: { rows: Row[] }) {
+  const netRow = rows.find((r) => r.label === "SAP Net Satış (Bayi Raporu)");
+  const loyRow = rows.find((r) => r.label === "SAP Kartuş Puan (Bayi Raporu)");
+  if (!netRow && !loyRow) return null; // SAP yüklenmemiş
+
+  const netDiff = netRow?.difference ?? 0;
+  const loyDiff = loyRow?.difference ?? 0;
+  const allMatch =
+    (!netRow || netRow.matches) && (!loyRow || loyRow.matches);
+
+  // Tümü uyumluysa: küçük yeşil bilgilendirme şeridi
+  if (allMatch) {
+    return (
+      <div className="mt-4 rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white px-4 py-2.5 flex items-center gap-2.5 text-xs animate-fade-in">
+        <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+        <span className="font-medium text-emerald-900">
+          SAP Bayi Raporu Mağaza Özeti ile uyumlu
+        </span>
+        <span className="text-emerald-700/70">— manipülasyon sinyali yok</span>
+      </div>
+    );
+  }
+
+  // En kritik fark hangisi? Pozitif (özet az) > Negatif (özet fazla) önceliği
+  const criticalNet = netRow && !netRow.matches && netDiff > 0;
+  const criticalLoy = loyRow && !loyRow.matches && loyDiff > 0;
+  const isCritical = criticalNet || criticalLoy;
+
+  const tone = isCritical
+    ? {
+        bar: "border-rose-300 bg-gradient-to-r from-rose-50 to-rose-50/40",
+        icon: "text-rose-600",
+        title: "text-rose-900",
+        Icon: ShieldAlert,
+        label: "Manipülasyon Riski",
+        explainer:
+          "SAP Bayi Raporu Mağaza Özeti'nden YÜKSEK — müdür özeti olduğundan daha az gösterilmiş olabilir.",
+      }
+    : {
+        bar: "border-amber-300 bg-gradient-to-r from-amber-50 to-amber-50/40",
+        icon: "text-amber-600",
+        title: "text-amber-900",
+        Icon: AlertTriangle,
+        label: "SAP ↔ Özet Farkı",
+        explainer:
+          "Mağaza Özeti SAP Bayi Raporu'ndan YÜKSEK — anomali, kontrol edilmeli.",
+      };
+  const Icon = tone.Icon;
+
+  return (
+    <div
+      className={`mt-4 rounded-2xl border-2 ${tone.bar} p-4 animate-fade-in shadow-sm`}
+    >
+      <div className="flex items-start gap-3">
+        <div className={`shrink-0 ${tone.icon}`}>
+          <Icon className="h-6 w-6" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className={`font-semibold text-sm ${tone.title}`}>
+            🚨 {tone.label}
+          </div>
+          <div className="text-xs text-foreground/80 mt-1">{tone.explainer}</div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+            {netRow && !netRow.matches ? (
+              <SapDiffRow
+                label="Net Satış"
+                sap={netRow.document_total}
+                summary={netRow.summary_total}
+                diff={netDiff}
+              />
+            ) : null}
+            {loyRow && !loyRow.matches ? (
+              <SapDiffRow
+                label="Kartuş Puan"
+                sap={loyRow.document_total}
+                summary={loyRow.summary_total}
+                diff={loyDiff}
+              />
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SapDiffRow({
+  label,
+  sap,
+  summary,
+  diff,
+}: {
+  label: string;
+  sap: number;
+  summary: number;
+  diff: number;
+}) {
+  const isShortage = diff > 0; // SAP > özet → özet az → eksik
+  const sign = diff > 0 ? "+" : "";
+  return (
+    <div className="rounded-lg bg-white/80 border border-foreground/5 px-3 py-2.5">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+        {label}
+      </div>
+      <div className="flex items-baseline justify-between gap-2 mt-0.5">
+        <div className="text-xs text-foreground/70 tabular-nums">
+          <span title="SAP Bayi Raporu">{TRY_FMT.format(sap)}</span>
+          <span className="text-muted-foreground mx-1">↔</span>
+          <span title="Mağaza Özeti">{TRY_FMT.format(summary)}</span>
+        </div>
+        <div
+          className={`text-sm font-semibold tabular-nums ${
+            isShortage ? "text-rose-700" : "text-amber-700"
+          }`}
+        >
+          {sign}
+          {TRY_FMT.format(diff)} ₺
+        </div>
+      </div>
+      <div
+        className={`text-[10px] font-medium mt-0.5 ${
+          isShortage ? "text-rose-700" : "text-amber-700"
+        }`}
+      >
+        {isShortage ? "Müdür Özeti az" : "Müdür Özeti fazla"}
       </div>
     </div>
   );

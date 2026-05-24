@@ -8,6 +8,7 @@ import {
   Clock,
   Lock,
   XCircle,
+  ShieldAlert,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { Link } from "@/i18n/navigation";
@@ -112,7 +113,12 @@ export default async function TodayDashboard() {
           uploads: { select: { status: true } },
           verification: { select: { status: true, difference: true } },
           z_reports: { select: { net_sales_try: true } },
-          store_summary: { select: { sales_total_try: true } },
+          store_summary: {
+            select: { sales_total_try: true, loyalty_points_total_try: true },
+          },
+          dealer_daily_report: {
+            select: { net_sales_try: true, loyalty_try: true },
+          },
           pos_slips: {
             select: {
               net_amount_try: true,
@@ -146,8 +152,17 @@ export default async function TodayDashboard() {
     hasZ: boolean;
     hasSummary: boolean;
     verificationDiff: number | null;
+    /** SAP Bayi Raporu yüklenmiş + özetle |fark| > 5 TL ise true */
+    sapAlert: null | {
+      net_diff: number;
+      loyalty_diff: number;
+      /** Pozitif (SAP > özet) = müdür özeti az = manipülasyon riski */
+      critical: boolean;
+    };
   };
 
+  let sapAlertCount = 0;
+  let sapCriticalCount = 0;
   const cards: Card[] = stores.map((s) => {
     const dr = s.daily_records[0];
     if (!dr) {
@@ -166,6 +181,7 @@ export default async function TodayDashboard() {
         hasZ: false,
         hasSummary: false,
         verificationDiff: null,
+        sapAlert: null,
       };
     }
 
@@ -206,6 +222,24 @@ export default async function TodayDashboard() {
       totalSummaries++;
     }
 
+    // SAP Bayi Raporu farkı (varsa)
+    let sapAlert: Card["sapAlert"] = null;
+    if (dr.dealer_daily_report && dr.store_summary) {
+      const sapNet = num(dr.dealer_daily_report.net_sales_try);
+      const sapLoy = num(dr.dealer_daily_report.loyalty_try);
+      const sumNet = num(dr.store_summary.sales_total_try);
+      const sumLoy = num(dr.store_summary.loyalty_points_total_try);
+      const netDiff = sapNet - sumNet;
+      const loyDiff = sapLoy - sumLoy;
+      const TOL = 5;
+      if (Math.abs(netDiff) > TOL || Math.abs(loyDiff) > TOL) {
+        sapAlertCount++;
+        const critical = netDiff > TOL || loyDiff > TOL; // SAP > özet = özet az = riskli
+        if (critical) sapCriticalCount++;
+        sapAlert = { net_diff: netDiff, loyalty_diff: loyDiff, critical };
+      }
+    }
+
     return {
       storeId: s.id,
       storeName: s.name,
@@ -222,6 +256,7 @@ export default async function TodayDashboard() {
       verificationDiff: dr.verification?.difference
         ? num(dr.verification.difference)
         : null,
+      sapAlert,
     };
   });
 
@@ -239,6 +274,15 @@ export default async function TodayDashboard() {
           {DATE_FMT.format(todayStart)} · {totalStores} mağaza
         </p>
       </div>
+
+      {/* SAP Bayi Raporu fark alarmı — sadece varsa görünür */}
+      {sapAlertCount > 0 ? (
+        <SapAlertStrip
+          total={sapAlertCount}
+          critical={sapCriticalCount}
+          alerts={cards.filter((c) => c.sapAlert !== null)}
+        />
+      ) : null}
 
       {/* Summary strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
@@ -360,6 +404,7 @@ function StoreCard({
     hasZ: boolean;
     hasSummary: boolean;
     verificationDiff: number | null;
+    sapAlert: null | { net_diff: number; loyalty_diff: number; critical: boolean };
   };
   todayIso: string;
 }) {
@@ -437,13 +482,103 @@ function StoreCard({
       </div>
 
       <div className="mt-3 pt-3 border-t border-border/40 flex items-center justify-between text-xs">
-        <Badge variant="secondary" className="bg-card text-foreground/80">
-          {s.label}
-        </Badge>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <Badge variant="secondary" className="bg-card text-foreground/80">
+            {s.label}
+          </Badge>
+          {card.sapAlert ? (
+            <Badge
+              variant="secondary"
+              className={
+                card.sapAlert.critical
+                  ? "bg-rose-100 text-rose-800 border border-rose-200"
+                  : "bg-amber-100 text-amber-800 border border-amber-200"
+              }
+            >
+              <ShieldAlert className="h-3 w-3 mr-0.5" />
+              SAP {card.sapAlert.critical ? "Riski" : "Farkı"}
+            </Badge>
+          ) : null}
+        </div>
         <span className="text-muted-foreground group-hover:text-primary transition-colors">
           Aç →
         </span>
       </div>
     </Link>
+  );
+}
+
+/**
+ * Bugün için SAP Bayi Raporu vs Mağaza Özeti farkı olan mağazaları gösterir.
+ * Sadece sapAlertCount > 0 ise render edilir.
+ */
+function SapAlertStrip({
+  total,
+  critical,
+  alerts,
+}: {
+  total: number;
+  critical: number;
+  alerts: Array<{
+    storeId: string;
+    storeName: string;
+    brandName: string;
+    sapAlert: null | { net_diff: number; loyalty_diff: number; critical: boolean };
+  }>;
+}) {
+  const hasCritical = critical > 0;
+  const toneCls = hasCritical
+    ? "border-rose-300 bg-gradient-to-r from-rose-50 to-rose-50/40"
+    : "border-amber-300 bg-gradient-to-r from-amber-50 to-amber-50/40";
+  const iconCls = hasCritical ? "text-rose-600" : "text-amber-600";
+  const titleCls = hasCritical ? "text-rose-900" : "text-amber-900";
+
+  return (
+    <div
+      className={`mb-6 rounded-2xl border-2 ${toneCls} p-4 animate-fade-in shadow-sm`}
+    >
+      <div className="flex items-start gap-3">
+        <div className={`shrink-0 ${iconCls}`}>
+          <ShieldAlert className="h-6 w-6" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className={`font-semibold text-sm ${titleCls}`}>
+            {hasCritical
+              ? `🚨 ${critical} mağazada SAP manipülasyon riski`
+              : `⚠️ ${total} mağazada SAP fark`}
+          </div>
+          <div className="text-xs text-foreground/70 mt-1">
+            {hasCritical
+              ? "SAP Bayi Raporu, Mağaza Özeti'nden YÜKSEK — müdür özetini olduğundan az göstermiş olabilir."
+              : "Mağaza Özeti, SAP Bayi Raporu'ndan YÜKSEK — anomali, kontrol edin."}
+          </div>
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {alerts.map((c) => {
+              if (!c.sapAlert) return null;
+              const isCrit = c.sapAlert.critical;
+              const total = c.sapAlert.net_diff;
+              const sign = total > 0 ? "+" : "";
+              return (
+                <Link
+                  key={c.storeId}
+                  href={`/stores/${c.storeId}`}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                    isCrit
+                      ? "bg-white border-rose-300 text-rose-800 hover:bg-rose-50"
+                      : "bg-white border-amber-300 text-amber-800 hover:bg-amber-50"
+                  }`}
+                >
+                  <span className="truncate max-w-32">{c.storeName}</span>
+                  <span className="tabular-nums">
+                    {sign}
+                    {TRY_FMT.format(total)} ₺
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
