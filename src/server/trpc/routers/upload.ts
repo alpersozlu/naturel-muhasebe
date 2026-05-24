@@ -125,6 +125,7 @@ export const uploadRouter = router({
           bank_receipt: true,
           expense: true,
           z_report: true,
+          dealer_daily_report: true,
         },
       });
     }),

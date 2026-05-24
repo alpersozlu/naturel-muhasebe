@@ -27,6 +27,7 @@ import type {
   BankReceipt,
   Expense,
   ZReport,
+  DealerDailyReport,
 } from "@prisma/client";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -92,6 +93,12 @@ const TYPE_META: Record<
     color: "text-cyan-600",
     bg: "bg-cyan-50",
   },
+  dealer_daily_report: {
+    label: "Bayi Gün Sonu (SAP)",
+    icon: ShieldCheck,
+    color: "text-indigo-600",
+    bg: "bg-indigo-50",
+  },
 };
 
 const STATUS_META: Record<
@@ -134,6 +141,7 @@ type UploadRow = {
   bank_receipt?: BankReceipt | null;
   expense?: Expense | null;
   z_report?: ZReport | null;
+  dealer_daily_report?: DealerDailyReport | null;
 };
 
 export function UploadList({ storeId, date }: { storeId: string; date: string }) {
@@ -409,6 +417,12 @@ function getHeroAmount(
       unit: `${upload.z_report.currency ?? "TRY"} · Z Net`,
     };
   }
+  if (upload.dealer_daily_report) {
+    return {
+      value: num(upload.dealer_daily_report.net_sales_try),
+      unit: "TRY · SAP Net Satış",
+    };
+  }
   return null;
 }
 
@@ -481,6 +495,28 @@ function ParsedFields({ upload }: { upload: UploadRow }) {
           label="Brüt Satış"
           value={`${TRY_FMT.format(num(z.gross_sales))} ₺`}
         />
+      </div>
+    );
+  }
+  if (upload.dealer_daily_report) {
+    const d = upload.dealer_daily_report;
+    const dateStr = d.report_date
+      ? new Date(d.report_date).toLocaleDateString("tr-TR")
+      : "—";
+    return (
+      <div className="grid grid-cols-3 gap-4 w-full">
+        <MiniField
+          label="Mağaza"
+          value={d.store_code ? `${d.store_code}` : "—"}
+        />
+        <MiniField label="Tarih" value={dateStr} />
+        <MiniField
+          label="Kartuş Puan"
+          value={`${TRY_FMT.format(num(d.loyalty_try))} ₺`}
+        />
+        <MiniField label="Fiş Sayısı" value={String(d.transaction_count)} />
+        <MiniField label="Satır" value={String(d.line_count)} />
+        <MiniField label="İade" value={String(d.refund_count)} />
       </div>
     );
   }

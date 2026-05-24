@@ -61,6 +61,7 @@ export async function computeDay(
       store_summary: true,
       z_reports: { select: { net_sales_try: true } },
       manual_invoices: { select: { amount_try: true } },
+      dealer_daily_report: true,
     },
   });
   if (!dr) {
@@ -204,6 +205,29 @@ export async function computeDay(
       matches: Math.abs(difference) <= TOLERANCE_TL,
     },
   ];
+
+  // ── SAP Bayi Raporu satırları (varsa) ──
+  // Ham SAP verisi mağaza özeti ile karşılaştırılır — manipülasyon tespiti.
+  if (dr.dealer_daily_report) {
+    const sapNet = num(dr.dealer_daily_report.net_sales_try);
+    const sapLoyalty = num(dr.dealer_daily_report.loyalty_try);
+    const netDiff = sapNet - summarySales; // SAP − özet (negatif = özet daha yüksek)
+    const loyDiff = sapLoyalty - loyalty;
+    rows.splice(rows.length - 1, 0, {
+      label: "SAP Net Satış (Bayi Raporu)",
+      document_total: sapNet,
+      summary_total: summarySales,
+      difference: netDiff,
+      matches: Math.abs(netDiff) <= TOLERANCE_TL,
+    });
+    rows.splice(rows.length - 1, 0, {
+      label: "SAP Kartuş Puan (Bayi Raporu)",
+      document_total: sapLoyalty,
+      summary_total: loyalty,
+      difference: loyDiff,
+      matches: Math.abs(loyDiff) <= TOLERANCE_TL,
+    });
+  }
 
   const status: DayComputeResult["status"] = rows[rows.length - 1].matches
     ? "match"

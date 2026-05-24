@@ -9,6 +9,12 @@ import { parseStoreSummary } from "./parsers/store-summary";
 import { parseBankReceipt } from "./parsers/bank-receipt";
 import { parseExpense } from "./parsers/expense";
 import { parseZReport } from "./parsers/z-report";
+import {
+  parseMaviSapBuffer,
+  pickDay,
+  dealerReportFingerprint,
+  MAVI_STORE_CODE_MAP,
+} from "@/server/services/dealer-report/mavi-sap-parser";
 
 const SUPPORTED = new Set<Upload["type"]>([
   "pos_slip",
@@ -16,6 +22,7 @@ const SUPPORTED = new Set<Upload["type"]>([
   "bank_receipt",
   "expense",
   "z_report",
+  "dealer_daily_report",
 ]);
 
 function fmtDateTr(iso: string): string {
@@ -95,6 +102,7 @@ export async function processUpload(uploadId: string): Promise<void> {
     else if (upload.type === "bank_receipt") await runBankReceipt(upload, buffer);
     else if (upload.type === "expense") await runExpense(upload, buffer);
     else if (upload.type === "z_report") await runZReport(upload, buffer);
+    else if (upload.type === "dealer_daily_report") await runDealerDailyReport(upload, buffer);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[OCR] failed", { uploadId, type: upload.type, error: msg });
@@ -428,6 +436,122 @@ async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {
   });
 
   await markParsed(upload.id, raw, parsed);
+}
+
+async function runDealerDailyReport(upload: Upload, buffer: Buffer): Promise<void> {
+  // Excel parser — OCR yok
+  const report = parseMaviSapBuffer(buffer);
+
+  // DailyRecord + mağaza bilgisi
+  const dr = await prisma.dailyRecord.findUnique({
+    where: { id: upload.daily_record_id },
+    include: { store: { include: { brand: true } } },
+  });
+  if (!dr) {
+    throw new Error("DailyRecord bulunamadı");
+  }
+
+  // 1) Marka kontrolü — şimdilik sadece Mavi
+  const brandLower = dr.store.brand.name.toLocaleLowerCase("tr");
+  const isMavi = brandLower.includes("mavi");
+  if (!isMavi) {
+    throw new Error(
+      `Bu özellik şu an sadece Mavi mağazaları için aktif. "${dr.store.brand.name}" markası destek listesinde değil.`
+    );
+  }
+
+  // 2) Mağaza kodu (9400/01/02/03) seçili mağazaya uymalı
+  if (!report.store_code) {
+    throw new Error("SAP dosyasında mağaza kodu bulunamadı");
+  }
+  const expectedHint = report.store_name_hint; // örn "Mağusa"
+  if (!expectedHint) {
+    throw new Error(
+      `Mağaza kodu (${report.store_code}) tanınmıyor. Beklenen kodlar: ${Object.entries(
+        MAVI_STORE_CODE_MAP
+      )
+        .map(([k, v]) => `${k}=${v}`)
+        .join(", ")}.`
+    );
+  }
+  const storeNorm = normalizeName(dr.store.name);
+  const hintNorm = normalizeName(expectedHint);
+  if (!storeNorm.includes(hintNorm)) {
+    throw new Error(
+      `Bu dosya Mavi ${expectedHint} (kod ${report.store_code}) mağazasına ait — "${dr.store.name}" mağazasına yüklenemez.`
+    );
+  }
+
+  // 3) Seçili güne ait satırlar filtrele (1-gün modu)
+  const day = pickDay(report, dr.date);
+  if (!day) {
+    const dateRange =
+      report.source_date_min && report.source_date_max
+        ? `${fmtDateTr(report.source_date_min.toISOString().slice(0, 10))} → ${fmtDateTr(
+            report.source_date_max.toISOString().slice(0, 10)
+          )}`
+        : "(boş)";
+    throw new Error(
+      `Dosyada ${fmtDateTr(
+        dr.date.toISOString().slice(0, 10)
+      )} gününe ait satır yok. Dosya tarihleri: ${dateRange}.`
+    );
+  }
+
+  // 4) Fingerprint — replay guard
+  const fingerprint = dealerReportFingerprint(
+    report.store_code,
+    day.date,
+    day.net_sales,
+    day.transaction_count
+  );
+  const dup = await prisma.dealerDailyReport.findFirst({
+    where: {
+      daily_record_id: upload.daily_record_id,
+      content_fingerprint: fingerprint,
+      NOT: { upload_id: upload.id },
+    },
+    select: { upload_id: true },
+  });
+  if (dup) {
+    await prisma.upload.update({
+      where: { id: upload.id },
+      data: {
+        status: "failed",
+        duplicate_of_id: dup.upload_id,
+        error_message:
+          "Bu bayi raporunun içeriği bu güne zaten kayıtlı (aynı mağaza, tarih, net satış, fiş sayısı). Önce mevcut kaydı silin.",
+      },
+    });
+    return;
+  }
+
+  // 5) DealerDailyReport kaydet (upsert — aynı upload için tekrar parse olursa)
+  const fields = {
+    source: report.source,
+    store_code: report.store_code,
+    report_date: day.date,
+    net_sales_try: day.net_sales,
+    loyalty_try: day.loyalty,
+    gift_card_try: day.gift_card,
+    transaction_count: day.transaction_count,
+    line_count: day.line_count,
+    refund_count: day.refund_count,
+    source_date_min: report.source_date_min,
+    source_date_max: report.source_date_max,
+    content_fingerprint: fingerprint,
+  };
+  await prisma.dealerDailyReport.upsert({
+    where: { upload_id: upload.id },
+    update: fields,
+    create: {
+      upload_id: upload.id,
+      daily_record_id: upload.daily_record_id,
+      ...fields,
+    },
+  });
+
+  await markParsed(upload.id, { totals: report.totals }, day);
 }
 
 async function markParsed(

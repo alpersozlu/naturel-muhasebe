@@ -30,6 +30,7 @@ enum UploadType {
   expense
   cash_advance
   z_report
+  dealer_daily_report // Mavi SAP / Derimod Nebim — bayi gün sonu raporu (xlsx)
 }
 
 enum UploadStatus {
@@ -189,15 +190,16 @@ model DailyRecord {
   reconciliation_notes_by   String?
   reconciliation_notes_user User?     @relation("ReconciliationNotesByUser", fields: [reconciliation_notes_by], references: [id])
 
-  uploads         Upload[]
-  pos_slips       PosSlip[]
-  store_summary   StoreSummary? // 1:1 (her gün 1 özet)
-  bank_receipts   BankReceipt[]
-  expenses        Expense[]
-  cash_advances   CashAdvance[]
-  z_reports       ZReport[]
-  manual_invoices ManualInvoice[]
-  verification    Verification? // 1:1
+  uploads             Upload[]
+  pos_slips           PosSlip[]
+  store_summary       StoreSummary? // 1:1 (her gün 1 özet)
+  dealer_daily_report DealerDailyReport? // 1:1 (her gün 1 SAP bayi raporu)
+  bank_receipts       BankReceipt[]
+  expenses            Expense[]
+  cash_advances       CashAdvance[]
+  z_reports           ZReport[]
+  manual_invoices     ManualInvoice[]
+  verification        Verification? // 1:1
 
   @@unique([store_id, date])
   @@index([date])
@@ -227,11 +229,12 @@ model Upload {
   date_mismatch    Boolean      @default(false) // slip_date != daily_record.date
   duplicate_of_id  String? // Bu upload bir başkasının kopyası ise FK
 
-  pos_slip      PosSlip?
-  store_summary StoreSummary?
-  bank_receipt  BankReceipt?
-  expense       Expense?
-  z_report      ZReport?
+  pos_slip            PosSlip?
+  store_summary       StoreSummary?
+  bank_receipt        BankReceipt?
+  expense             Expense?
+  z_report            ZReport?
+  dealer_daily_report DealerDailyReport?
 
   @@index([daily_record_id])
   @@index([type])
@@ -517,6 +520,52 @@ model ZReport {
 
   @@index([daily_record_id])
   @@index([daily_record_id, content_fingerprint])
+}
+
+// ─────────────────────────────────────────────────────────────
+// DEALER DAILY REPORT (Mavi SAP / Derimod Nebim — bayi gün sonu raporu)
+// Ham kaynak veri — müdür özet rakamlarını manipüle edemez. Reconciliation'da
+// "doğru kaynak" olarak gösterilir.
+// ─────────────────────────────────────────────────────────────
+
+model DealerDailyReport {
+  id              String      @id @default(uuid())
+  upload_id       String      @unique
+  upload          Upload      @relation(fields: [upload_id], references: [id], onDelete: Cascade)
+  daily_record_id String      @unique // 1:1 — her gün için tek bayi raporu
+  daily_record    DailyRecord @relation(fields: [daily_record_id], references: [id])
+
+  // Kaynak sistem ("sap" — Mavi, "nebim" — Derimod gelecekte)
+  source String @default("sap")
+
+  // Mağaza kodu (örn 9402 = Mavi Mağusa). UI'da çapraz kontrol için.
+  store_code  String?
+  report_date DateTime @db.Date
+
+  // ── ANA ALANLAR ─────────
+  // Tüm satırların Net Tutar toplamı (iadelerle nette)
+  net_sales_try Decimal @db.Decimal(14, 2)
+  // Tüm satırların Kartuş Kart toplamı (sadakat puanı kullanımı, TL)
+  loyalty_try Decimal @db.Decimal(14, 2)
+  // Tüm satırların Hediye Kart toplamı
+  gift_card_try Decimal? @db.Decimal(14, 2)
+
+  // ── METADATA ─────────
+  transaction_count Int // Benzersiz fiş sayısı
+  line_count        Int // Toplam satır (ürün) sayısı
+  refund_count      Int // İade satırı sayısı
+  // Dosya kapsam aralığı (1+ gün olabilir; sadece seçili güne filtre uygulanır)
+  source_date_min DateTime? @db.Date
+  source_date_max DateTime? @db.Date
+
+  // Replay guard: SHA-256(store_code|report_date|net_sales|transaction_count)
+  content_fingerprint String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([daily_record_id])
+  @@index([report_date])
 }
 
 model ManualInvoice {

@@ -8,6 +8,7 @@ export const uploadTypeEnum = z.enum([
   "expense",
   "cash_advance",
   "z_report",
+  "dealer_daily_report",
 ]);
 
 const dateOnly = z

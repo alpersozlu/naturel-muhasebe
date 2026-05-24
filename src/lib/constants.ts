@@ -14,6 +14,9 @@ export const ACCEPTED_MIME_TYPES = [
   "image/heic",
   "image/heif",
   "application/pdf",
+  // xlsx (Mavi SAP / Derimod Nebim bayi gün sonu raporu)
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel", // legacy .xls — gerekirse
 ] as const;
 
 export const UPLOAD_BUCKET = "uploads";

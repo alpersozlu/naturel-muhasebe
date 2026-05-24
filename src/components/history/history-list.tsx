@@ -13,6 +13,7 @@ import {
   Loader2,
   ChevronDown,
   Calculator,
+  ShieldCheck,
 } from "lucide-react";
 import type { UploadType, UploadStatus } from "@prisma/client";
 import { toast } from "sonner";
@@ -29,6 +30,7 @@ const TYPE_META: Record<UploadType, { label: string; icon: typeof FileText; colo
   expense: { label: "Masraf/Fatura", icon: Wallet, color: "text-rose-600" },
   cash_advance: { label: "Faturasız Peşin Ödeme", icon: Banknote, color: "text-emerald-600" },
   z_report: { label: "Z Raporu", icon: Calculator, color: "text-cyan-600" },
+  dealer_daily_report: { label: "Bayi Gün Sonu (SAP)", icon: ShieldCheck, color: "text-indigo-600" },
 };
 
 const STATUS_LABEL: Record<UploadStatus, string> = {

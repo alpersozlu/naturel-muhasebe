@@ -7,6 +7,7 @@ import {
   Wallet,
   Building,
   Calculator,
+  ShieldCheck,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { PageHeader } from "@/components/shared/page-header";
@@ -94,6 +95,15 @@ export default function UploadPage() {
           icon={Wallet}
           iconBg="bg-rose-50"
           iconColor="text-rose-600"
+          storeId={sel.storeId}
+          date={sel.date}
+        />
+        <UploadCard
+          type="dealer_daily_report"
+          label="Bayi Gün Sonu (SAP)"
+          icon={ShieldCheck}
+          iconBg="bg-indigo-50"
+          iconColor="text-indigo-600"
           storeId={sel.storeId}
           date={sel.date}
         />
