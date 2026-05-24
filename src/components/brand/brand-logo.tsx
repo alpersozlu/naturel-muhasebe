@@ -65,12 +65,18 @@ export function BrandLogo({
 }
 
 function renderBuiltIn(name: string, size: "sm" | "md") {
-  const norm = name.trim().toLocaleLowerCase("tr");
+  // Türkçe lowercase + I/ı/İ/i normalize:
+  // "DERIMOD" → toLocaleLowerCase("tr") → "derımod" (ASCII I → ı), bu yüzden ı↔i birleştirilir.
+  const norm = name
+    .trim()
+    .toLocaleLowerCase("tr")
+    .replace(/ı/g, "i");
   const logoClass = size === "sm" ? "h-5 w-auto" : "h-7 w-auto";
 
-  if (norm === "derimod") {
+  // "Derimod", "DERİMOD", "DERIMOD", "Derimod KKTC" vb. hepsi eşleşir
+  if (norm.includes("derimod")) {
     return <DerimodLogo className={logoClass} />;
   }
-  // İleride: "mavi", "mavi jeans" → <MaviLogo />
+  // İleride: norm.includes("mavi") → <MaviLogo />
   return null;
 }
