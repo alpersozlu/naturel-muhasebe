@@ -117,13 +117,18 @@ export async function computeDay(
   const summaryCash = num(dr.store_summary.cash_sales_try);
   const loyalty = num(dr.store_summary.loyalty_points_total_try);
   const ccTotal = num(dr.store_summary.credit_card_total_try);
+  const summaryWire = num(dr.store_summary.wire_transfer_total_try);
   const summarySales = num(dr.store_summary.sales_total_try);
 
   // Müdürün elden saydığı nakit (varsa).
   const reportedCash = dr.reported_cash_try ? num(dr.reported_cash_try) : null;
 
-  // ── Nakit kaynak bileşenleri (yeni denklem) ──
-  // hediye_ceki + masraf + (sayım + dekont) = summaryCash
+  // ── Nakit kaynak bileşenleri ──
+  // İki senaryo:
+  //   A) Özette Havale AYRI kalem (summaryWire > tol) → dekontlar havaleyi
+  //      karşılar, nakit denkleminden HARİÇ.
+  //   B) Özette Havale yok (0) → dekontlar cash_sales içine işlenmiş demek,
+  //      nakit kaynaklarına EKLE.
   const bankReceiptTotal = dr.bank_receipts.reduce(
     (s, b) => s + num(b.amount_try),
     0
@@ -135,16 +140,25 @@ export async function computeDay(
   );
   const masrafToplam = expenseTotal + cashAdvanceTotal;
   const giftVoucherTotal = dr.gift_voucher_try ? num(dr.gift_voucher_try) : 0;
+
+  const wireIsSeparate = summaryWire > TOLERANCE_TL;
   const cashSourcesTotal =
-    (reportedCash ?? 0) + bankReceiptTotal + masrafToplam + giftVoucherTotal;
+    (reportedCash ?? 0) +
+    (wireIsSeparate ? 0 : bankReceiptTotal) +
+    masrafToplam +
+    giftVoucherTotal;
 
   // GENEL TOPLAM denklemi: elime geçen belge toplamı ↔ özetin sales_total'i
-  //   docs = POS + (girilen nakit kaynakları) + loyalty
+  //   docs = POS + nakit kaynakları + loyalty + (havale ayrıysa dekont)
   //   summary = özet.sales_total
   // Sign konvansiyonu: docs − summary
   //   negatif = belge az = eksik (kayıp/hırsızlık sinyali)
   //   pozitif = belge fazla
-  const expected_total = posSumTRY + cashSourcesTotal + loyalty;
+  const expected_total =
+    posSumTRY +
+    cashSourcesTotal +
+    loyalty +
+    (wireIsSeparate ? bankReceiptTotal : 0);
   const actual_total = summarySales;
   const difference = expected_total - actual_total;
 
@@ -184,11 +198,13 @@ export async function computeDay(
       difference: posSumTRY - ccTotal,
       matches: Math.abs(posSumTRY - ccTotal) <= TOLERANCE_TL,
     },
-    // Yeni nakit denklemi:
-    //   Hediye Çeki + Masraf + (Sayım + Dekont) = Özet Nakit
+    // Nakit denklemi:
+    //   Hediye Çeki + Masraf + Sayım [+ Dekont (havale ayrı değilse)] = Özet Nakit
     // Kaynak yoksa ve özet nakit > 0 ise eksik (kayıp sinyali).
     {
-      label: "Nakit Kaynakları (Hediye + Masraf + Sayım + Dekont)",
+      label: wireIsSeparate
+        ? "Nakit Kaynakları (Hediye + Masraf + Sayım)"
+        : "Nakit Kaynakları (Hediye + Masraf + Sayım + Dekont)",
       document_total: cashSourcesTotal,
       summary_total: summaryCash,
       difference: cashSourcesTotal - summaryCash,
@@ -197,13 +213,27 @@ export async function computeDay(
         gift_voucher: giftVoucherTotal,
         expenses: masrafToplam,
         reported_cash: reportedCash ?? 0,
-        bank_receipts: bankReceiptTotal,
+        // Havale ayrı satırda gösteriliyorsa burada tekrar listeleme
+        bank_receipts: wireIsSeparate ? 0 : bankReceiptTotal,
         has_reported_cash: reportedCash !== null,
-        has_bank_receipt: bankReceiptTotal > 0,
+        has_bank_receipt: !wireIsSeparate && bankReceiptTotal > 0,
         has_gift_voucher: giftVoucherTotal > 0,
         has_expenses: masrafToplam > 0,
       },
     },
+    // Havale satırı — sadece özette havale ayrı kalem ise göster.
+    // (Havale yoksa dekont zaten nakit kaynaklarına eklendi.)
+    ...(wireIsSeparate
+      ? [
+          {
+            label: "Havale (İban Dekontu)",
+            document_total: bankReceiptTotal,
+            summary_total: summaryWire,
+            difference: bankReceiptTotal - summaryWire,
+            matches: Math.abs(bankReceiptTotal - summaryWire) <= TOLERANCE_TL,
+          } as ComparisonRow,
+        ]
+      : []),
     {
       label: "Kartuş Puan",
       document_total: loyalty,
@@ -278,10 +308,12 @@ export async function computeDay(
   const fmtTL = (n: number) =>
     n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const cashRow = rows[1];
+  // Dekont nakit kaynağı sayılır mı? Havale ayrı kalem ise HAYIR.
+  const dekontCountsAsCash = !wireIsSeparate && bankReceiptTotal > 0;
   const noCashSource =
     summaryCash > TOLERANCE_TL &&
     reportedCash === null &&
-    bankReceiptTotal === 0 &&
+    !dekontCountsAsCash &&
     giftVoucherTotal === 0 &&
     masrafToplam === 0;
   const cashMismatch = noCashSource

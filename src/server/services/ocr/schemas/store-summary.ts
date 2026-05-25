@@ -20,6 +20,12 @@ export const storeSummaryOcrSchema = z.object({
   cash_sales: z.number().nullable(),
   credit_card_total: z.number().nullable(),
   loyalty_points_total: z.number().nullable(),
+  /**
+   * Havale (Banka Transferi) — özette ayrı bir kalem olarak yazıyorsa dolu;
+   * yoksa null/0 gönder. Sistem null/0 ise dekontları cash_sales içine
+   * işlenmiş varsayar.
+   */
+  wire_transfer_total: z.number().nullable(),
   opening_balance: z.number().nullable(),
   closing_balance: z.number().nullable(),
   currency: z.enum(["TRY", "USD", "EUR", "GBP"]).default("TRY"),

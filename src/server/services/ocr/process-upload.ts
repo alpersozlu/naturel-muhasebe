@@ -282,6 +282,7 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     cash_sales: parsed.cash_sales,
     credit_card_total: parsed.credit_card_total,
     loyalty_points_total: parsed.loyalty_points_total,
+    wire_transfer_total: parsed.wire_transfer_total,
     opening_balance: parsed.opening_balance,
     closing_balance: parsed.closing_balance,
     currency: parsed.currency,
@@ -289,6 +290,7 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     cash_sales_try: tryFor(parsed.cash_sales),
     credit_card_total_try: tryFor(parsed.credit_card_total),
     loyalty_points_total_try: tryFor(parsed.loyalty_points_total),
+    wire_transfer_total_try: tryFor(parsed.wire_transfer_total),
   };
   await prisma.storeSummary.upsert({
     where: { upload_id: upload.id },

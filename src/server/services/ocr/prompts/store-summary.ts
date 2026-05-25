@@ -75,7 +75,7 @@ Eğer mağaza özet raporu DEĞİLSE:
   "store_name_on_report": null,
   "store_code_on_report": null,
   "summary_date": null, "sales_total": null, "cash_sales": null,
-  "credit_card_total": null, "loyalty_points_total": null,
+  "credit_card_total": null, "loyalty_points_total": null, "wire_transfer_total": null,
   "opening_balance": null, "closing_balance": null, "currency": "TRY"
 }
 
@@ -91,6 +91,7 @@ Eğer mağaza özet raporu İSE:
   "cash_sales": "ondalık sayı veya null (Nakit Toplam)",
   "credit_card_total": "ondalık sayı veya null (Kredi Kartı Toplam)",
   "loyalty_points_total": "ondalık sayı veya null (Kartuş Puan Toplam — sadece IT POS/Mavi'de vardır)",
+  "wire_transfer_total": "ondalık sayı veya null (Havale / Banka Transferi — özette AYRI kalem olarak yazıyorsa dolu, yoksa null)",
   "opening_balance": "ondalık sayı veya null (Devir Bakiye)",
   "closing_balance": "ondalık sayı veya null (Kapanış Toplam)",
   "currency": "TRY | USD | EUR | GBP (TRY varsayılan)"

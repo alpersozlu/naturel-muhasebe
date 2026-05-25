@@ -213,7 +213,10 @@ export const dailyRecordRouter = router({
         (p) => p.upload.status === "parsed" || p.upload.status === "confirmed"
       ).length;
       const hasReportedCash = dr.reported_cash_try !== null;
-      const hasBankReceipt = dr.bank_receipts.length > 0;
+      // Dekont nakit kaynağı sayılır mı? Havale ayrı kalem ise sayılmaz.
+      const summaryWire = dr.store_summary?.wire_transfer_total_try?.toNumber() ?? 0;
+      const wireIsSeparate = summaryWire > 5;
+      const hasBankReceipt = dr.bank_receipts.length > 0 && !wireIsSeparate;
       const giftVoucherTotal = dr.gift_voucher_try?.toNumber() ?? 0;
       const hasGiftVoucher = giftVoucherTotal > 0;
       const hasExpenses = dr.expenses.length > 0 || dr.cash_advances.length > 0;
