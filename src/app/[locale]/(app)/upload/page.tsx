@@ -4,7 +4,6 @@ import { useState } from "react";
 import {
   Receipt,
   FileText,
-  Wallet,
   Building,
   Calculator,
   ShieldCheck,
@@ -19,6 +18,7 @@ import { UploadCard } from "@/components/upload/upload-card";
 import { CashAdvanceCard } from "@/components/upload/cash-advance-card";
 import { DailyCashCard } from "@/components/upload/daily-cash-card";
 import { ManualInvoiceCard } from "@/components/upload/manual-invoice-card";
+import { MasrafFaturaCard } from "@/components/upload/masraf-fatura-card";
 import { UploadList } from "@/components/upload/upload-list";
 import { ReconciliationPanel } from "@/components/upload/reconciliation-panel";
 
@@ -89,15 +89,7 @@ export default function UploadPage() {
         <DailyCashCard storeId={sel.storeId} date={sel.date} />
         <ManualInvoiceCard storeId={sel.storeId} date={sel.date} />
         <CashAdvanceCard storeId={sel.storeId} date={sel.date} />
-        <UploadCard
-          type="expense"
-          label="Masraf/Fatura"
-          icon={Wallet}
-          iconBg="bg-rose-50"
-          iconColor="text-rose-600"
-          storeId={sel.storeId}
-          date={sel.date}
-        />
+        <MasrafFaturaCard storeId={sel.storeId} date={sel.date} />
         <UploadCard
           type="dealer_daily_report"
           label="Bayi Gün Sonu (SAP)"

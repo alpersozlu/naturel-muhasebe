@@ -224,6 +224,9 @@ model Upload {
   uploaded_at      DateTime     @default(now())
   raw_ocr_json     Json? // Claude'un ham çıktısı
   parsed_data_json Json? // Zod ile validate edilmiş hali
+  // Kullanıcının yükleme anında girdiği meta bilgiler — OCR sonucunu
+  // override eder. Örn expense için {category, description}.
+  user_meta_json   Json?
   status           UploadStatus @default(pending)
   error_message    String? // OCR fail olursa
   date_mismatch    Boolean      @default(false) // slip_date != daily_record.date

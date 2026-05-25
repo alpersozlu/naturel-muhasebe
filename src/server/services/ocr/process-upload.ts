@@ -347,17 +347,29 @@ async function runExpense(upload: Upload, buffer: Buffer): Promise<void> {
       "Faturadan tutar okunamadı — manuel düzenleme gerekli"
     );
   }
+
+  // Kullanıcı yükleme öncesi kategori/açıklama girdiyse OCR sonucunu override et
+  const userMeta = upload.user_meta_json as
+    | { expense_category?: string; expense_description?: string }
+    | null;
+  const finalCategory =
+    (userMeta?.expense_category as typeof parsed.category) || parsed.category;
+  const finalDescription =
+    userMeta?.expense_description || parsed.description;
+
   const amount_try = parsed.currency === "TRY" ? parsed.amount : parsed.amount; // FX Phase 5
   const fields = {
-    category: parsed.category,
+    category: finalCategory,
     vendor: parsed.vendor,
     amount: parsed.amount,
     currency: parsed.currency,
     amount_try,
     expense_date: new Date(`${parsed.expense_date}T00:00:00.000Z`),
-    description: parsed.description,
+    description: finalDescription,
     vat_rate: parsed.vat_rate,
     vat_included: parsed.vat_included,
+    // Kullanıcı girdiği bilgi varsa user_corrected işaretle
+    user_corrected: !!(userMeta?.expense_category || userMeta?.expense_description),
   };
   await prisma.expense.upsert({
     where: { upload_id: upload.id },

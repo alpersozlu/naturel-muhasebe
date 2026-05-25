@@ -84,6 +84,7 @@ export const uploadRouter = router({
           file_size_bytes: buffer.length,
           uploaded_by: ctx.user.id,
           status: "pending",
+          user_meta_json: input.user_meta ?? undefined,
         },
       });
 
