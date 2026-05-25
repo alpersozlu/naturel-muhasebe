@@ -36,23 +36,40 @@ const dateOnly = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Tarih YYYY-MM-DD formatında olmalı");
 
-export const uploadCreateSchema = z.object({
-  store_id: z.string().uuid(),
-  date: dateOnly,
-  type: uploadTypeEnum,
-  filename: z.string().min(1).max(200),
-  mime_type: z.enum(ACCEPTED_MIME_TYPES),
-  // base64-encoded file (no data: prefix)
-  file_base64: z
-    .string()
-    .min(1)
-    .refine(
-      (s) => Math.ceil((s.length * 3) / 4) <= MAX_UPLOAD_BYTES,
-      `Dosya ${MAX_UPLOAD_BYTES / 1024 / 1024} MB'dan büyük olamaz`
-    ),
-  // Opsiyonel — kullanıcının yükleme öncesi girdiği meta (ör. expense kategori/açıklama)
-  user_meta: userMetaSchema,
-});
+export const uploadCreateSchema = z
+  .object({
+    store_id: z.string().uuid(),
+    date: dateOnly,
+    type: uploadTypeEnum,
+    filename: z.string().min(1).max(200),
+    mime_type: z.enum(ACCEPTED_MIME_TYPES),
+    // base64-encoded file (no data: prefix)
+    file_base64: z
+      .string()
+      .min(1)
+      .refine(
+        (s) => Math.ceil((s.length * 3) / 4) <= MAX_UPLOAD_BYTES,
+        `Dosya ${MAX_UPLOAD_BYTES / 1024 / 1024} MB'dan büyük olamaz`
+      ),
+    // Opsiyonel — kullanıcının yükleme öncesi girdiği meta (ör. expense kategori/açıklama)
+    user_meta: userMetaSchema,
+  })
+  .superRefine((val, ctx) => {
+    // Expense için kategori VEYA açıklama'dan en az biri zorunlu —
+    // OCR'a tamamen güvenmemek için.
+    if (val.type === "expense") {
+      const cat = val.user_meta?.expense_category;
+      const desc = val.user_meta?.expense_description;
+      if (!cat && !desc) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["user_meta"],
+          message:
+            "Masraf/Fatura yüklemek için kategori veya açıklama girilmeli (en az biri).",
+        });
+      }
+    }
+  });
 
 export const uploadIdSchema = z.object({
   id: z.string().uuid(),

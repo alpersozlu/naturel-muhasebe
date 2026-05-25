@@ -127,12 +127,21 @@ export function MasrafFaturaCard({
   const utils = trpc.useUtils();
   const create = trpc.upload.create.useMutation();
 
-  const disabled = !storeId || !date || uploading;
+  // Kategori VEYA açıklama'dan en az biri zorunlu (zod server-side de kontrol eder)
+  const metaReady = !!category || description.trim().length > 0;
+  const disabled = !storeId || !date || uploading || !metaReady;
+  const metaMissingReason = !metaReady
+    ? "Önce kategori seç veya açıklama gir"
+    : null;
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     if (!storeId || !date) {
       toast.error("Önce mağaza ve tarih seç");
+      return;
+    }
+    if (!metaReady) {
+      toast.error("Kategori veya açıklama girilmeli (en az biri)");
       return;
     }
 
@@ -243,7 +252,8 @@ export function MasrafFaturaCard({
           <div className="min-w-0 flex-1">
             <div className="font-medium">Masraf / Fatura</div>
             <div className="text-xs text-muted-foreground mt-0.5">
-              Kategori + açıklama gir, fatura görselini yükle
+              Kategori <span className="text-rose-500">*</span> veya açıklama{" "}
+              <span className="text-rose-500">*</span> zorunlu, sonra dosyayı yükle
             </div>
           </div>
         </div>
@@ -324,6 +334,11 @@ export function MasrafFaturaCard({
           {uploading ? (
             <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-1">
               <Loader2 className="h-4 w-4 animate-spin" /> Yükleniyor…
+            </div>
+          ) : metaMissingReason ? (
+            <div className="flex items-center justify-center gap-2 text-sm text-rose-600/80">
+              <Upload className="h-4 w-4" />
+              {metaMissingReason}
             </div>
           ) : (
             <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
