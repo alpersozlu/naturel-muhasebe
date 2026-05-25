@@ -127,9 +127,16 @@ export function MasrafFaturaCard({
   const utils = trpc.useUtils();
   const create = trpc.upload.create.useMutation();
 
+  // Form alanları (kategori dropdown + açıklama textarea) sadece mağaza/tarih
+  // seçilmemişse veya yükleme sırasında kilitli olur — meta'nın boşluğuna
+  // bağlı DEĞİL (yoksa kullanıcı hiç giremez, kısır döngü).
+  const formDisabled = !storeId || !date || uploading;
+
   // Kategori VEYA açıklama'dan en az biri zorunlu (zod server-side de kontrol eder)
   const metaReady = !!category || description.trim().length > 0;
-  const disabled = !storeId || !date || uploading || !metaReady;
+
+  // Dropzone (yükleme) ekstra olarak meta hazırlığına da bağlı
+  const disabled = formDisabled || !metaReady;
   const metaMissingReason = !metaReady
     ? "Önce kategori seç veya açıklama gir"
     : null;
@@ -236,7 +243,7 @@ export function MasrafFaturaCard({
 
   return (
     <Card
-      className={`transition-all ${disabled ? "opacity-50" : ""} ${
+      className={`transition-all ${formDisabled ? "opacity-50" : ""} ${
         dragActive ? "border-primary border-2 bg-primary/5 shadow-md" : ""
       }`}
     >
@@ -266,7 +273,7 @@ export function MasrafFaturaCard({
           <Select
             value={category}
             onValueChange={(v) => setCategory(v as CategoryKey)}
-            disabled={disabled}
+            disabled={formDisabled}
           >
             <SelectTrigger className="h-9">
               <SelectValue placeholder="Seçim yok (OCR otomatik tahmin eder)" />
@@ -293,7 +300,7 @@ export function MasrafFaturaCard({
             id="masraf-aciklama"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            disabled={disabled}
+            disabled={formDisabled}
             rows={2}
             placeholder="örn 'Mart kira', 'temizlik malzemesi'"
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none"
