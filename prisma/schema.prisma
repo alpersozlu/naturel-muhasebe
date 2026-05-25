@@ -182,6 +182,13 @@ model DailyRecord {
   reported_cash_note String?
   reported_cash_at   DateTime?
 
+  // Hediye çeki — gün için manuel toplam (kullanıcı dosya yüklemez, sadece
+  // miktar girer). Nakit denklemi: hediye + masraf + (sayım + dekont) =
+  // StoreSummary.cash_sales. Hiç girilmediyse 0 sayılır (alınmamış demek).
+  gift_voucher_try  Decimal?  @db.Decimal(14, 2)
+  gift_voucher_note String?
+  gift_voucher_at   DateTime?
+
   // Mutabakat farkı için açıklayıcı not (müdür ya da admin).
   // Örn. "müşteri 500 TL fazla nakit verdi, üstü unutulmuş";
   //      "POS terminali geri ödeme yaptı, raporlanmadı".

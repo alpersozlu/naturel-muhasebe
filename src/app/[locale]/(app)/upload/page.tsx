@@ -19,6 +19,7 @@ import { CashAdvanceCard } from "@/components/upload/cash-advance-card";
 import { DailyCashCard } from "@/components/upload/daily-cash-card";
 import { ManualInvoiceCard } from "@/components/upload/manual-invoice-card";
 import { MasrafFaturaCard } from "@/components/upload/masraf-fatura-card";
+import { GiftVoucherCard } from "@/components/upload/gift-voucher-card";
 import { UploadList } from "@/components/upload/upload-list";
 import { ReconciliationPanel } from "@/components/upload/reconciliation-panel";
 
@@ -87,6 +88,7 @@ export default function UploadPage() {
           date={sel.date}
         />
         <DailyCashCard storeId={sel.storeId} date={sel.date} />
+        <GiftVoucherCard storeId={sel.storeId} date={sel.date} />
         <ManualInvoiceCard storeId={sel.storeId} date={sel.date} />
         <CashAdvanceCard storeId={sel.storeId} date={sel.date} />
         <MasrafFaturaCard storeId={sel.storeId} date={sel.date} />

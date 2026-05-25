@@ -18,6 +18,17 @@ export type ComparisonRow = {
     sales_ceiling: number;
     cash_present: boolean;
   };
+  /** Nakit satırı için bileşim — UI alt satırda detay gösterir */
+  cash_breakdown?: {
+    gift_voucher: number;
+    expenses: number;
+    reported_cash: number;
+    bank_receipts: number;
+    has_reported_cash: boolean;
+    has_bank_receipt: boolean;
+    has_gift_voucher: boolean;
+    has_expenses: boolean;
+  };
 };
 
 export type DayComputeResult = {
@@ -62,6 +73,10 @@ export async function computeDay(
       z_reports: { select: { net_sales_try: true } },
       manual_invoices: { select: { amount_try: true } },
       dealer_daily_report: true,
+      // Nakit denklemi için ek kaynaklar:
+      bank_receipts: { select: { amount_try: true } },
+      expenses: { select: { amount_try: true } },
+      cash_advances: { select: { amount_try: true } },
     },
   });
   if (!dr) {
@@ -104,11 +119,29 @@ export async function computeDay(
   const ccTotal = num(dr.store_summary.credit_card_total_try);
   const summarySales = num(dr.store_summary.sales_total_try);
 
-  // Müdürün elden saydığı nakit (varsa). Yoksa fallback: store summary cash.
+  // Müdürün elden saydığı nakit (varsa).
   const reportedCash = dr.reported_cash_try ? num(dr.reported_cash_try) : null;
-  const effectiveCash = reportedCash ?? summaryCash;
 
-  const expected_total = posSumTRY + effectiveCash + loyalty;
+  // ── Nakit kaynak bileşenleri (yeni denklem) ──
+  // hediye_ceki + masraf + (sayım + dekont) = summaryCash
+  const bankReceiptTotal = dr.bank_receipts.reduce(
+    (s, b) => s + num(b.amount_try),
+    0
+  );
+  const expenseTotal = dr.expenses.reduce((s, e) => s + num(e.amount_try), 0);
+  const cashAdvanceTotal = dr.cash_advances.reduce(
+    (s, c) => s + num(c.amount_try),
+    0
+  );
+  const masrafToplam = expenseTotal + cashAdvanceTotal;
+  const giftVoucherTotal = dr.gift_voucher_try ? num(dr.gift_voucher_try) : 0;
+  const cashSourcesTotal =
+    (reportedCash ?? 0) + bankReceiptTotal + masrafToplam + giftVoucherTotal;
+
+  // GENEL TOPLAM denkleminde "elden geçen nakit" özetin nakit satışıdır
+  // (kaynaklar bunu desteklemeli). Eğer özet nakit > 0 ama hiç kaynak yoksa
+  // bu sorunu ayrı satırda göstereceğiz.
+  const expected_total = posSumTRY + summaryCash + loyalty;
   const actual_total = summarySales;
   // Sign konvansiyonu: docs − summary (elime geçen − olması gereken).
   // Negatif = eksik (kayıp/hırsızlık sinyali); pozitif = fazla.
@@ -124,7 +157,8 @@ export async function computeDay(
     0
   );
   const combinedZ = zReportTotal + manualInvoiceTotal;
-  const cashPresent = effectiveCash > TOLERANCE_TL;
+  // Visa floor için "nakit dönüyor mu" sorusu: özet nakit > tolerans → evet
+  const cashPresent = summaryCash > TOLERANCE_TL;
   const visaFloor =
     posSumTRY > 0 ? (cashPresent ? posSumTRY * 1.05 : posSumTRY) : 0;
   const salesCeiling = summarySales;
@@ -149,22 +183,26 @@ export async function computeDay(
       difference: posSumTRY - ccTotal,
       matches: Math.abs(posSumTRY - ccTotal) <= TOLERANCE_TL,
     },
-    // Müdür nakit girişi varsa kasa karşılaştırması yap; aksi halde tek satır.
-    reportedCash !== null
-      ? {
-          label: "Nakit (Müdür sayımı vs Mağaza özeti)",
-          document_total: reportedCash,
-          summary_total: summaryCash,
-          difference: reportedCash - summaryCash,
-          matches: Math.abs(reportedCash - summaryCash) <= TOLERANCE_TL,
-        }
-      : {
-          label: "Nakit (yalnızca özet, müdür sayımı yok)",
-          document_total: summaryCash,
-          summary_total: summaryCash,
-          difference: 0,
-          matches: true,
-        },
+    // Yeni nakit denklemi:
+    //   Hediye Çeki + Masraf + (Sayım + Dekont) = Özet Nakit
+    // Kaynak yoksa ve özet nakit > 0 ise eksik (kayıp sinyali).
+    {
+      label: "Nakit Kaynakları (Hediye + Masraf + Sayım + Dekont)",
+      document_total: cashSourcesTotal,
+      summary_total: summaryCash,
+      difference: cashSourcesTotal - summaryCash,
+      matches: Math.abs(cashSourcesTotal - summaryCash) <= TOLERANCE_TL,
+      cash_breakdown: {
+        gift_voucher: giftVoucherTotal,
+        expenses: masrafToplam,
+        reported_cash: reportedCash ?? 0,
+        bank_receipts: bankReceiptTotal,
+        has_reported_cash: reportedCash !== null,
+        has_bank_receipt: bankReceiptTotal > 0,
+        has_gift_voucher: giftVoucherTotal > 0,
+        has_expenses: masrafToplam > 0,
+      },
+    },
     {
       label: "Kartuş Puan",
       document_total: loyalty,
@@ -233,18 +271,24 @@ export async function computeDay(
     ? "match"
     : "mismatch";
 
-  // Kasa eksiklik/fazlalık uyarısı (müdür nakit girişi varsa).
-  // Yeni konvansiyon: cashRow.difference = reportedCash − summaryCash
-  //   negatif → müdür saydığı, özetten az → EKSİK (kayıp)
-  //   pozitif → müdür saydığı, özetten fazla → FAZLA
+  // Nakit kaynak uyarısı.
+  // Yeni denklem: Hediye + Masraf + (Sayım + Dekont) ↔ Özet Nakit
+  // cashSourcesTotal − summaryCash: negatif = kaynak az (eksik/kayıp), pozitif = fazla
   const fmtTL = (n: number) =>
     n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const cashRow = rows[1];
-  const cashMismatch =
-    reportedCash !== null && !cashRow.matches
+  const noCashSource =
+    summaryCash > TOLERANCE_TL &&
+    reportedCash === null &&
+    bankReceiptTotal === 0 &&
+    giftVoucherTotal === 0 &&
+    masrafToplam === 0;
+  const cashMismatch = noCashSource
+    ? `Özette ${fmtTL(summaryCash)} ₺ nakit satış var ama hiçbir kaynak girilmemiş (sayım/dekont/hediye/masraf). Lütfen en az birini ekleyin.`
+    : !cashRow.matches
       ? cashRow.difference < 0
-        ? `Kasa eksiklik: Müdür ${fmtTL(reportedCash)} ₺ saydı ama özette ${fmtTL(summaryCash)} ₺ → ${fmtTL(Math.abs(cashRow.difference))} ₺ eksik (potansiyel kayıp).`
-        : `Kasa fazlalık: Müdür ${fmtTL(reportedCash)} ₺ saydı ama özette ${fmtTL(summaryCash)} ₺ → ${fmtTL(cashRow.difference)} ₺ fazla.`
+        ? `Nakit eksik: Kaynaklar ${fmtTL(cashSourcesTotal)} ₺, özette ${fmtTL(summaryCash)} ₺ → ${fmtTL(Math.abs(cashRow.difference))} ₺ kayıp riski.`
+        : `Nakit fazla: Kaynaklar ${fmtTL(cashSourcesTotal)} ₺, özette ${fmtTL(summaryCash)} ₺ → ${fmtTL(cashRow.difference)} ₺ fazla.`
       : null;
 
   const noteParts: string[] = [];

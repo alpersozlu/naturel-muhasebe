@@ -4,6 +4,7 @@ import { router, protectedProcedure } from "../trpc";
 import {
   dailyRecordIdSchema,
   setReportedCashSchema,
+  setGiftVoucherSchema,
 } from "@/lib/zod-schemas/verification";
 import { withAudit } from "../middleware/audit";
 import { assertCanAccessStore, isAdmin } from "@/lib/auth/permissions";
@@ -79,6 +80,8 @@ export const dailyRecordRouter = router({
           },
           bank_receipts: { select: { id: true } },
           manual_invoices: { select: { id: true, amount_try: true } },
+          expenses: { select: { id: true } },
+          cash_advances: { select: { id: true } },
         },
       });
 
@@ -93,6 +96,9 @@ export const dailyRecordRouter = router({
           pos_count: 0,
           has_reported_cash: false,
           has_bank_receipt: false,
+          has_gift_voucher: false,
+          has_expenses: false,
+          gift_voucher_total: 0,
           requires_cash_proof: false,
           manual_invoice_count: 0,
           failed_count: 0,
@@ -114,6 +120,9 @@ export const dailyRecordRouter = router({
       ).length;
       const hasReportedCash = dr.reported_cash_try !== null;
       const hasBankReceipt = dr.bank_receipts.length > 0;
+      const giftVoucherTotal = dr.gift_voucher_try?.toNumber() ?? 0;
+      const hasGiftVoucher = giftVoucherTotal > 0;
+      const hasExpenses = dr.expenses.length > 0 || dr.cash_advances.length > 0;
       const failedCount = dr.uploads.filter((u) => u.status === "failed").length;
       // Mağaza özeti nakit > 0 ise dekont/sayım gerekli; 0 ise POS-only gün, gerekmez
       const cashSales = dr.store_summary?.cash_sales_try?.toNumber() ?? 0;
@@ -132,9 +141,18 @@ export const dailyRecordRouter = router({
         | "mismatch"
         | "locked"
         | "error";
+      // Özette nakit > 0 ise nakit kaynağı (sayım/dekont/hediye/masraf) zorunlu
+      const cashSourceMissing =
+        requiresCashProof &&
+        !hasReportedCash &&
+        !hasBankReceipt &&
+        !hasGiftVoucher &&
+        !hasExpenses;
+
       if (dr.status === "locked") status = "locked";
       else if (failedCount > 0) status = "error";
-      else if (!hasSummary || !hasZ || posCount === 0) status = "incomplete";
+      else if (!hasSummary || !hasZ || posCount === 0 || cashSourceMissing)
+        status = "incomplete";
       else if (!verification) status = "ready";
       else if (verification.status === "match") status = "match";
       else status = "mismatch";
@@ -149,6 +167,9 @@ export const dailyRecordRouter = router({
         pos_count: posCount,
         has_reported_cash: hasReportedCash,
         has_bank_receipt: hasBankReceipt,
+        has_gift_voucher: hasGiftVoucher,
+        has_expenses: hasExpenses,
+        gift_voucher_total: giftVoucherTotal,
         requires_cash_proof: requiresCashProof,
         manual_invoice_count: dr.manual_invoices.length,
         failed_count: failedCount,
@@ -266,6 +287,63 @@ export const dailyRecordRouter = router({
           reported_cash_try: input.amount,
           reported_cash_note: input.note ?? null,
           reported_cash_at: new Date(),
+        },
+      });
+
+      if (dr.status === "locked" && !isAdmin(ctx.user)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Gün kilitli, yalnızca admin değiştirebilir",
+        });
+      }
+      return dr;
+    }),
+
+  /** Mevcut hediye çeki girişini oku. */
+  getGiftVoucher: protectedProcedure
+    .input(setGiftVoucherSchema.pick({ store_id: true, date: true }))
+    .query(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      const dateObj = new Date(`${input.date}T00:00:00.000Z`);
+      const dr = await ctx.prisma.dailyRecord.findUnique({
+        where: {
+          store_id_date: { store_id: input.store_id, date: dateObj },
+        },
+        select: {
+          gift_voucher_try: true,
+          gift_voucher_note: true,
+          gift_voucher_at: true,
+        },
+      });
+      return dr;
+    }),
+
+  /**
+   * Gün için hediye çeki toplamı (manuel giriş — kullanıcı dosya yüklemez).
+   * Nakit denkleminde: hediye + masraf + (sayım + dekont) = StoreSummary.cash_sales
+   */
+  setGiftVoucher: protectedProcedure
+    .input(setGiftVoucherSchema)
+    .mutation(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      const dateObj = new Date(`${input.date}T00:00:00.000Z`);
+
+      const dr = await ctx.prisma.dailyRecord.upsert({
+        where: {
+          store_id_date: { store_id: input.store_id, date: dateObj },
+        },
+        create: {
+          store_id: input.store_id,
+          date: dateObj,
+          status: "draft",
+          gift_voucher_try: input.amount,
+          gift_voucher_note: input.note ?? null,
+          gift_voucher_at: new Date(),
+        },
+        update: {
+          gift_voucher_try: input.amount,
+          gift_voucher_note: input.note ?? null,
+          gift_voucher_at: new Date(),
         },
       });
 

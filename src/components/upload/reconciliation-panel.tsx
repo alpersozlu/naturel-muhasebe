@@ -125,19 +125,26 @@ export function ReconciliationPanel({
             ok={
               !data.requires_cash_proof ||
               data.has_reported_cash ||
-              data.has_bank_receipt
+              data.has_bank_receipt ||
+              data.has_gift_voucher ||
+              data.has_expenses
             }
             optional={!data.requires_cash_proof}
             label={
               !data.requires_cash_proof
                 ? data.has_summary
                   ? "Nakit Yok (POS-only gün)"
-                  : "Günlük Nakit (özet bekleniyor)"
-                : data.has_bank_receipt
-                  ? "İban Dekontu"
-                  : data.has_reported_cash
-                    ? "Günlük Nakit"
-                    : "Günlük Nakit / İban Dekontu"
+                  : "Nakit Kaynağı (özet bekleniyor)"
+                : (() => {
+                    const parts: string[] = [];
+                    if (data.has_reported_cash) parts.push("Sayım");
+                    if (data.has_bank_receipt) parts.push("Dekont");
+                    if (data.has_gift_voucher) parts.push("Hediye");
+                    if (data.has_expenses) parts.push("Masraf");
+                    return parts.length > 0
+                      ? `Nakit Kaynağı (${parts.join(" + ")})`
+                      : "Nakit Kaynağı (Sayım / Dekont / Hediye / Masraf)";
+                  })()
             }
           />
         </div>
@@ -410,6 +417,12 @@ type ReconData = {
   has_manual_invoice: boolean;
   has_summary: boolean;
   pos_count: number;
+  // Nakit kaynak kontrolü (özetteki nakit > 0 ise en az biri zorunlu)
+  requires_cash_proof?: boolean;
+  has_reported_cash?: boolean;
+  has_bank_receipt?: boolean;
+  has_gift_voucher?: boolean;
+  has_expenses?: boolean;
   verification: {
     status: "match" | "mismatch" | "no_data" | "no_summary";
     expected_total: number;
@@ -435,6 +448,16 @@ function StatusBanner({ data }: { data: ReconData }) {
     if (!data.has_summary) missing.push("Mağaza Özeti");
     if (!data.has_z) missing.push("Z Raporu veya El Faturası");
     if (data.pos_count === 0) missing.push("POS Fişi");
+    // Özette nakit varsa nakit kaynağı (sayım/dekont/hediye/masraf) zorunlu
+    if (
+      data.requires_cash_proof &&
+      !data.has_reported_cash &&
+      !data.has_bank_receipt &&
+      !data.has_gift_voucher &&
+      !data.has_expenses
+    ) {
+      missing.push("Nakit Kaynağı (Sayım / Dekont / Hediye / Masraf)");
+    }
     return (
       <Banner
         tone="amber"
@@ -657,6 +680,16 @@ type Row = {
     sales_ceiling: number;
     cash_present: boolean;
   };
+  cash_breakdown?: {
+    gift_voucher: number;
+    expenses: number;
+    reported_cash: number;
+    bank_receipts: number;
+    has_reported_cash: boolean;
+    has_bank_receipt: boolean;
+    has_gift_voucher: boolean;
+    has_expenses: boolean;
+  };
 };
 
 function ComparisonTable({
@@ -696,6 +729,30 @@ function ComparisonTable({
               >
                 <td className="py-2.5 px-3 text-foreground">
                   {r.label}
+                  {r.cash_breakdown ? (
+                    <div className="text-[10px] text-muted-foreground mt-0.5 tabular-nums flex flex-wrap gap-x-2">
+                      {r.cash_breakdown.has_reported_cash ? (
+                        <span>Sayım: {TRY_FMT.format(r.cash_breakdown.reported_cash)}</span>
+                      ) : null}
+                      {r.cash_breakdown.has_bank_receipt ? (
+                        <span>+ Dekont: {TRY_FMT.format(r.cash_breakdown.bank_receipts)}</span>
+                      ) : null}
+                      {r.cash_breakdown.has_expenses ? (
+                        <span>+ Masraf: {TRY_FMT.format(r.cash_breakdown.expenses)}</span>
+                      ) : null}
+                      {r.cash_breakdown.has_gift_voucher ? (
+                        <span>+ Hediye: {TRY_FMT.format(r.cash_breakdown.gift_voucher)}</span>
+                      ) : null}
+                      {!r.cash_breakdown.has_reported_cash &&
+                      !r.cash_breakdown.has_bank_receipt &&
+                      !r.cash_breakdown.has_expenses &&
+                      !r.cash_breakdown.has_gift_voucher ? (
+                        <span className="text-rose-600 font-medium">
+                          ⚠ Hiç kaynak girilmemiş
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {isZ && r.z_compliance ? (
                     <div className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
                       {r.z_compliance.z_report_total > 0
