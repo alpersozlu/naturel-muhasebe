@@ -27,6 +27,8 @@ export const verificationRouter = router({
         include: {
           verification: true,
           store_summary: true,
+          dealer_daily_report: true,
+          store: { select: { brand: { select: { name: true } } } },
           _count: {
             select: {
               pos_slips: true,

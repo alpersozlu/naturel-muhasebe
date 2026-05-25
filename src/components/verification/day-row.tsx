@@ -39,7 +39,15 @@ type DayRecord = {
   id: string;
   date: Date;
   status: "draft" | "pending" | "approved" | "locked";
-  store_summary: { sales_total_try: unknown } | null;
+  store_summary: {
+    sales_total_try: unknown;
+    loyalty_points_total_try?: unknown;
+  } | null;
+  dealer_daily_report?: {
+    net_sales_try: unknown;
+    loyalty_try: unknown;
+  } | null;
+  store?: { brand: { name: string } };
   verification: {
     expected_total: unknown;
     actual_total: unknown;
@@ -53,6 +61,43 @@ type DayRecord = {
     cash_advances: number;
   };
 };
+
+/** 3. Aşama: SAP Bayi Raporu kontrolü (Mavi mağazalar için zorunlu). */
+function checkThirdStage(record: DayRecord): {
+  ok: boolean;
+  reason: string | null;
+} {
+  const brandName = record.store?.brand.name?.toLocaleLowerCase("tr") ?? "";
+  const isMavi = brandName.includes("mavi");
+  if (!isMavi) return { ok: true, reason: null };
+
+  if (!record.dealer_daily_report) {
+    return {
+      ok: false,
+      reason:
+        "3. Aşama: Bayi Gün Sonu (SAP) raporu yüklenmemiş — Mavi mağazalarda zorunlu",
+    };
+  }
+  const num = (v: unknown): number => {
+    if (v === null || v === undefined) return 0;
+    if (typeof v === "object" && v !== null && "toNumber" in v) {
+      return (v as { toNumber: () => number }).toNumber();
+    }
+    return Number(v);
+  };
+  const TOL = 5;
+  const sapNet = num(record.dealer_daily_report.net_sales_try);
+  const sapLoy = num(record.dealer_daily_report.loyalty_try);
+  const sumNet = num(record.store_summary?.sales_total_try);
+  const sumLoy = num(record.store_summary?.loyalty_points_total_try);
+  if (Math.abs(sapNet - sumNet) > TOL || Math.abs(sapLoy - sumLoy) > TOL) {
+    return {
+      ok: false,
+      reason: "3. Aşama uyumsuz: SAP Bayi Raporu ile Mağaza Özeti farklı",
+    };
+  }
+  return { ok: true, reason: null };
+}
 
 type Props =
   | {
@@ -138,6 +183,7 @@ function FilledDayRow({
   const isLocked = record.status === "locked";
   const verStatus = record.verification?.status;
   const hasSummary = !!record.store_summary;
+  const thirdStage = checkThirdStage(record);
   const docCount =
     record._count.pos_slips +
     record._count.bank_receipts +
@@ -277,19 +323,33 @@ function FilledDayRow({
                 docCount={docCount}
               />
               {!isLocked && hasSummary ? (
-                <button
-                  type="button"
-                  onClick={() => approve.mutate({ id: record.id })}
-                  disabled={approve.isPending}
-                  className="flex items-center justify-center gap-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-5 py-4 transition-colors shadow-sm"
-                >
-                  {approve.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Lock className="h-4 w-4" />
-                  )}
-                  <span>Doğrula ve Kilitle</span>
-                </button>
+                <>
+                  {!thirdStage.ok ? (
+                    <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900 leading-snug">
+                      {thirdStage.reason}
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!thirdStage.ok) {
+                        toast.error(thirdStage.reason ?? "3. Aşama kontrolü başarısız");
+                        return;
+                      }
+                      approve.mutate({ id: record.id });
+                    }}
+                    disabled={approve.isPending || !thirdStage.ok}
+                    title={thirdStage.reason ?? undefined}
+                    className="flex items-center justify-center gap-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-5 py-4 transition-colors shadow-sm"
+                  >
+                    {approve.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Lock className="h-4 w-4" />
+                    )}
+                    <span>Doğrula ve Kilitle</span>
+                  </button>
+                </>
               ) : isLocked && canUnlock ? (
                 <button
                   type="button"

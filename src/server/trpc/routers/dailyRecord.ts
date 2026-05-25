@@ -69,7 +69,11 @@ export const dailyRecordRouter = router({
     .mutation(async ({ ctx, input }) => {
       const dr = await ctx.prisma.dailyRecord.findUnique({
         where: { id: input.id },
-        include: { store_summary: true },
+        include: {
+          store_summary: true,
+          dealer_daily_report: true,
+          store: { include: { brand: true } },
+        },
       });
       if (!dr) throw new TRPCError({ code: "NOT_FOUND" });
       await assertCanAccessStore(ctx.user, dr.store_id);
@@ -85,6 +89,48 @@ export const dailyRecordRouter = router({
           code: "BAD_REQUEST",
           message: "Mağaza Özeti yüklenmeden gün onaylanamaz",
         });
+      }
+
+      // ── 3. Aşama: SAP Bayi Raporu kontrolü (Mavi mağazalar için zorunlu) ──
+      const brandLower = dr.store.brand.name.toLocaleLowerCase("tr");
+      const isMaviBrand = brandLower.includes("mavi");
+      if (isMaviBrand) {
+        if (!dr.dealer_daily_report) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "3. Aşama eksik: Bayi Gün Sonu (SAP) yüklenmemiş. Mavi mağazalarda SAP raporu kontrolü zorunlu — yüklemeden gün kilitlenemez.",
+          });
+        }
+        const TOL = 5;
+        const sapNet = dr.dealer_daily_report.net_sales_try?.toNumber() ?? 0;
+        const sapLoy = dr.dealer_daily_report.loyalty_try?.toNumber() ?? 0;
+        const sumNet = dr.store_summary.sales_total_try?.toNumber() ?? 0;
+        const sumLoy = dr.store_summary.loyalty_points_total_try?.toNumber() ?? 0;
+        const netDiff = sapNet - sumNet;
+        const loyDiff = sapLoy - sumLoy;
+        if (Math.abs(netDiff) > TOL || Math.abs(loyDiff) > TOL) {
+          const fmt = (n: number) =>
+            n.toLocaleString("tr-TR", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            });
+          const parts: string[] = [];
+          if (Math.abs(netDiff) > TOL) {
+            parts.push(
+              `Net Satış SAP=${fmt(sapNet)} ↔ Özet=${fmt(sumNet)} (fark ${fmt(netDiff)})`
+            );
+          }
+          if (Math.abs(loyDiff) > TOL) {
+            parts.push(
+              `Kartuş SAP=${fmt(sapLoy)} ↔ Özet=${fmt(sumLoy)} (fark ${fmt(loyDiff)})`
+            );
+          }
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `3. Aşama uyumsuz: SAP Bayi Raporu Mağaza Özeti'nden farklı. ${parts.join(" · ")}. Manipülasyon riski — kilitleme reddedildi.`,
+          });
+        }
       }
 
       const result = await computeDay(ctx.prisma, input.id);
