@@ -138,13 +138,14 @@ export async function computeDay(
   const cashSourcesTotal =
     (reportedCash ?? 0) + bankReceiptTotal + masrafToplam + giftVoucherTotal;
 
-  // GENEL TOPLAM denkleminde "elden geçen nakit" özetin nakit satışıdır
-  // (kaynaklar bunu desteklemeli). Eğer özet nakit > 0 ama hiç kaynak yoksa
-  // bu sorunu ayrı satırda göstereceğiz.
-  const expected_total = posSumTRY + summaryCash + loyalty;
+  // GENEL TOPLAM denklemi: elime geçen belge toplamı ↔ özetin sales_total'i
+  //   docs = POS + (girilen nakit kaynakları) + loyalty
+  //   summary = özet.sales_total
+  // Sign konvansiyonu: docs − summary
+  //   negatif = belge az = eksik (kayıp/hırsızlık sinyali)
+  //   pozitif = belge fazla
+  const expected_total = posSumTRY + cashSourcesTotal + loyalty;
   const actual_total = summarySales;
-  // Sign konvansiyonu: docs − summary (elime geçen − olması gereken).
-  // Negatif = eksik (kayıp/hırsızlık sinyali); pozitif = fazla.
   const difference = expected_total - actual_total;
 
   // Z compliance — Toplam Z (Z Raporu + El Faturası)

@@ -47,9 +47,9 @@ export function ReconciliationPanel({
       { enabled: !disabled, refetchInterval: 5000 }
     );
 
-  const approve = trpc.dailyRecord.approveAndLock.useMutation({
+  const approve = trpc.dailyRecord.approve.useMutation({
     onSuccess: () => {
-      toast.success("Gün onaylandı ve kilitlendi");
+      toast.success("Gün doğrulandı (kilit için Doğrulama Sistemi)");
       utils.dailyRecord.reconciliation.invalidate({ store_id: storeId, date });
       utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
     },
@@ -287,9 +287,9 @@ export function ReconciliationPanel({
                 {approve.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Lock className="h-4 w-4" />
+                  <Check className="h-4 w-4" />
                 )}
-                <span>Doğrula ve Kilitle</span>
+                <span>Doğrula</span>
               </button>
             ) : null}
           </div>

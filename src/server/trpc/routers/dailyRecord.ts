@@ -22,6 +22,48 @@ export const dailyRecordRouter = router({
    * Mismatch days can still be approved (admin override) but the
    * Verification row records the difference.
    */
+  /**
+   * Sadece DOĞRULAMA — verification kaydı oluşturur, status'u 'approved' yapar.
+   * Kilitlemez (locked değil) — müdür/admin /upload sayfasından kullanabilir.
+   * Kilit için ayrı /verification sayfasında admin `approveAndLock` çağırır.
+   */
+  approve: dailyAdmin
+    .input(dailyRecordIdSchema)
+    .mutation(async ({ ctx, input }) => {
+      const dr = await ctx.prisma.dailyRecord.findUnique({
+        where: { id: input.id },
+        include: { store_summary: true },
+      });
+      if (!dr) throw new TRPCError({ code: "NOT_FOUND" });
+      await assertCanAccessStore(ctx.user, dr.store_id);
+
+      if (!dr.store_summary) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Mağaza Özeti yüklenmeden gün onaylanamaz",
+        });
+      }
+      if (dr.status === "locked") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Gün zaten kilitli — admin Doğrulama Sistemi'nden açabilir",
+        });
+      }
+
+      const result = await computeDay(ctx.prisma, input.id);
+      await persistVerification(ctx.prisma, input.id, result);
+
+      return ctx.prisma.dailyRecord.update({
+        where: { id: input.id },
+        data: {
+          status: "approved",
+          approved_by: ctx.user.id,
+          approved_at: new Date(),
+        },
+        include: { verification: true },
+      });
+    }),
+
   approveAndLock: dailyAdmin
     .input(dailyRecordIdSchema)
     .mutation(async ({ ctx, input }) => {
@@ -32,6 +74,12 @@ export const dailyRecordRouter = router({
       if (!dr) throw new TRPCError({ code: "NOT_FOUND" });
       await assertCanAccessStore(ctx.user, dr.store_id);
 
+      if (!isAdmin(ctx.user)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Kilitleme sadece admin yetkisinde (Doğrulama Sistemi)",
+        });
+      }
       if (!dr.store_summary) {
         throw new TRPCError({
           code: "BAD_REQUEST",
