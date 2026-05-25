@@ -57,10 +57,13 @@ Eğer kabul ediyorsan, hangisi?
 KARTUŞ ipucu: Kartuş Puan satırı varsa → büyük ihtimal it_pos (Mavi).
 
 ADIM 3 — Mağaza adı tespiti:
-Raporun başında yazan mağaza adını TAM olarak çıkar:
-- IT POS örneği: "9403 - KBR NATUREL GÜZELYURT" → store_name_on_report:
-  "KBR NATUREL GÜZELYURT" (kodu at, sadece isim kısmı)
-- Nebim örneği: doğrudan mağaza adı → "Derimod Lefkoşa" gibi
+Raporun başında yazan mağaza adını TAM olarak çıkar + kodu AYRI bir alana yaz:
+- IT POS örneği: "9403 - KBR NATUREL GÜZELYURT" → store_code_on_report: "9403",
+  store_name_on_report: "KBR NATUREL GÜZELYURT" (kodu at, sadece isim kısmı)
+- Mavi mağaza kodları (kesin liste): 9400=Lefkoşa, 9401=Girne, 9402=Mağusa, 9403=Güzelyurt.
+  Sistem isimle eşleşme yerine KODLA eşleşme yapar — kod kritik.
+- Nebim örneği: doğrudan mağaza adı → store_name_on_report: "Derimod Lefkoşa",
+  store_code_on_report: null (Nebim'de kod yok)
 
 ADIM 4 — Çıktı formatı (sadece JSON, code fence yok):
 
@@ -70,6 +73,7 @@ Eğer mağaza özet raporu DEĞİLSE:
   "rejection_reason": "Bu bir mağaza özet raporu gibi görünmüyor — [kısa açıklama]. Lütfen geçerli bir mağaza gün sonu özet raporu yükleyin.",
   "report_format": "unknown",
   "store_name_on_report": null,
+  "store_code_on_report": null,
   "summary_date": null, "sales_total": null, "cash_sales": null,
   "credit_card_total": null, "loyalty_points_total": null,
   "opening_balance": null, "closing_balance": null, "currency": "TRY"
@@ -81,6 +85,7 @@ Eğer mağaza özet raporu İSE:
   "rejection_reason": null,
   "report_format": "it_pos" | "nebim" | "unknown",
   "store_name_on_report": "Mağaza adı string olarak (kod yoksa sadece isim)",
+  "store_code_on_report": "IT POS için 9400/9401/9402/9403 — Nebim için null",
   "summary_date": "YYYY-MM-DD (raporun tarihi)",
   "sales_total": "ondalık sayı veya null (Satış Toplam)",
   "cash_sales": "ondalık sayı veya null (Nakit Toplam)",

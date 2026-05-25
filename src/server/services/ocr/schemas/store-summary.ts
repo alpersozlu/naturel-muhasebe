@@ -7,6 +7,11 @@ export const storeSummaryOcrSchema = z.object({
   report_format: z.enum(["nebim", "it_pos", "unknown"]),
   /** Raporun başında yazan mağaza adı (örn "KBR NATUREL GÜZELYURT" ya da "Mavi Girne") */
   store_name_on_report: z.string().nullable(),
+  /**
+   * Mavi (IT POS) için zorunlu — başlıktaki numerik mağaza kodu (örn "9402", "9403").
+   * Nebim raporlarında bulunmaz; null gönder.
+   */
+  store_code_on_report: z.string().nullable(),
   summary_date: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)

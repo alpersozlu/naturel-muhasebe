@@ -240,8 +240,26 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
       );
     }
 
-    // Mağaza ismi fuzzy eşleşmesi
-    if (parsed.store_name_on_report) {
+    // Mavi → kod bazlı kontrol (öncelik)
+    // 9400 Lefkoşa / 9401 Girne / 9402 Mağusa / 9403 Güzelyurt
+    if (isMaviBrand && parsed.store_code_on_report) {
+      const code = parsed.store_code_on_report.trim();
+      const expectedHint = MAVI_STORE_CODE_MAP[code];
+      if (!expectedHint) {
+        throw new Error(
+          `Raporda Mavi mağaza kodu "${code}" yazıyor ama tanınmıyor (beklenen: 9400/9401/9402/9403).`
+        );
+      }
+      const storeNorm = normalizeName(dr.store.name);
+      const hintNorm = normalizeName(expectedHint);
+      if (!storeNorm.includes(hintNorm)) {
+        throw new Error(
+          `Bu rapor Mavi ${expectedHint} (kod ${code}) mağazasına ait — "${dr.store.name}" mağazasına yüklenemez.`
+        );
+      }
+      // Kod eşleşti — isim varyasyonu (Magosa↔Magusa vs.) önemsiz, geç.
+    } else if (parsed.store_name_on_report) {
+      // Nebim veya kod yoksa fallback: mağaza ismi fuzzy eşleşmesi
       const reportNorm = normalizeName(parsed.store_name_on_report);
       const expectedNorm = normalizeName(dr.store.name);
       // Mağaza adından anlamlı token'ları al (örn "lefkosa", "girne", "guzelyurt")
