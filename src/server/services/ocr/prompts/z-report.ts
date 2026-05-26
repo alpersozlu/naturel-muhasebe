@@ -15,17 +15,32 @@ export const Z_REPORT_USER_PROMPT = `Bu görseli ÖNCE doküman türü açısın
 
 ADIM 1 — Doküman türü doğrulaması:
 Bu görsel bir YAZAR KASA (ÖKC) Z RAPORU mu? Geçerli Z raporu şu özelliklere sahiptir:
-- Türk yazar kasalarının (ÖKC — Ödeme Kaydedici Cihaz) gün sonu mali raporu
-- "Z RAPORU", "Z NO", "GÜN NO", "MALİ HAFIZA", "MF NO", "RUHSAT NO" gibi başlık/alanlar
+- Türk yazar kasalarının (ÖKC — Ödeme Kaydedici Cihaz) GÜN SONU mali raporu
+- BAŞLIKTA AÇIKÇA "Z RAPORU" yazar (büyük harfle, üst kısımda)
+- "Z NO" / "GÜN NO" alanı + "MALİ HAFIZA" / "MF NO" / "RUHSAT NO" alanları
 - TOPLAM SATIŞ, NET SATIŞ, KDV (KDV oranlarına göre kırılım %1/%8/%18/%20)
 - Yazar kasanın kendi formatı (banka POS değil, mağaza yazılımı değil)
+- Gün sonunda 1 KEZ çekilir — gün kapanışını işaret eder
 
-REDDEDİLMESİ gereken görseller:
+🚨 KESİN REDDET — X RAPORU (sıkça karıştırılır):
+- Başlıkta "X RAPORU" yazar (büyük X harfi)
+- Gün İÇİNDE çekilir, anlık özet — gün sonu DEĞİL
+- Z'ye çok benzer format ama "X NO" ya da "X RAPORU" başlığıyla ayırt edilir
+- Z raporu değildir — KABUL ETME, is_z_report:false döndür
+- Rejection: "Bu bir X raporu (gün içi anlık özet). Z raporu gün sonunda
+  çekilen ve 'Z RAPORU' başlığı taşıyan rapordur — lütfen Z raporu yükleyin."
+
+REDDEDİLMESİ gereken diğer görseller:
 - Banka havale/EFT dekontu
 - Banka POS gün sonu slibi — "TERMINAL NO", "BATCH NO" var ama "MF/MALİ HAFIZA" yok
 - Mağaza yazılımı özet raporu — "Kartuş Puan", "Loyalty", mağaza POS yazılımı
 - Tek bir satış fişi (gün sonu değil)
 - Fatura, makbuz veya alakasız görsel
+
+KARAR KURALI:
+- Başlıkta "X RAPORU" varsa → KESİN RED (yukarıdaki X mesajı)
+- Başlıkta "Z RAPORU" varsa → KABUL et, alanları çıkar
+- Hiçbiri net görünmüyorsa şüpheyle yaklaş — başlığı dikkatle oku
 
 ADIM 2 — Çıktı formatı (sadece JSON, code fence yok):
 

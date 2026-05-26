@@ -393,6 +393,19 @@ async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {
         "Bu bir yazar kasa Z raporu gibi görünmüyor. Lütfen geçerli bir Z raporu yükleyin."
     );
   }
+
+  // 🛡️ Belt-and-suspenders: OCR yanılgısına karşı ham metinde X RAPORU
+  // ipuçlarını tekrar tara. Z raporları "Z RAPORU" başlığı taşır;
+  // gün içi anlık özet olan X raporlarını kabul etmemeliyiz.
+  const rawText = JSON.stringify(raw ?? {}).toUpperCase();
+  const hasXSignal = /\bX\s*RAPORU\b|\bX\s*RAPOR\b|\bX\s*NO\b/.test(rawText);
+  const hasZSignal = /\bZ\s*RAPORU\b|\bZ\s*RAPOR\b|\bZ\s*NO\b/.test(rawText);
+  if (hasXSignal && !hasZSignal) {
+    throw new Error(
+      "Bu bir X RAPORU (gün içi anlık özet). Z raporu gün sonunda çekilen ve 'Z RAPORU' başlığı taşıyan rapordur — lütfen Z raporu yükleyin."
+    );
+  }
+
   await assertDateMatch(upload.daily_record_id, parsed.report_date, "Z raporu");
 
   // Content fingerprint: Z numarası + tarih + brüt + net (cash/KK artık alınmıyor)
