@@ -13,6 +13,20 @@ Kurallar:
 
 export const Z_REPORT_USER_PROMPT = `Bu görseli ÖNCE doküman türü açısından değerlendir, sonra alanları çıkar.
 
+⚠️ ÖN-KONTROL (her şeyden önce):
+Görselin ÜST KISMINDA / başlığında büyük harflerle ne yazıyor?
+- "X RAPORU" / "X RAPOR" / "X NO" → BU BİR X RAPORUDUR, KESİN RED
+  → is_z_report: false döndür, alanları doldurma, mesajı ver:
+    "Bu bir X raporu (gün içi anlık özet). Z raporu gün sonunda çekilen
+    ve 'Z RAPORU' başlığı taşıyan rapordur — lütfen Z raporu yükleyin."
+- "Z RAPORU" / "Z NO" → Devam et, alanları çıkar
+- Hiçbiri net görünmüyorsa → büyük olasılıkla yanlış belge, reddet
+
+X ve Z raporları YAPISI BENZER ama BAŞLIK farklıdır:
+- Z = gün SONU, 1 kez çekilir, mali kapanış
+- X = gün İÇİ, anlık özet, defalarca çekilebilir
+Yapı benzediği için sayıları çekme tuzağına düşme — başlık kraldır.
+
 ADIM 1 — Doküman türü doğrulaması:
 Bu görsel bir YAZAR KASA (ÖKC) Z RAPORU mu? Geçerli Z raporu şu özelliklere sahiptir:
 - Türk yazar kasalarının (ÖKC — Ödeme Kaydedici Cihaz) GÜN SONU mali raporu
