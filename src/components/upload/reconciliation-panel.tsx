@@ -19,6 +19,14 @@ import {
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 const TRY_FMT = new Intl.NumberFormat("tr-TR", {
   minimumFractionDigits: 2,
@@ -68,6 +76,8 @@ export function ReconciliationPanel({
   // Local notes state — server'dan gelen notla initialize edilir
   const [notes, setNotes] = useState("");
   const [notesDirty, setNotesDirty] = useState(false);
+  // Doğrulama onay modal'ı için uyarı listesi (boş = modal kapalı)
+  const [confirmWarnings, setConfirmWarnings] = useState<string[] | null>(null);
   useEffect(() => {
     if (!notesDirty && data?.reconciliation_notes !== undefined) {
       setNotes(data?.reconciliation_notes ?? "");
@@ -77,6 +87,48 @@ export function ReconciliationPanel({
   if (disabled || isLoading || !data) {
     return null;
   }
+
+  // Doğrulamayı gerçekten çalıştır (not varsa önce kaydet)
+  const runApprove = () => {
+    if (!data.daily_record_id) return;
+    if (notesDirty) {
+      saveNotes.mutate(
+        { store_id: storeId, date, notes },
+        {
+          onSuccess: () => {
+            setNotesDirty(false);
+            approve.mutate({ id: data.daily_record_id! });
+          },
+        }
+      );
+    } else {
+      approve.mutate({ id: data.daily_record_id! });
+    }
+  };
+
+  // Doğrula butonuna basınca: uyarı varsa modal aç, yoksa direkt doğrula
+  const handleApproveClick = () => {
+    const warnings: string[] = [];
+    if (!data.has_z) {
+      warnings.push(
+        "Z Raporu / El Faturası YOK. Toplam Z sıfır — bu büyük bir eksiklik."
+      );
+    }
+    const diff = data.verification?.difference ?? 0;
+    if (Math.abs(diff) > 5) {
+      const fmt = TRY_FMT.format(Math.abs(diff));
+      warnings.push(
+        diff < 0
+          ? `GENEL TOPLAM ${fmt} ₺ EKSİK — belge özetten az, kayıp riski.`
+          : `GENEL TOPLAM ${fmt} ₺ FAZLA — belge özetten yüksek.`
+      );
+    }
+    if (warnings.length > 0) {
+      setConfirmWarnings(warnings);
+    } else {
+      runApprove();
+    }
+  };
 
   const isLocked = data.daily_record_status === "locked";
   const v = data.verification;
@@ -279,46 +331,7 @@ export function ReconciliationPanel({
             {canApprove && !isLocked && data.daily_record_id ? (
               <button
                 type="button"
-                onClick={() => {
-                  // ── Doğrulama öncesi uyarılar ──
-                  const warnings: string[] = [];
-                  if (!data.has_z) {
-                    warnings.push(
-                      "• Z Raporu / El Faturası YOK. Toplam Z sıfır — bu büyük bir eksiklik."
-                    );
-                  }
-                  const diff = data.verification?.difference ?? 0;
-                  if (Math.abs(diff) > 5) {
-                    const fmt = TRY_FMT.format(Math.abs(diff));
-                    warnings.push(
-                      diff < 0
-                        ? `• GENEL TOPLAM ${fmt} ₺ EKSİK (belge özetten az — kayıp riski).`
-                        : `• GENEL TOPLAM ${fmt} ₺ FAZLA (belge özetten yüksek).`
-                    );
-                  }
-                  if (warnings.length > 0) {
-                    const ok = window.confirm(
-                      `⚠️ Bu günde sorun var:\n\n${warnings.join(
-                        "\n"
-                      )}\n\nYine de doğrulamak istediğinize emin misiniz?`
-                    );
-                    if (!ok) return;
-                  }
-                  // Önce notu kaydet (varsa), sonra doğrula
-                  if (notesDirty) {
-                    saveNotes.mutate(
-                      { store_id: storeId, date, notes },
-                      {
-                        onSuccess: () => {
-                          setNotesDirty(false);
-                          approve.mutate({ id: data.daily_record_id! });
-                        },
-                      }
-                    );
-                  } else {
-                    approve.mutate({ id: data.daily_record_id! });
-                  }
-                }}
+                onClick={handleApproveClick}
                 disabled={
                   approve.isPending ||
                   saveNotes.isPending ||
@@ -337,7 +350,79 @@ export function ReconciliationPanel({
           </div>
         </div>
       </CardContent>
+
+      {/* Doğrulama onay modal'ı — Z eksik / fark varsa */}
+      <ApproveConfirmDialog
+        warnings={confirmWarnings}
+        onCancel={() => setConfirmWarnings(null)}
+        onConfirm={() => {
+          setConfirmWarnings(null);
+          runApprove();
+        }}
+        pending={approve.isPending || saveNotes.isPending}
+      />
     </Card>
+  );
+}
+
+/** Doğrulama öncesi uyarı onay modal'ı (Z eksik / GENEL TOPLAM farkı) */
+function ApproveConfirmDialog({
+  warnings,
+  onCancel,
+  onConfirm,
+  pending,
+}: {
+  warnings: string[] | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+  pending: boolean;
+}) {
+  const open = warnings !== null && warnings.length > 0;
+  return (
+    <Dialog open={open} onOpenChange={(o) => (!o ? onCancel() : undefined)}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-100 text-amber-600">
+            <AlertTriangle className="h-7 w-7" />
+          </div>
+          <DialogTitle className="text-center">Bu günde sorun var</DialogTitle>
+          <DialogDescription className="text-center">
+            Aşağıdaki eksiklik/fark tespit edildi. Yine de doğrulamak istiyor
+            musunuz?
+          </DialogDescription>
+        </DialogHeader>
+
+        <ul className="space-y-2 my-2">
+          {(warnings ?? []).map((w, i) => (
+            <li
+              key={i}
+              className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900"
+            >
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-amber-600" />
+              <span>{w}</span>
+            </li>
+          ))}
+        </ul>
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" onClick={onCancel} disabled={pending}>
+            Vazgeç
+          </Button>
+          <Button
+            onClick={onConfirm}
+            disabled={pending}
+            className="bg-amber-600 hover:bg-amber-700"
+          >
+            {pending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Check className="h-4 w-4 mr-2" />
+            )}
+            Yine de Doğrula
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
