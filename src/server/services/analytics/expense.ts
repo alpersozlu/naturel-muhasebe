@@ -235,9 +235,9 @@ export async function expenseSummary(
     byStoreMap[sid] ??= { name: a.daily_record.store.name, total: 0 };
     byStoreMap[sid].total += v;
 
-    const empKey = a.employee_id;
+    const empKey = a.employee_id ?? "_";
     byEmployeeMap[empKey] ??= {
-      name: a.employee.full_name ?? a.employee.email,
+      name: a.employee?.full_name ?? a.employee?.email ?? "Çalışan yok",
       total: 0,
     };
     byEmployeeMap[empKey].total += v;

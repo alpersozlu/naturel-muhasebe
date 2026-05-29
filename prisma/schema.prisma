@@ -375,8 +375,9 @@ model CashAdvance {
   id              String      @id @default(uuid())
   daily_record_id String
   daily_record    DailyRecord @relation(fields: [daily_record_id], references: [id])
-  employee_id     String
-  employee        User        @relation(fields: [employee_id], references: [id])
+  // Çalışan opsiyonel — peşin ödeme belirli bir çalışana bağlı olmayabilir
+  employee_id     String?
+  employee        User?       @relation(fields: [employee_id], references: [id])
 
   amount       Decimal         @db.Decimal(14, 2)
   currency     Currency        @default(TRY)

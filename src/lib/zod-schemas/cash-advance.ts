@@ -23,7 +23,10 @@ const dateOnly = z
 export const cashAdvanceCreateSchema = z.object({
   store_id: z.string().uuid(),
   date: dateOnly,
-  employee_id: z.string().uuid(),
+  // Çalışan opsiyonel — "" / null = çalışan seçilmedi
+  employee_id: z
+    .union([z.string().uuid(), z.literal(""), z.null(), z.undefined()])
+    .transform((v) => (v && typeof v === "string" ? v : undefined)),
   amount: z.number().positive("Tutar 0'dan büyük olmalı"),
   currency: z.enum(SUPPORTED_CURRENCIES).default("TRY"),
   category: expenseCategoryEnum,

@@ -186,16 +186,21 @@ export function CashAdvanceCard({
           </div>
 
           <div>
-            <Label className="text-xs">Çalışan</Label>
+            <Label className="text-xs">Çalışan (opsiyonel)</Label>
             <Controller
               control={control}
               name="employee_id"
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+                <Select
+                  value={field.value || "_none"}
+                  onValueChange={(v) => field.onChange(v === "_none" ? "" : v)}
+                  disabled={disabled}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="Çalışan seç" />
+                    <SelectValue placeholder="Çalışan seç (opsiyonel)" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="_none">Çalışan yok</SelectItem>
                     {(employees ?? []).map((u) => (
                       <SelectItem key={u.id} value={u.id}>
                         {u.full_name ?? u.email}
@@ -205,9 +210,6 @@ export function CashAdvanceCard({
                 </Select>
               )}
             />
-            {errors.employee_id ? (
-              <p className="text-xs text-destructive mt-1">{errors.employee_id.message}</p>
-            ) : null}
           </div>
 
           <div>
@@ -243,7 +245,7 @@ export function CashAdvanceCard({
                     {TRY_FORMATTER.format(Number(a.amount))} {a.currency} · {CATEGORY_LABEL[a.category]}
                   </div>
                   <div className="text-muted-foreground truncate">
-                    {a.employee.full_name ?? a.employee.email} ·{" "}
+                    {a.employee?.full_name ?? a.employee?.email ?? "Çalışan yok"} ·{" "}
                     {formatDistanceToNow(a.created_at, { addSuffix: true, locale: tr })}
                   </div>
                 </div>

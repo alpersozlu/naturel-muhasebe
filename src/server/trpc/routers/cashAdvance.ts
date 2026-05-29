@@ -45,7 +45,7 @@ export const cashAdvanceRouter = router({
       return ctx.prisma.cashAdvance.create({
         data: {
           daily_record_id: dr.id,
-          employee_id: input.employee_id,
+          employee_id: input.employee_id ?? null,
           amount: input.amount,
           currency: input.currency,
           amount_try,
