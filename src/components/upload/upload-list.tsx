@@ -303,7 +303,7 @@ function UploadRowItem({
 
         {/* ORTA: Key fields (dikey ayraçlar) */}
         <div className="hidden lg:flex items-center border-l border-r border-border/60 px-5 flex-1 min-w-0">
-          <ParsedFields upload={upload} />
+          <ParsedFields upload={upload} expectedDate={expectedDate} />
         </div>
 
         {/* SAĞ: BIG amount + actions */}
@@ -354,7 +354,7 @@ function UploadRowItem({
 
       {/* MOBİL: Key fields aşağıda */}
       <div className="lg:hidden mt-3 pt-3 border-t border-border/40">
-        <ParsedFields upload={upload} />
+        <ParsedFields upload={upload} expectedDate={expectedDate} />
       </div>
 
       {/* Z onay kapı paneli (sadece Z için) */}
@@ -426,7 +426,13 @@ function getHeroAmount(
   return null;
 }
 
-function ParsedFields({ upload }: { upload: UploadRow }) {
+function ParsedFields({
+  upload,
+  expectedDate,
+}: {
+  upload: UploadRow;
+  expectedDate?: string;
+}) {
   if (upload.pos_slip) {
     const p = upload.pos_slip;
     const dateStr = p.slip_date
@@ -442,8 +448,12 @@ function ParsedFields({ upload }: { upload: UploadRow }) {
   }
   if (upload.store_summary) {
     const s = upload.store_summary;
+    const dateStr = expectedDate
+      ? new Date(`${expectedDate}T00:00:00.000Z`).toLocaleDateString("tr-TR")
+      : "—";
     return (
-      <div className="grid grid-cols-3 gap-4 w-full">
+      <div className="grid grid-cols-4 gap-4 w-full">
+        <MiniField label="Tarih" value={dateStr} />
         <MiniField label="Nakit" value={`${TRY_FMT.format(num(s.cash_sales))} ₺`} />
         <MiniField
           label="Kredi Kartı"
