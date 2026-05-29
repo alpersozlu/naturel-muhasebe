@@ -7,6 +7,7 @@ import {
   Check,
   X,
   AlertTriangle,
+  AlertCircle,
   ShieldAlert,
   Lock,
   Loader2,
@@ -152,6 +153,23 @@ export function ReconciliationPanel({
         {/* Status banner — incomplete/error/locked durumları */}
         <StatusBanner data={data} />
 
+        {/* Z eksik — özel kritik uyarı (Toplam Z sıfır = büyük eksiklik) */}
+        {data.exists && !data.has_z && !isLocked ? (
+          <div className="mt-3 rounded-2xl border-2 border-rose-300 bg-gradient-to-r from-rose-50 to-rose-50/40 p-4 flex items-start gap-3 animate-fade-in shadow-sm">
+            <AlertCircle className="h-6 w-6 text-rose-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-sm text-rose-900">
+                🚨 Z Raporu / El Faturası eksik — Toplam Z sıfır!
+              </div>
+              <div className="text-xs text-rose-700/90 mt-1">
+                Gün sonu Z raporu (veya yerine geçen el faturası) yüklenmedi.
+                Bu olmadan satışların mali kaydı doğrulanamaz. Lütfen Z raporunu
+                yükleyin — yoksa el faturası girin.
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {/* SAP Bayi Raporu vs Müdür Özeti — fark uyarı banner'ı (varsa) */}
         {v && v.rows ? <SapAlertBanner rows={v.rows} /> : null}
 
@@ -262,7 +280,31 @@ export function ReconciliationPanel({
               <button
                 type="button"
                 onClick={() => {
-                  // Önce notu kaydet (varsa), sonra kilitle
+                  // ── Doğrulama öncesi uyarılar ──
+                  const warnings: string[] = [];
+                  if (!data.has_z) {
+                    warnings.push(
+                      "• Z Raporu / El Faturası YOK. Toplam Z sıfır — bu büyük bir eksiklik."
+                    );
+                  }
+                  const diff = data.verification?.difference ?? 0;
+                  if (Math.abs(diff) > 5) {
+                    const fmt = TRY_FMT.format(Math.abs(diff));
+                    warnings.push(
+                      diff < 0
+                        ? `• GENEL TOPLAM ${fmt} ₺ EKSİK (belge özetten az — kayıp riski).`
+                        : `• GENEL TOPLAM ${fmt} ₺ FAZLA (belge özetten yüksek).`
+                    );
+                  }
+                  if (warnings.length > 0) {
+                    const ok = window.confirm(
+                      `⚠️ Bu günde sorun var:\n\n${warnings.join(
+                        "\n"
+                      )}\n\nYine de doğrulamak istediğinize emin misiniz?`
+                    );
+                    if (!ok) return;
+                  }
+                  // Önce notu kaydet (varsa), sonra doğrula
                   if (notesDirty) {
                     saveNotes.mutate(
                       { store_id: storeId, date, notes },
@@ -403,6 +445,7 @@ function CheckItem({
 }
 
 type ReconData = {
+  exists?: boolean;
   status:
     | "empty"
     | "incomplete"
