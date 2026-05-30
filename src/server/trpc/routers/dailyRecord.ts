@@ -5,6 +5,7 @@ import {
   dailyRecordIdSchema,
   setReportedCashSchema,
   setGiftVoucherSchema,
+  setMaviGiftVoucherSchema,
 } from "@/lib/zod-schemas/verification";
 import { withAudit } from "../middleware/audit";
 import { assertCanAccessStore, isAdmin } from "@/lib/auth/permissions";
@@ -441,6 +442,64 @@ export const dailyRecordRouter = router({
           gift_voucher_try: input.amount,
           gift_voucher_note: input.note ?? null,
           gift_voucher_at: new Date(),
+        },
+      });
+
+      if (dr.status === "locked" && !isAdmin(ctx.user)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Gün kilitli, yalnızca admin değiştirebilir",
+        });
+      }
+      return dr;
+    }),
+
+  /** Mevcut Mavi Hediye Çeki girişini oku (Derimod). */
+  getMaviGiftVoucher: protectedProcedure
+    .input(setMaviGiftVoucherSchema.pick({ store_id: true, date: true }))
+    .query(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      const dateObj = new Date(`${input.date}T00:00:00.000Z`);
+      const dr = await ctx.prisma.dailyRecord.findUnique({
+        where: {
+          store_id_date: { store_id: input.store_id, date: dateObj },
+        },
+        select: {
+          mavi_gift_voucher_try: true,
+          mavi_gift_voucher_note: true,
+          mavi_gift_voucher_at: true,
+        },
+      });
+      return dr;
+    }),
+
+  /**
+   * Mavi Hediye Çeki (Derimod'da kullanılan) — kasa ile alakasız, istatistik.
+   * Mavi'de yüksek alışveriş yapan müşterilere verilen, Derimod'da kullanılan
+   * hediye çekleri. Gün başına manuel toplam tutar.
+   */
+  setMaviGiftVoucher: protectedProcedure
+    .input(setMaviGiftVoucherSchema)
+    .mutation(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      const dateObj = new Date(`${input.date}T00:00:00.000Z`);
+
+      const dr = await ctx.prisma.dailyRecord.upsert({
+        where: {
+          store_id_date: { store_id: input.store_id, date: dateObj },
+        },
+        create: {
+          store_id: input.store_id,
+          date: dateObj,
+          status: "draft",
+          mavi_gift_voucher_try: input.amount,
+          mavi_gift_voucher_note: input.note ?? null,
+          mavi_gift_voucher_at: new Date(),
+        },
+        update: {
+          mavi_gift_voucher_try: input.amount,
+          mavi_gift_voucher_note: input.note ?? null,
+          mavi_gift_voucher_at: new Date(),
         },
       });
 

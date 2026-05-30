@@ -189,6 +189,14 @@ model DailyRecord {
   gift_voucher_note String?
   gift_voucher_at   DateTime?
 
+  // MAVI HEDİYE ÇEKİ — sadece Derimod mağazalarında girilir.
+  // Mavi'de yüksek alışveriş yapan müşterilere verilen, Derimod'da kullanılan
+  // hediye çekleri. KASA İLE ALAKASI YOKTUR — nakit denklemine girmez.
+  // Sadece istatistik/bilgi amaçlı (gün başına manuel toplam tutar).
+  mavi_gift_voucher_try  Decimal?  @db.Decimal(14, 2)
+  mavi_gift_voucher_note String?
+  mavi_gift_voucher_at   DateTime?
+
   // Mutabakat farkı için açıklayıcı not (müdür ya da admin).
   // Örn. "müşteri 500 TL fazla nakit verdi, üstü unutulmuş";
   //      "POS terminali geri ödeme yaptı, raporlanmadı".

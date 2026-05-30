@@ -27,3 +27,11 @@ export const setGiftVoucherSchema = z.object({
   amount: z.number().min(0).max(1_000_000_000),
   note: z.string().trim().max(300).optional(),
 });
+
+// Mavi Hediye Çeki (Derimod'da kullanılan) — kasa ile alakasız, istatistik
+export const setMaviGiftVoucherSchema = z.object({
+  store_id: z.string().uuid(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  amount: z.number().min(0).max(1_000_000_000),
+  note: z.string().trim().max(300).optional(),
+});

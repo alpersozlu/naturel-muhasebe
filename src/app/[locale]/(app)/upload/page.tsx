@@ -20,6 +20,7 @@ import { DailyCashCard } from "@/components/upload/daily-cash-card";
 import { ManualInvoiceCard } from "@/components/upload/manual-invoice-card";
 import { MasrafFaturaCard } from "@/components/upload/masraf-fatura-card";
 import { GiftVoucherCard } from "@/components/upload/gift-voucher-card";
+import { MaviGiftVoucherCard } from "@/components/upload/mavi-gift-voucher-card";
 import { UploadList } from "@/components/upload/upload-list";
 import { ReconciliationPanel } from "@/components/upload/reconciliation-panel";
 
@@ -39,6 +40,16 @@ export default function UploadPage() {
 
   const { data: me } = trpc.user.me.useQuery();
   const isAdmin = me?.role === "admin";
+
+  // Seçili marka Derimod mu? (Mavi Hediye Çeki kartı sadece Derimod'da görünür)
+  const { data: brands } = trpc.brand.list.useQuery();
+  const selectedBrand = brands?.find((b) => b.id === sel.brandId);
+  const isDerimod =
+    !!selectedBrand &&
+    selectedBrand.name
+      .toLocaleLowerCase("tr")
+      .replace(/ı/g, "i")
+      .includes("derimod");
 
   return (
     <div>
@@ -91,6 +102,10 @@ export default function UploadPage() {
         <GiftVoucherCard storeId={sel.storeId} date={sel.date} />
         <ManualInvoiceCard storeId={sel.storeId} date={sel.date} />
         <CashAdvanceCard storeId={sel.storeId} date={sel.date} />
+        {/* Mavi Hediye Çeki — SADECE Derimod mağazaları */}
+        {isDerimod ? (
+          <MaviGiftVoucherCard storeId={sel.storeId} date={sel.date} />
+        ) : null}
         <MasrafFaturaCard storeId={sel.storeId} date={sel.date} />
         <UploadCard
           type="dealer_daily_report"

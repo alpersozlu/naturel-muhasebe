@@ -8,6 +8,7 @@ import {
 } from "@/components/analytics/analytics-filters";
 import { ExpenseDashboard } from "@/components/analytics/expense-dashboard";
 import { BankCommissionBlock } from "@/components/analytics/bank-commission-block";
+import { MaviGiftVoucherBlock } from "@/components/analytics/mavi-gift-voucher-block";
 import { ExportExcelButton } from "@/components/analytics/export-button";
 import {
   BudgetAlertBanner,
@@ -56,6 +57,14 @@ export default function ExpensesPage() {
       </div>
       <div className="mt-8">
         <BankCommissionBlock
+          brandId={sel.brandId}
+          storeId={sel.storeId}
+          year={sel.year}
+          month={sel.month}
+        />
+      </div>
+      <div className="mt-8">
+        <MaviGiftVoucherBlock
           brandId={sel.brandId}
           storeId={sel.storeId}
           year={sel.year}
