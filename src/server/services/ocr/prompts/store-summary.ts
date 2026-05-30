@@ -76,6 +76,7 @@ Eğer mağaza özet raporu DEĞİLSE:
   "store_code_on_report": null,
   "summary_date": null, "sales_total": null, "cash_sales": null,
   "credit_card_total": null, "loyalty_points_total": null, "wire_transfer_total": null,
+  "period_start": null, "period_end": null,
   "opening_balance": null, "closing_balance": null, "currency": "TRY"
 }
 
@@ -87,6 +88,8 @@ Eğer mağaza özet raporu İSE:
   "store_name_on_report": "Mağaza adı string olarak (kod yoksa sadece isim)",
   "store_code_on_report": "IT POS için 9400/9401/9402/9403 — Nebim için null",
   "summary_date": "YYYY-MM-DD (raporun tarihi)",
+  "period_start": "YYYY-MM-DD veya null — raporun KAPSADIĞI tarih aralığının BAŞLANGICI. Derimod/Nebim raporlarının altında/üstünde 'gg.aa.yyyy - gg.aa.yyyy' şeklinde aralık yazabilir. Tek gün ise summary_date ile aynı. Aralık yoksa null.",
+  "period_end": "YYYY-MM-DD veya null — raporun kapsadığı tarih aralığının BİTİŞİ. Tek gün ise summary_date ile aynı. Aralık yoksa null.",
   "sales_total": "ondalık sayı veya null (Satış Toplam)",
   "cash_sales": "ondalık sayı veya null (Nakit Toplam)",
   "credit_card_total": "ondalık sayı veya null (Kredi Kartı Toplam)",

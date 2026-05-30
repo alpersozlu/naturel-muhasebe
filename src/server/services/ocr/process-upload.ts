@@ -216,13 +216,65 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
         "Bu bir mağaza özet raporu gibi görünmüyor. Lütfen geçerli bir mağaza gün sonu özet raporu yükleyin."
     );
   }
-  await assertDateMatch(upload.daily_record_id, parsed.summary_date, "Mağaza özeti");
 
   // 🛡️ Marka formatı + mağaza ismi eşleşmesi: yanlış mağazaya yüklemeyi engelle.
   const dr = await prisma.dailyRecord.findUnique({
     where: { id: upload.daily_record_id },
-    include: { store: { include: { brand: true } } },
+    include: {
+      store: { include: { brand: true } },
+      merge_group: {
+        include: {
+          daily_records: { orderBy: { date: "asc" }, select: { date: true } },
+        },
+      },
+    },
   });
+
+  // ── Tarih kontrolü: gün birleşmesi mi, tek gün mü? ──
+  let periodStart: Date | null = null;
+  let periodEnd: Date | null = null;
+  if (dr?.merge_group) {
+    const g = dr.merge_group;
+    const groupStartIso = g.start_date.toISOString().slice(0, 10);
+    const groupEndIso = g.end_date.toISOString().slice(0, 10);
+    const thisDayIso = dr.date.toISOString().slice(0, 10);
+
+    // Mağaza özeti SADECE grubun SON gününe yüklenir
+    if (thisDayIso !== groupEndIso) {
+      throw new Error(
+        `Bu gün (${fmtDateTr(thisDayIso)}) birleşmenin son günü değil. Mağaza özeti birleşik aralığın SON gününe (${fmtDateTr(groupEndIso)}) yüklenir.`
+      );
+    }
+
+    // OCR aralık okuduysa grupla karşılaştır (Derimod alt tarih aralığı)
+    const pStart = parsed.period_start;
+    const pEnd = parsed.period_end;
+    if (pStart && pEnd) {
+      if (pStart !== groupStartIso || pEnd !== groupEndIso) {
+        throw new Error(
+          `Özetteki tarih aralığı (${fmtDateTr(pStart)} → ${fmtDateTr(pEnd)}) seçilen birleşme aralığıyla (${fmtDateTr(groupStartIso)} → ${fmtDateTr(groupEndIso)}) uyuşmuyor. Doğru aralığı kapsayan özeti yükleyin.`
+        );
+      }
+    } else if (parsed.summary_date && parsed.summary_date !== groupEndIso) {
+      // Aralık okunamadıysa en azından tek tarih son güne denk gelmeli
+      throw new Error(
+        `Özet tarihi (${fmtDateTr(parsed.summary_date)}) birleşmenin son günüyle (${fmtDateTr(groupEndIso)}) uyuşmuyor.`
+      );
+    }
+    periodStart = g.start_date;
+    periodEnd = g.end_date;
+  } else {
+    // Normal tek gün — eski katı tarih kontrolü
+    await assertDateMatch(
+      upload.daily_record_id,
+      parsed.summary_date,
+      "Mağaza özeti"
+    );
+    if (parsed.summary_date) {
+      periodStart = new Date(`${parsed.summary_date}T00:00:00.000Z`);
+      periodEnd = periodStart;
+    }
+  }
   if (dr) {
     const brandLower = dr.store.brand.name.toLowerCase();
     const isMaviBrand = brandLower.includes("mavi");
@@ -291,6 +343,8 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     credit_card_total_try: tryFor(parsed.credit_card_total),
     loyalty_points_total_try: tryFor(parsed.loyalty_points_total),
     wire_transfer_total_try: tryFor(parsed.wire_transfer_total),
+    period_start: periodStart,
+    period_end: periodEnd,
   };
   await prisma.storeSummary.upsert({
     where: { upload_id: upload.id },

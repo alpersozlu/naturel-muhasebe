@@ -142,9 +142,33 @@ model Store {
   user_access   UserStoreAccess[]
   daily_records DailyRecord[]
   budget_limits BudgetLimit[]
+  merge_groups  DayMergeGroup[]
 
   @@index([brand_id])
   @@index([deleted_at])
+}
+
+// ─────────────────────────────────────────────────────────────
+// GÜN BİRLEŞMESİ (Derimod — birden fazla günün tek mağaza özetiyle uzlaşması)
+// Örn. 19-20 Mayıs birleşik: her gün kendi POS/Z/nakit/masrafını tutar ama
+// mağaza özeti tek olup tüm aralığı kapsar. Reconciliation günlerin toplamı
+// ↔ tek özet karşılaştırır. Analytics yine gün-gün kalır.
+// ─────────────────────────────────────────────────────────────
+
+model DayMergeGroup {
+  id         String   @id @default(uuid())
+  store_id   String
+  store      Store    @relation(fields: [store_id], references: [id])
+  start_date DateTime @db.Date
+  end_date   DateTime @db.Date
+  created_by String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  daily_records DailyRecord[]
+
+  @@unique([store_id, start_date, end_date])
+  @@index([store_id])
 }
 
 model UserStoreAccess {
@@ -174,6 +198,13 @@ model DailyRecord {
   locked_at        DateTime?
   created_at       DateTime          @default(now())
   updated_at       DateTime          @updatedAt
+
+  // Gün birleşmesi (Derimod) — bu gün bir birleşik gruba aitse dolu.
+  // merge_index 1-tabanlı (1. gün, 2. gün, 3. gün). Mağaza özeti yalnızca
+  // grubun SON gününe yüklenir, tüm aralığı kapsar.
+  merge_group_id String?
+  merge_group    DayMergeGroup? @relation(fields: [merge_group_id], references: [id])
+  merge_index    Int?
 
   // Müdür/admin'in gün sonu kasayı sayıp manuel girdiği nakit miktarı.
   // StoreSummary.cash_sales ile karşılaştırılır — eksik/fazla varsa uyarı
@@ -313,6 +344,12 @@ model StoreSummary {
   opening_balance      Decimal? @db.Decimal(14, 2)
   closing_balance      Decimal? @db.Decimal(14, 2)
   currency             Currency @default(TRY)
+
+  // Özetin kapsadığı tarih aralığı (Derimod gün birleşmesi). Tek gün ise
+  // period_start = period_end = o gün. Birleşik ise aralık (örn 19-20 May).
+  // OCR Derimod özetinin altındaki tarih aralığından okur.
+  period_start DateTime? @db.Date
+  period_end   DateTime? @db.Date
 
   // TRY çevrilmiş halleri (raporlama için)
   sales_total_try          Decimal? @db.Decimal(14, 2)

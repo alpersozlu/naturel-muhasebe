@@ -16,6 +16,19 @@ export const storeSummaryOcrSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .nullable(),
+  /**
+   * Derimod özetinin alt kısmında tarih ARALIĞI yazıyorsa (gün birleşmesi).
+   * Tek gün ise period_start = period_end = summary_date. Aralık varsa
+   * (örn 19-20 Mayıs) ilk ve son gün. Yoksa null.
+   */
+  period_start: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
+  period_end: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
   sales_total: z.number().nullable(),
   cash_sales: z.number().nullable(),
   credit_card_total: z.number().nullable(),
