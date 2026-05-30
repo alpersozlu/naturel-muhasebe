@@ -186,6 +186,9 @@ export const dailyRecordRouter = router({
               },
             },
           },
+          cumulative_prev: {
+            select: { date: true, store_summary: { select: { id: true } } },
+          },
         },
       });
 
@@ -331,6 +334,14 @@ export const dailyRecordRouter = router({
               day_count: dr.merge_group.daily_records.length,
               this_index: dr.merge_index ?? null,
               is_last_day: summaryRec?.id === dr.id || dr.merge_index === dr.merge_group.daily_records.length,
+            }
+          : null,
+        // Kümülatif kasa birleşmesi (Mavi) — özet bu günden önceki günü içerir
+        cumulative: dr.cumulative_prev_id
+          ? {
+              prev_date:
+                dr.cumulative_prev?.date.toISOString().slice(0, 10) ?? null,
+              prev_has_summary: !!dr.cumulative_prev?.store_summary,
             }
           : null,
         verification: verification

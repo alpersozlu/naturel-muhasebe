@@ -23,6 +23,7 @@ import { ManualInvoiceCard } from "@/components/upload/manual-invoice-card";
 import { MasrafFaturaCard } from "@/components/upload/masraf-fatura-card";
 import { GiftVoucherCard } from "@/components/upload/gift-voucher-card";
 import { MaviGiftVoucherCard } from "@/components/upload/mavi-gift-voucher-card";
+import { CumulativeMergeCard } from "@/components/upload/cumulative-merge-card";
 import { UploadList } from "@/components/upload/upload-list";
 import { ReconciliationPanel } from "@/components/upload/reconciliation-panel";
 import { MergeWizard } from "@/components/upload/merge-wizard";
@@ -55,6 +56,9 @@ export default function UploadPage() {
       .toLocaleLowerCase("tr")
       .replace(/ı/g, "i")
       .includes("derimod");
+  const isMavi =
+    !!selectedBrand &&
+    selectedBrand.name.toLocaleLowerCase("tr").replace(/ı/g, "i").includes("mavi");
 
   return (
     <div>
@@ -155,6 +159,10 @@ export default function UploadPage() {
           storeId={sel.storeId}
           date={sel.date}
         />
+        {/* Kümülatif kasa birleşmesi — SADECE Mavi */}
+        {isMavi && sel.storeId ? (
+          <CumulativeMergeCard storeId={sel.storeId} date={sel.date} />
+        ) : null}
       </div>
 
       <UploadList storeId={sel.storeId} date={sel.date} />

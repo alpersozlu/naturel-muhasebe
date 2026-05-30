@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   AlertCircle,
   ShieldAlert,
+  Layers,
   Lock,
   Loader2,
   XCircle,
@@ -159,6 +160,18 @@ export function ReconciliationPanel({
                 ? "Birleşik günlerin TOPLAM belgeleri ile tek Mağaza Özeti karşılaştırılır."
                 : "Yüklenen belgeleri Mağaza Özeti ile karşılaştır — kasa farkını tespit et."}
             </div>
+            {data.cumulative ? (
+              <div className="mt-2 inline-flex items-start gap-2 rounded-lg bg-orange-50 border border-orange-200 px-3 py-1.5 text-[11px] text-orange-900">
+                <Layers className="h-3.5 w-3.5 shrink-0 mt-0.5 text-orange-600" />
+                <span>
+                  Kümülatif kasa: bu günün özetinden{" "}
+                  {data.cumulative.prev_date
+                    ? fmtDateShort(data.cumulative.prev_date)
+                    : "önceki gün"}{" "}
+                  özeti düşülüyor — gerçek satış = bugün − önceki gün.
+                </span>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -549,6 +562,10 @@ type ReconData = {
     day_count: number;
     this_index: number | null;
     is_last_day: boolean;
+  } | null;
+  cumulative?: {
+    prev_date: string | null;
+    prev_has_summary: boolean;
   } | null;
   status:
     | "empty"
