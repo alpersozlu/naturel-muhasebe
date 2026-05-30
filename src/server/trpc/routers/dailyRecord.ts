@@ -6,6 +6,7 @@ import {
   setReportedCashSchema,
   setGiftVoucherSchema,
   setMaviGiftVoucherSchema,
+  setCumulativePrevSchema,
 } from "@/lib/zod-schemas/verification";
 import { withAudit } from "../middleware/audit";
 import { assertCanAccessStore, isAdmin } from "@/lib/auth/permissions";
@@ -567,6 +568,101 @@ export const dailyRecordRouter = router({
         });
       }
       return dr;
+    }),
+
+  /** Mevcut kümülatif kasa birleşmesi bağlamını oku (Mavi). */
+  getCumulativePrev: protectedProcedure
+    .input(setCumulativePrevSchema.pick({ store_id: true, date: true }))
+    .query(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      const dateObj = new Date(`${input.date}T00:00:00.000Z`);
+      const dr = await ctx.prisma.dailyRecord.findUnique({
+        where: { store_id_date: { store_id: input.store_id, date: dateObj } },
+        select: {
+          cumulative_prev_id: true,
+          cumulative_prev: { select: { date: true } },
+        },
+      });
+      if (!dr?.cumulative_prev_id) return null;
+      return {
+        prev_id: dr.cumulative_prev_id,
+        prev_date: dr.cumulative_prev?.date.toISOString().slice(0, 10) ?? null,
+      };
+    }),
+
+  /**
+   * Kümülatif kasa birleşmesi ayarla (Mavi). Bu günün özeti kümülatiftir
+   * (önceki günün satışlarını da içerir). Gerçek bugün = bu özet − önceki gün
+   * özeti. prev_date önceki bir gün olmalı ve mağaza özeti yüklenmiş olmalı.
+   */
+  setCumulativePrev: protectedProcedure
+    .input(setCumulativePrevSchema)
+    .mutation(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      if (input.prev_date >= input.date) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Birleşilen gün, bu günden ÖNCE olmalı.",
+        });
+      }
+      const dateObj = new Date(`${input.date}T00:00:00.000Z`);
+      const prevObj = new Date(`${input.prev_date}T00:00:00.000Z`);
+
+      const prev = await ctx.prisma.dailyRecord.findUnique({
+        where: { store_id_date: { store_id: input.store_id, date: prevObj } },
+        include: { store_summary: { select: { id: true, sales_total_try: true } } },
+      });
+      if (!prev || !prev.store_summary) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `${input.prev_date} için mağaza özeti bulunamadı. Önce o günü (mağaza özetiyle) yükleyin.`,
+        });
+      }
+
+      // Bu günü oluştur/güncelle, cumulative_prev'i bağla
+      const dr = await ctx.prisma.dailyRecord.upsert({
+        where: {
+          store_id_date: { store_id: input.store_id, date: dateObj },
+        },
+        create: {
+          store_id: input.store_id,
+          date: dateObj,
+          status: "draft",
+          cumulative_prev_id: prev.id,
+        },
+        update: { cumulative_prev_id: prev.id },
+      });
+      if (dr.status === "locked" && !isAdmin(ctx.user)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Gün kilitli, yalnızca admin değiştirebilir",
+        });
+      }
+      return dr;
+    }),
+
+  /** Kümülatif kasa birleşmesini kaldır (Mavi). */
+  clearCumulativePrev: protectedProcedure
+    .input(setCumulativePrevSchema.pick({ store_id: true, date: true }))
+    .mutation(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      const dateObj = new Date(`${input.date}T00:00:00.000Z`);
+      const dr = await ctx.prisma.dailyRecord.findUnique({
+        where: { store_id_date: { store_id: input.store_id, date: dateObj } },
+        select: { id: true, status: true },
+      });
+      if (!dr) return { ok: true };
+      if (dr.status === "locked" && !isAdmin(ctx.user)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Gün kilitli, yalnızca admin değiştirebilir",
+        });
+      }
+      await ctx.prisma.dailyRecord.update({
+        where: { id: dr.id },
+        data: { cumulative_prev_id: null },
+      });
+      return { ok: true };
     }),
 
   /** Unlock a locked day. Admin only. */

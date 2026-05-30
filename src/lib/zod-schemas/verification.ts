@@ -35,3 +35,10 @@ export const setMaviGiftVoucherSchema = z.object({
   amount: z.number().min(0).max(1_000_000_000),
   note: z.string().trim().max(300).optional(),
 });
+
+// Kümülatif kasa birleşmesi (Mavi) — bu günün özetinden çıkarılacak önceki gün
+export const setCumulativePrevSchema = z.object({
+  store_id: z.string().uuid(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  prev_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});

@@ -78,7 +78,7 @@ export async function computeDay(
 
   const base = await prisma.dailyRecord.findUnique({
     where: { id: dailyRecordId },
-    select: { id: true, merge_group_id: true },
+    select: { id: true, merge_group_id: true, cumulative_prev_id: true },
   });
   if (!base) {
     return {
@@ -135,11 +135,54 @@ export async function computeDay(
     };
   }
 
-  const summaryCash = num(summary.cash_sales_try);
-  const loyalty = num(summary.loyalty_points_total_try);
-  const ccTotal = num(summary.credit_card_total_try);
-  const summaryWire = num(summary.wire_transfer_total_try);
-  const summarySales = num(summary.sales_total_try);
+  // ── Kümülatif kasa birleşmesi (Mavi) ──
+  // Bu günün özeti önceki günün satışlarını da içeriyorsa (kasa kapatılmadı),
+  // gerçek bugün = bu özet − önceki gün özeti. Derimod merge'den ayrı; sadece
+  // tek-gün akışında geçerli (merge grubu yoksa).
+  let prevSummary: {
+    sales_total_try: { toNumber: () => number } | null;
+    cash_sales_try: { toNumber: () => number } | null;
+    credit_card_total_try: { toNumber: () => number } | null;
+    loyalty_points_total_try: { toNumber: () => number } | null;
+    wire_transfer_total_try: { toNumber: () => number } | null;
+  } | null = null;
+  if (!isMerge && base.cumulative_prev_id) {
+    const prev = await prisma.dailyRecord.findUnique({
+      where: { id: base.cumulative_prev_id },
+      select: {
+        store_summary: {
+          select: {
+            sales_total_try: true,
+            cash_sales_try: true,
+            credit_card_total_try: true,
+            loyalty_points_total_try: true,
+            wire_transfer_total_try: true,
+          },
+        },
+      },
+    });
+    prevSummary = prev?.store_summary ?? null;
+  }
+  const sub = (
+    a: { toNumber: () => number } | null | undefined,
+    b: { toNumber: () => number } | null | undefined
+  ) => num(a) - num(b);
+
+  const summaryCash = prevSummary
+    ? sub(summary.cash_sales_try, prevSummary.cash_sales_try)
+    : num(summary.cash_sales_try);
+  const loyalty = prevSummary
+    ? sub(summary.loyalty_points_total_try, prevSummary.loyalty_points_total_try)
+    : num(summary.loyalty_points_total_try);
+  const ccTotal = prevSummary
+    ? sub(summary.credit_card_total_try, prevSummary.credit_card_total_try)
+    : num(summary.credit_card_total_try);
+  const summaryWire = prevSummary
+    ? sub(summary.wire_transfer_total_try, prevSummary.wire_transfer_total_try)
+    : num(summary.wire_transfer_total_try);
+  const summarySales = prevSummary
+    ? sub(summary.sales_total_try, prevSummary.sales_total_try)
+    : num(summary.sales_total_try);
 
   // Müdürün elden saydığı nakit — tüm günlerin toplamı (en az biri girdiyse).
   const reportedCashRaw = records.reduce(
