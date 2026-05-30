@@ -65,21 +65,22 @@ export async function computeDay(
   prisma: PrismaClient,
   dailyRecordId: string
 ): Promise<DayComputeResult> {
-  const dr = await prisma.dailyRecord.findUnique({
+  const drInclude = {
+    pos_slips: { include: { upload: { select: { status: true } } } },
+    store_summary: true,
+    z_reports: { select: { net_sales_try: true } },
+    manual_invoices: { select: { amount_try: true } },
+    dealer_daily_report: true,
+    bank_receipts: { select: { amount_try: true } },
+    expenses: { select: { amount_try: true } },
+    cash_advances: { select: { amount_try: true } },
+  } as const;
+
+  const base = await prisma.dailyRecord.findUnique({
     where: { id: dailyRecordId },
-    include: {
-      pos_slips: { include: { upload: { select: { status: true } } } },
-      store_summary: true,
-      z_reports: { select: { net_sales_try: true } },
-      manual_invoices: { select: { amount_try: true } },
-      dealer_daily_report: true,
-      // Nakit denklemi için ek kaynaklar:
-      bank_receipts: { select: { amount_try: true } },
-      expenses: { select: { amount_try: true } },
-      cash_advances: { select: { amount_try: true } },
-    },
+    select: { id: true, merge_group_id: true },
   });
-  if (!dr) {
+  if (!base) {
     return {
       rows: [],
       expected_total: 0,
@@ -90,12 +91,30 @@ export async function computeDay(
     };
   }
 
-  const includedPos = dr.pos_slips.filter(
-    (p) => p.upload.status === "parsed" || p.upload.status === "confirmed"
-  );
+  // Gün birleşmesi: grup varsa TÜM günlerin belgelerini topla, tek özetle kıyasla.
+  const isMerge = base.merge_group_id !== null;
+  const records = isMerge
+    ? await prisma.dailyRecord.findMany({
+        where: { merge_group_id: base.merge_group_id },
+        orderBy: { date: "asc" },
+        include: drInclude,
+      })
+    : await prisma.dailyRecord.findMany({
+        where: { id: dailyRecordId },
+        include: drInclude,
+      });
+
+  // ── Belge toplamları (tüm günler boyunca) ──
+  const includedPos = records
+    .flatMap((r) => r.pos_slips)
+    .filter((p) => p.upload.status === "parsed" || p.upload.status === "confirmed");
   const posSumTRY = includedPos.reduce((s, p) => s + num(p.net_amount_try), 0);
 
-  if (!dr.store_summary) {
+  // Özet: merge'de son günde, tek günde kendi gününde
+  const summary =
+    records.find((r) => r.store_summary !== null)?.store_summary ?? null;
+
+  if (!summary) {
     return {
       rows: [
         {
@@ -110,18 +129,25 @@ export async function computeDay(
       actual_total: 0,
       difference: -posSumTRY,
       status: "no_summary",
-      notes: "Mağaza Özeti henüz yüklenmedi",
+      notes: isMerge
+        ? "Birleşmenin son gününe Mağaza Özeti henüz yüklenmedi"
+        : "Mağaza Özeti henüz yüklenmedi",
     };
   }
 
-  const summaryCash = num(dr.store_summary.cash_sales_try);
-  const loyalty = num(dr.store_summary.loyalty_points_total_try);
-  const ccTotal = num(dr.store_summary.credit_card_total_try);
-  const summaryWire = num(dr.store_summary.wire_transfer_total_try);
-  const summarySales = num(dr.store_summary.sales_total_try);
+  const summaryCash = num(summary.cash_sales_try);
+  const loyalty = num(summary.loyalty_points_total_try);
+  const ccTotal = num(summary.credit_card_total_try);
+  const summaryWire = num(summary.wire_transfer_total_try);
+  const summarySales = num(summary.sales_total_try);
 
-  // Müdürün elden saydığı nakit (varsa).
-  const reportedCash = dr.reported_cash_try ? num(dr.reported_cash_try) : null;
+  // Müdürün elden saydığı nakit — tüm günlerin toplamı (en az biri girdiyse).
+  const reportedCashRaw = records.reduce(
+    (s, r) => s + (r.reported_cash_try ? num(r.reported_cash_try) : 0),
+    0
+  );
+  const anyReportedCash = records.some((r) => r.reported_cash_try !== null);
+  const reportedCash = anyReportedCash ? reportedCashRaw : null;
 
   // ── Nakit kaynak bileşenleri ──
   // İki senaryo:
@@ -129,17 +155,23 @@ export async function computeDay(
   //      karşılar, nakit denkleminden HARİÇ.
   //   B) Özette Havale yok (0) → dekontlar cash_sales içine işlenmiş demek,
   //      nakit kaynaklarına EKLE.
-  const bankReceiptTotal = dr.bank_receipts.reduce(
-    (s, b) => s + num(b.amount_try),
-    0
-  );
-  const expenseTotal = dr.expenses.reduce((s, e) => s + num(e.amount_try), 0);
-  const cashAdvanceTotal = dr.cash_advances.reduce(
+  const bankReceiptTotal = records
+    .flatMap((r) => r.bank_receipts)
+    .reduce((s, b) => s + num(b.amount_try), 0);
+  const expenseTotal = records
+    .flatMap((r) => r.expenses)
+    .reduce((s, e) => s + num(e.amount_try), 0);
+  const cashAdvanceTotal = records
+    .flatMap((r) => r.cash_advances)
+    .reduce(
     (s, c) => s + num(c.amount_try),
     0
   );
   const masrafToplam = expenseTotal + cashAdvanceTotal;
-  const giftVoucherTotal = dr.gift_voucher_try ? num(dr.gift_voucher_try) : 0;
+  const giftVoucherTotal = records.reduce(
+    (s, r) => s + (r.gift_voucher_try ? num(r.gift_voucher_try) : 0),
+    0
+  );
 
   const wireIsSeparate = summaryWire > TOLERANCE_TL;
   const cashSourcesTotal =
@@ -162,15 +194,13 @@ export async function computeDay(
   const actual_total = summarySales;
   const difference = expected_total - actual_total;
 
-  // Z compliance — Toplam Z (Z Raporu + El Faturası)
-  const zReportTotal = dr.z_reports.reduce(
-    (s, z) => s + num(z.net_sales_try),
-    0
-  );
-  const manualInvoiceTotal = dr.manual_invoices.reduce(
-    (s, m) => s + num(m.amount_try),
-    0
-  );
+  // Z compliance — Toplam Z (Z Raporu + El Faturası), tüm günler boyunca
+  const zReportTotal = records
+    .flatMap((r) => r.z_reports)
+    .reduce((s, z) => s + num(z.net_sales_try), 0);
+  const manualInvoiceTotal = records
+    .flatMap((r) => r.manual_invoices)
+    .reduce((s, m) => s + num(m.amount_try), 0);
   const combinedZ = zReportTotal + manualInvoiceTotal;
   // Visa floor için "nakit dönüyor mu" sorusu: özet nakit > tolerans → evet
   const cashPresent = summaryCash > TOLERANCE_TL;
@@ -277,9 +307,13 @@ export async function computeDay(
 
   // ── SAP Bayi Raporu satırları (varsa) ──
   // Ham SAP verisi mağaza özeti ile karşılaştırılır — manipülasyon tespiti.
-  if (dr.dealer_daily_report) {
-    const sapNet = num(dr.dealer_daily_report.net_sales_try);
-    const sapLoyalty = num(dr.dealer_daily_report.loyalty_try);
+  // (Sadece tek-gün Mavi akışında; Derimod birleşmesinde SAP yoktur.)
+  const sapReport =
+    records.find((r) => r.dealer_daily_report !== null)?.dealer_daily_report ??
+    null;
+  if (sapReport) {
+    const sapNet = num(sapReport.net_sales_try);
+    const sapLoyalty = num(sapReport.loyalty_try);
     const netDiff = sapNet - summarySales; // SAP − özet (negatif = özet daha yüksek)
     const loyDiff = sapLoyalty - loyalty;
     rows.splice(rows.length - 1, 0, {

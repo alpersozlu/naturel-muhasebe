@@ -177,6 +177,14 @@ export const dailyRecordRouter = router({
           manual_invoices: { select: { id: true, amount_try: true } },
           expenses: { select: { id: true } },
           cash_advances: { select: { id: true } },
+          merge_group: {
+            include: {
+              daily_records: {
+                orderBy: { date: "asc" },
+                select: { id: true, date: true, merge_index: true },
+              },
+            },
+          },
         },
       });
 
@@ -201,34 +209,72 @@ export const dailyRecordRouter = router({
           daily_record_id: null,
           reconciliation_notes: null,
           reconciliation_notes_at: null,
+          merge: null,
           verification: null,
         };
       }
 
+      // Gün birleşmesi: grup varsa checklist flag'leri TÜM günler boyunca.
+      // Mağaza özeti grubun son gününde olur; uzlaşma o gün üzerinden hesaplanır.
+      const groupRecords = dr.merge_group_id
+        ? await ctx.prisma.dailyRecord.findMany({
+            where: { merge_group_id: dr.merge_group_id },
+            orderBy: { date: "asc" },
+            include: {
+              store_summary: true,
+              z_reports: { select: { id: true } },
+              pos_slips: {
+                select: { id: true, upload: { select: { status: true } } },
+              },
+              bank_receipts: { select: { id: true } },
+              manual_invoices: { select: { id: true } },
+              expenses: { select: { id: true } },
+              cash_advances: { select: { id: true } },
+            },
+          })
+        : null;
+
+      // Agregasyon kaynağı: grup varsa tüm günler, yoksa sadece bu gün.
+      const agg = groupRecords ?? [dr];
+
       // "Z" = Z raporu fişi VEYA el faturası (ya da ikisi). Toplam Z = ikisinin toplamı.
-      const hasZReport = dr.z_reports.length > 0;
-      const hasManualInvoice = dr.manual_invoices.length > 0;
+      const hasZReport = agg.some((r) => r.z_reports.length > 0);
+      const hasManualInvoice = agg.some((r) => r.manual_invoices.length > 0);
       const hasZ = hasZReport || hasManualInvoice;
-      const hasSummary = dr.store_summary !== null;
-      const posCount = dr.pos_slips.filter(
-        (p) => p.upload.status === "parsed" || p.upload.status === "confirmed"
-      ).length;
-      const hasReportedCash = dr.reported_cash_try !== null;
+      // Özet: grup varsa son günde (herhangi biri dolu), tek günde kendi günü
+      const summaryRec = agg.find((r) => r.store_summary !== null);
+      const hasSummary = !!summaryRec;
+      const posCount = agg
+        .flatMap((r) => r.pos_slips)
+        .filter(
+          (p) => p.upload.status === "parsed" || p.upload.status === "confirmed"
+        ).length;
+      const hasReportedCash = agg.some((r) => r.reported_cash_try !== null);
       // Dekont nakit kaynağı sayılır mı? Havale ayrı kalem ise sayılmaz.
-      const summaryWire = dr.store_summary?.wire_transfer_total_try?.toNumber() ?? 0;
+      const summaryWire =
+        summaryRec?.store_summary?.wire_transfer_total_try?.toNumber() ?? 0;
       const wireIsSeparate = summaryWire > 5;
-      const hasBankReceipt = dr.bank_receipts.length > 0 && !wireIsSeparate;
-      const giftVoucherTotal = dr.gift_voucher_try?.toNumber() ?? 0;
+      const hasBankReceipt =
+        agg.some((r) => r.bank_receipts.length > 0) && !wireIsSeparate;
+      const giftVoucherTotal = agg.reduce(
+        (s, r) => s + (r.gift_voucher_try?.toNumber() ?? 0),
+        0
+      );
       const hasGiftVoucher = giftVoucherTotal > 0;
-      const hasExpenses = dr.expenses.length > 0 || dr.cash_advances.length > 0;
+      const hasExpenses = agg.some(
+        (r) => r.expenses.length > 0 || r.cash_advances.length > 0
+      );
       const failedCount = dr.uploads.filter((u) => u.status === "failed").length;
       // Mağaza özeti nakit > 0 ise dekont/sayım gerekli; 0 ise POS-only gün, gerekmez
-      const cashSales = dr.store_summary?.cash_sales_try?.toNumber() ?? 0;
+      const cashSales =
+        summaryRec?.store_summary?.cash_sales_try?.toNumber() ?? 0;
       const requiresCashProof = hasSummary && cashSales > 0.01;
 
-      // Mutabakat hesaplayabilir miyiz? Mağaza Özeti gerekli.
+      // Mutabakat — özetin bulunduğu gün üzerinden (merge'de son gün).
+      // computeDay merge-aware: grup varsa tüm günleri toplar.
+      const computeRecordId = summaryRec?.id ?? dr.id;
       const verification = hasSummary
-        ? await computeDay(ctx.prisma, dr.id)
+        ? await computeDay(ctx.prisma, computeRecordId)
         : null;
 
       let status:
@@ -275,6 +321,17 @@ export const dailyRecordRouter = router({
         daily_record_id: dr.id,
         reconciliation_notes: dr.reconciliation_notes,
         reconciliation_notes_at: dr.reconciliation_notes_at,
+        // Gün birleşmesi bağlamı (varsa) — panel grup bilgisini gösterir
+        merge: dr.merge_group
+          ? {
+              group_id: dr.merge_group.id,
+              start_date: dr.merge_group.start_date.toISOString().slice(0, 10),
+              end_date: dr.merge_group.end_date.toISOString().slice(0, 10),
+              day_count: dr.merge_group.daily_records.length,
+              this_index: dr.merge_index ?? null,
+              is_last_day: summaryRec?.id === dr.id || dr.merge_index === dr.merge_group.daily_records.length,
+            }
+          : null,
         verification: verification
           ? {
               status: verification.status,

@@ -28,6 +28,11 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
+function fmtDateShort(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
+}
+
 const TRY_FMT = new Intl.NumberFormat("tr-TR", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
@@ -141,12 +146,18 @@ export function ReconciliationPanel({
             <ShieldCheck className="h-5 w-5" />
           </div>
           <div className="flex-1">
-            <div className="text-base font-semibold leading-tight">
-              Gün Uzlaşması
+            <div className="text-base font-semibold leading-tight flex items-center gap-2 flex-wrap">
+              {data.merge ? "Grup Uzlaşması (Birleşik Günler)" : "Gün Uzlaşması"}
+              {data.merge ? (
+                <span className="inline-flex items-center rounded-full bg-violet-100 text-violet-700 px-2 py-0.5 text-[11px] font-medium">
+                  {data.merge.day_count} gün · {fmtDateShort(data.merge.start_date)} → {fmtDateShort(data.merge.end_date)}
+                </span>
+              ) : null}
             </div>
             <div className="text-sm text-muted-foreground mt-0.5">
-              Yüklenen belgeleri Mağaza Özeti ile karşılaştır — kasa farkını
-              tespit et.
+              {data.merge
+                ? "Birleşik günlerin TOPLAM belgeleri ile tek Mağaza Özeti karşılaştırılır."
+                : "Yüklenen belgeleri Mağaza Özeti ile karşılaştır — kasa farkını tespit et."}
             </div>
           </div>
         </div>
@@ -531,6 +542,14 @@ function CheckItem({
 
 type ReconData = {
   exists?: boolean;
+  merge?: {
+    group_id: string;
+    start_date: string;
+    end_date: string;
+    day_count: number;
+    this_index: number | null;
+    is_last_day: boolean;
+  } | null;
   status:
     | "empty"
     | "incomplete"

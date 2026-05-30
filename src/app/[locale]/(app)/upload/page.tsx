@@ -7,6 +7,8 @@ import {
   Building,
   Calculator,
   ShieldCheck,
+  CalendarRange,
+  CalendarDays,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { PageHeader } from "@/components/shared/page-header";
@@ -23,6 +25,7 @@ import { GiftVoucherCard } from "@/components/upload/gift-voucher-card";
 import { MaviGiftVoucherCard } from "@/components/upload/mavi-gift-voucher-card";
 import { UploadList } from "@/components/upload/upload-list";
 import { ReconciliationPanel } from "@/components/upload/reconciliation-panel";
+import { MergeWizard } from "@/components/upload/merge-wizard";
 
 function todayIso(): string {
   const d = new Date();
@@ -37,6 +40,8 @@ export default function UploadPage() {
     storeId: "",
     date: todayIso(),
   });
+  // "single" = normal tek gün; "merge" = gün birleşmesi sihirbazı (Derimod)
+  const [mode, setMode] = useState<"single" | "merge">("single");
 
   const { data: me } = trpc.user.me.useQuery();
   const isAdmin = me?.role === "admin";
@@ -60,6 +65,40 @@ export default function UploadPage() {
 
       <UploadSelectors value={sel} onChange={setSel} />
 
+      {/* Mod seçimi — Gün Birleşmesi sadece Derimod'da */}
+      {isDerimod && sel.storeId ? (
+        <div className="mb-6 inline-flex items-center gap-1 rounded-xl border border-border bg-card p-1">
+          <button
+            type="button"
+            onClick={() => setMode("single")}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              mode === "single"
+                ? "bg-violet-600 text-white"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <CalendarDays className="h-3.5 w-3.5" />
+            Tek Gün
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("merge")}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              mode === "merge"
+                ? "bg-violet-600 text-white"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <CalendarRange className="h-3.5 w-3.5" />
+            Gün Birleşmesi
+          </button>
+        </div>
+      ) : null}
+
+      {isDerimod && sel.storeId && mode === "merge" ? (
+        <MergeWizard storeId={sel.storeId} isAdmin={isAdmin} />
+      ) : (
+      <>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <UploadCard
           type="z_report"
@@ -125,6 +164,8 @@ export default function UploadPage() {
         date={sel.date}
         canApprove={isAdmin}
       />
+      </>
+      )}
     </div>
   );
 }
