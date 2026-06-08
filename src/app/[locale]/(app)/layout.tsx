@@ -15,6 +15,7 @@ const ADMIN_ONLY_PREFIXES = [
   "/z-analysis",
   "/revenues",
   "/expenses",
+  "/advances",
   "/history",
   "/stores",
 ];

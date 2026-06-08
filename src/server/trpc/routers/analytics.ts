@@ -31,6 +31,7 @@ import {
 } from "@/server/services/analytics/advances";
 import { buildRevenueExcel } from "@/server/services/exports/excel/revenue";
 import { buildExpenseExcel } from "@/server/services/exports/excel/expense";
+import { buildAdvancesExcel } from "@/server/services/exports/excel/advances";
 import { isAdmin, getAccessibleStoreIds } from "@/lib/auth/permissions";
 
 async function resolveFilterLabels(
@@ -261,6 +262,26 @@ export const analyticsRouter = router({
         summary,
         year: filter.year,
         month: filter.month,
+        brandName: labels.brandName,
+        storeName: labels.storeName,
+      });
+    }),
+
+  exportAdvances: protectedProcedure
+    .input(analyticsFilterSchema)
+    .mutation(async ({ ctx, input }) => {
+      const filter = { ...input };
+      if (!isAdmin(ctx.user) && !filter.store_id && !filter.brand_id) {
+        const ids = await getAccessibleStoreIds(ctx.user);
+        if (ids.length === 0) throw new Error("Erişebileceğin mağaza yok");
+        filter.store_id = ids[0];
+      }
+      const [summary, labels] = await Promise.all([
+        advancesSummary(ctx.prisma, filter),
+        resolveFilterLabels(ctx.prisma, filter.brand_id, filter.store_id),
+      ]);
+      return buildAdvancesExcel({
+        summary,
         brandName: labels.brandName,
         storeName: labels.storeName,
       });
