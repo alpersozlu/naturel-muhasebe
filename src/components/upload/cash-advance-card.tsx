@@ -1,6 +1,6 @@
 "use client";
 
-import { useForm, Controller, type Resolver } from "react-hook-form";
+import { useForm, Controller, useWatch, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Banknote, Loader2, Trash2 } from "lucide-react";
@@ -39,6 +39,12 @@ const CATEGORY_LABEL: Record<string, string> = {
   other: "Diğer",
 };
 
+const STAFF_ROLE_LABEL: Record<string, string> = {
+  manager: "Müdür",
+  assistant_manager: "Müdür Yardımcısı",
+  sales_staff: "Satış Elemanı",
+};
+
 const TRY_FORMATTER = new Intl.NumberFormat("tr-TR", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
@@ -66,7 +72,17 @@ export function CashAdvanceCard({
     onSuccess: () => {
       toast.success("Peşin ödeme kaydedildi");
       utils.cashAdvance.listForStoreDate.invalidate({ store_id: storeId, date });
-      reset({ amount: 0, currency: "TRY", category: "bonus", description: "", employee_id: "", store_id: storeId, date });
+      reset({
+        amount: 0,
+        currency: "TRY",
+        category: "bonus",
+        description: "",
+        employee_id: "",
+        staff_role: undefined,
+        staff_name: "",
+        store_id: storeId,
+        date,
+      });
     },
     onError: (e) => toast.error(e.message),
   });
@@ -95,19 +111,14 @@ export function CashAdvanceCard({
       currency: "TRY",
       category: "bonus",
       description: "",
+      staff_role: undefined,
+      staff_name: "",
     },
-    values: disabled
-      ? undefined
-      : {
-          store_id: storeId,
-          date,
-          employee_id: "",
-          amount: 0,
-          currency: "TRY",
-          category: "bonus",
-          description: "",
-        },
   });
+
+  // Kategori 'bonus' (Avans) ise → personel rolü + isim alanları
+  const category = useWatch({ control, name: "category" });
+  const isAdvance = category === "bonus";
 
   const onSubmit = (vals: CashAdvanceCreateInput) =>
     create.mutateAsync({ ...vals, store_id: storeId, date });
@@ -185,32 +196,86 @@ export function CashAdvanceCard({
             />
           </div>
 
-          <div>
-            <Label className="text-xs">Çalışan (opsiyonel)</Label>
-            <Controller
-              control={control}
-              name="employee_id"
-              render={({ field }) => (
-                <Select
-                  value={field.value || "_none"}
-                  onValueChange={(v) => field.onChange(v === "_none" ? "" : v)}
+          {isAdvance ? (
+            <>
+              {/* AVANS: personel rolü + isim soyisim */}
+              <div>
+                <Label className="text-xs">
+                  Personel Rolü <span className="text-rose-500">*</span>
+                </Label>
+                <Controller
+                  control={control}
+                  name="staff_role"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value ?? ""}
+                      onValueChange={field.onChange}
+                      disabled={disabled}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Rol seç" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(STAFF_ROLE_LABEL).map(([k, v]) => (
+                          <SelectItem key={k} value={k}>
+                            {v}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                {errors.staff_role ? (
+                  <p className="text-xs text-destructive mt-1">
+                    {errors.staff_role.message}
+                  </p>
+                ) : null}
+              </div>
+              <div>
+                <Label htmlFor="staff_name" className="text-xs">
+                  İsim Soyisim <span className="text-rose-500">*</span>
+                </Label>
+                <Input
+                  id="staff_name"
+                  placeholder="örn. Ahmet Yılmaz"
                   disabled={disabled}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Çalışan seç (opsiyonel)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="_none">Çalışan yok</SelectItem>
-                    {(employees ?? []).map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {u.full_name ?? u.email}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </div>
+                  {...register("staff_name")}
+                />
+                {errors.staff_name ? (
+                  <p className="text-xs text-destructive mt-1">
+                    {errors.staff_name.message}
+                  </p>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <div>
+              <Label className="text-xs">Çalışan (opsiyonel)</Label>
+              <Controller
+                control={control}
+                name="employee_id"
+                render={({ field }) => (
+                  <Select
+                    value={field.value || "_none"}
+                    onValueChange={(v) => field.onChange(v === "_none" ? "" : v)}
+                    disabled={disabled}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Çalışan seç (opsiyonel)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">Çalışan yok</SelectItem>
+                      {(employees ?? []).map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.full_name ?? u.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+          )}
 
           <div>
             <Label htmlFor="description" className="text-xs">
@@ -245,7 +310,10 @@ export function CashAdvanceCard({
                     {TRY_FORMATTER.format(Number(a.amount))} {a.currency} · {CATEGORY_LABEL[a.category]}
                   </div>
                   <div className="text-muted-foreground truncate">
-                    {a.employee?.full_name ?? a.employee?.email ?? "Çalışan yok"} ·{" "}
+                    {a.staff_name
+                      ? `${a.staff_name}${a.staff_role ? ` (${STAFF_ROLE_LABEL[a.staff_role] ?? a.staff_role})` : ""}`
+                      : a.employee?.full_name ?? a.employee?.email ?? "Çalışan yok"}{" "}
+                    ·{" "}
                     {formatDistanceToNow(a.created_at, { addSuffix: true, locale: tr })}
                   </div>
                 </div>

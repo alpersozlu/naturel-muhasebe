@@ -25,6 +25,10 @@ import {
   maviGiftVoucherSummary,
   type MaviGiftVoucherSummary,
 } from "@/server/services/analytics/mavi-gift-voucher";
+import {
+  advancesSummary,
+  type AdvancesSummary,
+} from "@/server/services/analytics/advances";
 import { buildRevenueExcel } from "@/server/services/exports/excel/revenue";
 import { buildExpenseExcel } from "@/server/services/exports/excel/expense";
 import { isAdmin, getAccessibleStoreIds } from "@/lib/auth/permissions";
@@ -110,6 +114,17 @@ export const analyticsRouter = router({
         if (ids.length > 0) filter.store_id = ids[0];
       }
       return maviGiftVoucherSummary(ctx.prisma, filter);
+    }),
+
+  advances: protectedProcedure
+    .input(analyticsFilterSchema)
+    .query(async ({ ctx, input }): Promise<AdvancesSummary> => {
+      const filter = { ...input };
+      if (!isAdmin(ctx.user) && !filter.store_id && !filter.brand_id) {
+        const ids = await getAccessibleStoreIds(ctx.user);
+        if (ids.length > 0) filter.store_id = ids[0];
+      }
+      return advancesSummary(ctx.prisma, filter);
     }),
 
   bankCommission: protectedProcedure

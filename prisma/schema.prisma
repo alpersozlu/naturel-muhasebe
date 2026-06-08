@@ -424,6 +424,12 @@ model Expense {
   @@index([category])
 }
 
+enum StaffRole {
+  manager // Müdür
+  assistant_manager // Müdür Yardımcısı
+  sales_staff // Satış Elemanı
+}
+
 model CashAdvance {
   id              String      @id @default(uuid())
   daily_record_id String
@@ -431,6 +437,11 @@ model CashAdvance {
   // Çalışan opsiyonel — peşin ödeme belirli bir çalışana bağlı olmayabilir
   employee_id     String?
   employee        User?       @relation(fields: [employee_id], references: [id])
+
+  // AVANS takibi (category=bonus iken): personelin rolü + isim soyisim.
+  // Maaştan kesinti için: aylık, kişi bazlı tarihli döküm /tr/advances'te.
+  staff_role StaffRole?
+  staff_name String?
 
   amount       Decimal         @db.Decimal(14, 2)
   currency     Currency        @default(TRY)

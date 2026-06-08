@@ -51,6 +51,9 @@ export const cashAdvanceRouter = router({
           amount_try,
           category: input.category,
           description: input.description || null,
+          // Avans (bonus) için rol + isim; diğer kategorilerde null
+          staff_role: input.category === "bonus" ? input.staff_role ?? null : null,
+          staff_name: input.category === "bonus" ? input.staff_name ?? null : null,
         },
         include: { employee: { select: { full_name: true, email: true } } },
       });
