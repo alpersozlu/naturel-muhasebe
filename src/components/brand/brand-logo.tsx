@@ -1,9 +1,8 @@
 import { Building2 } from "lucide-react";
-import { DerimodLogo } from "./derimod-logo";
 
 /**
  * Marka adına göre dispatch:
- * - Tanınan markalar (Derimod, Mavi...) → yerleşik wordmark SVG (yatay).
+ * - Tanınan markalar (Derimod, Mavi...) → resmi logo (public/brands/).
  * - logoUrl varsa → o görsel (img tag).
  * - Aksi halde → kare içinde generic Building2 ikonu (eski davranış).
  *
@@ -75,8 +74,24 @@ function renderBuiltIn(name: string, size: "sm" | "md") {
 
   // "Derimod", "DERİMOD", "DERIMOD", "Derimod KKTC" vb. hepsi eşleşir
   if (norm.includes("derimod")) {
-    return <DerimodLogo className={logoClass} />;
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src="/brands/derimod.png"
+        alt="Derimod logosu"
+        className={`${logoClass} object-contain`}
+      />
+    );
   }
-  // İleride: norm.includes("mavi") → <MaviLogo />
+  if (norm.includes("mavi")) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src="/brands/mavi.svg"
+        alt="Mavi logosu"
+        className={`${logoClass} object-contain`}
+      />
+    );
+  }
   return null;
 }
