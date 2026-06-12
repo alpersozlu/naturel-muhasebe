@@ -56,3 +56,6 @@ HANDOFF.md
 # Lokal test dosyalari (gercek musteri verisi icerebilir)
 sap-sample.xlsx
 scripts/list-brands.mjs
+
+# DB yedekleri (hassas veri)
+*.sql

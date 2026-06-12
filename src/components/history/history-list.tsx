@@ -20,33 +20,62 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import type { HistorySelection } from "./history-filters";
 
-const TYPE_META: Record<UploadType, { label: string; icon: typeof FileText; color: string }> = {
-  bank_receipt: { label: "İban Dekontu", icon: Building, color: "text-blue-600" },
-  pos_slip: { label: "POS Fişi", icon: Receipt, color: "text-purple-600" },
-  store_summary: { label: "Mağaza Özeti", icon: FileText, color: "text-amber-600" },
-  expense: { label: "Masraf/Fatura", icon: Wallet, color: "text-rose-600" },
-  cash_advance: { label: "Faturasız Peşin Ödeme", icon: Banknote, color: "text-emerald-600" },
-  z_report: { label: "Z Raporu", icon: Calculator, color: "text-cyan-600" },
-  dealer_daily_report: { label: "Bayi Gün Sonu (SAP)", icon: ShieldCheck, color: "text-indigo-600" },
+const TYPE_META: Record<
+  UploadType,
+  { label: string; icon: typeof FileText; color: string; bg: string }
+> = {
+  bank_receipt: {
+    label: "İban Dekontu",
+    icon: Building,
+    color: "text-blue-600",
+    bg: "bg-blue-50",
+  },
+  pos_slip: {
+    label: "POS Fişi",
+    icon: Receipt,
+    color: "text-purple-600",
+    bg: "bg-purple-50",
+  },
+  store_summary: {
+    label: "Mağaza Özeti",
+    icon: FileText,
+    color: "text-amber-600",
+    bg: "bg-amber-50",
+  },
+  expense: {
+    label: "Masraf/Fatura",
+    icon: Wallet,
+    color: "text-rose-600",
+    bg: "bg-rose-50",
+  },
+  cash_advance: {
+    label: "Faturasız Peşin Ödeme",
+    icon: Banknote,
+    color: "text-emerald-600",
+    bg: "bg-emerald-50",
+  },
+  z_report: {
+    label: "Z Raporu",
+    icon: Calculator,
+    color: "text-cyan-600",
+    bg: "bg-cyan-50",
+  },
+  dealer_daily_report: {
+    label: "Bayi Gün Sonu (SAP)",
+    icon: ShieldCheck,
+    color: "text-indigo-600",
+    bg: "bg-indigo-50",
+  },
 };
 
-const STATUS_LABEL: Record<UploadStatus, string> = {
-  pending: "Bekliyor",
-  processing: "İşleniyor",
-  parsed: "Okundu",
-  confirmed: "Onaylandı",
-  failed: "Başarısız",
-};
-
-const STATUS_COLOR: Record<UploadStatus, string> = {
-  pending: "bg-slate-100 text-slate-700",
-  processing: "bg-blue-100 text-blue-700",
-  parsed: "bg-amber-100 text-amber-700",
-  confirmed: "bg-emerald-100 text-emerald-700",
-  failed: "bg-rose-100 text-rose-700",
+const STATUS_META: Record<UploadStatus, { label: string; cls: string }> = {
+  pending: { label: "Bekliyor", cls: "bg-slate-100 text-slate-700 border-slate-200" },
+  processing: { label: "İşleniyor", cls: "bg-blue-100 text-blue-700 border-blue-200" },
+  parsed: { label: "Okundu", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  confirmed: { label: "Onaylandı", cls: "bg-emerald-100 text-emerald-800 border-emerald-300" },
+  failed: { label: "Başarısız", cls: "bg-rose-100 text-rose-700 border-rose-200" },
 };
 
 const TRY_FORMATTER = new Intl.NumberFormat("tr-TR", {
@@ -117,13 +146,13 @@ export function HistoryList({ filters }: { filters: HistorySelection }) {
       <Card>
         <CardContent className="p-0 divide-y">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="px-5 py-3.5 flex items-center gap-3">
-              <div className="h-9 w-9 rounded-lg animate-pulse bg-muted/60" />
+            <div key={i} className="px-5 py-4 flex items-center gap-4">
+              <div className="h-12 w-12 rounded-xl animate-pulse bg-muted/60" />
               <div className="flex-1 space-y-2">
-                <div className="h-3 w-1/3 rounded animate-pulse bg-muted/60" />
+                <div className="h-3.5 w-1/3 rounded animate-pulse bg-muted/60" />
                 <div className="h-2.5 w-1/2 rounded animate-pulse bg-muted/50" />
               </div>
-              <div className="h-5 w-20 rounded animate-pulse bg-muted/60" />
+              <div className="h-7 w-28 rounded animate-pulse bg-muted/60" />
             </div>
           ))}
         </CardContent>
@@ -189,42 +218,40 @@ export function HistoryList({ filters }: { filters: HistorySelection }) {
                   {group.items.map((u) => {
                     const meta = TYPE_META[u.type];
                     const Icon = meta.icon;
+                    const status = STATUS_META[u.status];
                     const detail = describe(u);
                     return (
                       <div
                         key={u.id}
-                        className="px-5 py-3.5 flex items-center gap-3 hover:bg-muted/30 transition-colors duration-snap"
+                        className="px-5 py-4 flex items-center gap-4 hover:bg-muted/20 transition-colors duration-snap"
                       >
+                        {/* SOL: tip ikonu + label + durum + meta */}
                         <div
-                          className={`h-9 w-9 rounded-lg flex items-center justify-center bg-muted/60 ${meta.color} shrink-0`}
+                          className={`h-12 w-12 rounded-xl flex items-center justify-center shrink-0 ${meta.bg} ${meta.color}`}
                         >
-                          <Icon className="h-4 w-4" />
+                          <Icon className="h-5 w-5" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium truncate flex items-center gap-2 flex-wrap">
-                            <span>{meta.label}</span>
-                            {detail.amount ? (
-                              <span className="text-emerald-700 tabular-nums">
-                                {detail.amount}
-                              </span>
-                            ) : null}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold">
+                              {meta.label}
+                            </span>
+                            <span
+                              className={`inline-flex items-center text-[10px] uppercase tracking-wider font-medium px-2 py-0.5 rounded-full border ${status.cls}`}
+                            >
+                              {status.label}
+                            </span>
                           </div>
-                          <div className="text-xs text-muted-foreground truncate flex items-center gap-1.5 mt-0.5">
+                          <div className="text-xs text-muted-foreground truncate flex items-center gap-1.5 mt-1">
                             <span className="font-medium text-foreground/80">
                               {u.daily_record.store.name}
                             </span>
-                            <span className="text-muted-foreground/60">·</span>
+                            <span className="text-muted-foreground/50">·</span>
                             <span>{u.daily_record.store.brand.name}</span>
-                            {detail.bank ? (
+                            {detail.extra ? (
                               <>
-                                <span className="text-muted-foreground/60">·</span>
-                                <span>{detail.bank}</span>
-                              </>
-                            ) : null}
-                            {detail.vendor ? (
-                              <>
-                                <span className="text-muted-foreground/60">·</span>
-                                <span>{detail.vendor}</span>
+                                <span className="text-muted-foreground/50">·</span>
+                                <span>{detail.extra}</span>
                               </>
                             ) : null}
                           </div>
@@ -234,21 +261,29 @@ export function HistoryList({ filters }: { filters: HistorySelection }) {
                             · {format(u.uploaded_at, "HH:mm")}
                           </div>
                         </div>
-                        <Badge
-                          variant="secondary"
-                          className={`${STATUS_COLOR[u.status]} text-xs shrink-0`}
-                        >
-                          {STATUS_LABEL[u.status]}
-                        </Badge>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => openFile(u.id)}
-                          title="Dosyayı aç"
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                        </Button>
+
+                        {/* SAĞ: büyük tutar (CardPlus) + dikey ayraç + dosya */}
+                        {detail.amount ? (
+                          <div className="text-right shrink-0">
+                            <div className="text-lg sm:text-xl lg:text-2xl font-bold tabular-nums tracking-tight text-foreground">
+                              {detail.amount}
+                            </div>
+                            <div className="text-[10px] font-medium text-muted-foreground tracking-wider uppercase">
+                              {detail.unit}
+                            </div>
+                          </div>
+                        ) : null}
+                        <div className="shrink-0 border-l border-border/60 pl-3">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9"
+                            onClick={() => openFile(u.id)}
+                            title="Dosyayı aç"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     );
                   })}
@@ -295,33 +330,58 @@ type HistoryItem = {
   store_summary: { sales_total_try: unknown } | null;
   bank_receipt: { bank_name: string | null; amount_try: unknown } | null;
   expense: { vendor: string | null; amount_try: unknown; category: string } | null;
+  z_report: { net_sales_try: unknown } | null;
+  dealer_daily_report: { net_sales_try: unknown; store_code: string | null } | null;
 };
 
-function describe(u: HistoryItem): { amount: string | null; bank: string | null; vendor: string | null } {
+function describe(u: HistoryItem): {
+  amount: string | null;
+  unit: string | null;
+  extra: string | null;
+} {
   if (u.type === "pos_slip" && u.pos_slip) {
     return {
-      amount: fmtMoney(u.pos_slip.net_amount_try) ? `${fmtMoney(u.pos_slip.net_amount_try)} ₺` : null,
-      bank: u.pos_slip.bank_name,
-      vendor: null,
+      amount: fmtMoney(u.pos_slip.net_amount_try),
+      unit: "Net Tutar",
+      extra: u.pos_slip.bank_name,
     };
   }
   if (u.type === "store_summary" && u.store_summary) {
-    const amt = fmtMoney(u.store_summary.sales_total_try);
-    return { amount: amt ? `${amt} ₺` : null, bank: null, vendor: null };
+    return {
+      amount: fmtMoney(u.store_summary.sales_total_try),
+      unit: "Satış Toplamı",
+      extra: null,
+    };
   }
   if (u.type === "bank_receipt" && u.bank_receipt) {
     return {
-      amount: fmtMoney(u.bank_receipt.amount_try) ? `${fmtMoney(u.bank_receipt.amount_try)} ₺` : null,
-      bank: u.bank_receipt.bank_name,
-      vendor: null,
+      amount: fmtMoney(u.bank_receipt.amount_try),
+      unit: "Dekont Tutarı",
+      extra: u.bank_receipt.bank_name,
     };
   }
   if (u.type === "expense" && u.expense) {
     return {
-      amount: fmtMoney(u.expense.amount_try) ? `${fmtMoney(u.expense.amount_try)} ₺` : null,
-      bank: null,
-      vendor: u.expense.vendor,
+      amount: fmtMoney(u.expense.amount_try),
+      unit: "Masraf Tutarı",
+      extra: u.expense.vendor,
     };
   }
-  return { amount: null, bank: null, vendor: null };
+  if (u.type === "z_report" && u.z_report) {
+    return {
+      amount: fmtMoney(u.z_report.net_sales_try),
+      unit: "Net Satış",
+      extra: null,
+    };
+  }
+  if (u.type === "dealer_daily_report" && u.dealer_daily_report) {
+    return {
+      amount: fmtMoney(u.dealer_daily_report.net_sales_try),
+      unit: "SAP Net Satış",
+      extra: u.dealer_daily_report.store_code
+        ? `Kod ${u.dealer_daily_report.store_code}`
+        : null,
+    };
+  }
+  return { amount: null, unit: null, extra: null };
 }

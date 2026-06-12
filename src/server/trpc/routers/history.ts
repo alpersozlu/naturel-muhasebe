@@ -85,6 +85,8 @@ export const historyRouter = router({
           store_summary: { select: { sales_total_try: true } },
           bank_receipt: { select: { bank_name: true, amount_try: true } },
           expense: { select: { vendor: true, amount_try: true, category: true } },
+          z_report: { select: { net_sales_try: true } },
+          dealer_daily_report: { select: { net_sales_try: true, store_code: true } },
         },
       });
 
