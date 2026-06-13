@@ -97,12 +97,15 @@ enum BudgetPeriod {
 // ─────────────────────────────────────────────────────────────
 
 model User {
-  id         String   @id @default(uuid()) // Supabase auth.users.id ile aynı
-  email      String   @unique
+  id         String    @id @default(uuid()) // Supabase auth.users.id ile aynı
+  email      String    @unique
   full_name  String?
-  role       UserRole @default(cashier)
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  role       UserRole  @default(cashier)
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  // Soft delete: geçmiş kaydı (upload/masraf/onay) olan kullanıcı FK'lar yüzünden
+  // hard silinemez. deleted_at dolu = giriş kapalı, listede görünmez, tarihçe korunur.
+  deleted_at DateTime?
 
   store_access    UserStoreAccess[]
   audit_logs      AuditLog[]

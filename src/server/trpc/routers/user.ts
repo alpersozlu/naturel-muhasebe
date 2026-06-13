@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { Prisma } from "@prisma/client";
 import { router, adminProcedure, protectedProcedure } from "../trpc";
 import { withAudit } from "../middleware/audit";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -21,9 +22,13 @@ export const userRouter = router({
 
   list: adminProcedure.query(({ ctx }) =>
     ctx.prisma.user.findMany({
+      where: { deleted_at: null },
       orderBy: { created_at: "desc" },
       include: {
         _count: { select: { store_access: true } },
+        store_access: {
+          include: { store: { select: { id: true, name: true } } },
+        },
       },
     })
   ),
@@ -74,7 +79,9 @@ export const userRouter = router({
     .input(userUpdateRoleSchema)
     .mutation(async ({ ctx, input }) => {
       if (input.role !== "admin") {
-        const adminCount = await ctx.prisma.user.count({ where: { role: "admin" } });
+        const adminCount = await ctx.prisma.user.count({
+          where: { role: "admin", deleted_at: null },
+        });
         const current = await ctx.prisma.user.findUnique({ where: { id: input.id } });
         if (current?.role === "admin" && adminCount <= 1) {
           throw new TRPCError({
@@ -91,4 +98,59 @@ export const userRouter = router({
         },
       });
     }),
+
+  /**
+   * Kullanıcıyı kaldır (admin):
+   * - Supabase auth hesabı silinir → giriş anında ölür
+   * - Mağaza erişimleri kaldırılır
+   * - Geçmiş kaydı yoksa hard delete; varsa (FK) soft delete — tarihçe korunur
+   */
+  delete: userAdmin.input(userIdSchema).mutation(async ({ ctx, input }) => {
+    if (input.id === ctx.user.id) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Kendi hesabını silemezsin",
+      });
+    }
+    const target = await ctx.prisma.user.findUnique({ where: { id: input.id } });
+    if (!target || target.deleted_at) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Kullanıcı bulunamadı" });
+    }
+    if (target.role === "admin") {
+      const adminCount = await ctx.prisma.user.count({
+        where: { role: "admin", deleted_at: null },
+      });
+      if (adminCount <= 1) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Sistemde en az 1 admin kalmalı",
+        });
+      }
+    }
+
+    const supabase = createAdminClient();
+    const { error } = await supabase.auth.admin.deleteUser(input.id);
+    if (error && error.status !== 404 && !/not.?found/i.test(error.message)) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: `Supabase: ${error.message}`,
+      });
+    }
+
+    await ctx.prisma.userStoreAccess.deleteMany({ where: { user_id: input.id } });
+
+    try {
+      await ctx.prisma.user.delete({ where: { id: input.id } });
+      return { mode: "hard" as const };
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") {
+        await ctx.prisma.user.update({
+          where: { id: input.id },
+          data: { deleted_at: new Date() },
+        });
+        return { mode: "soft" as const };
+      }
+      throw e;
+    }
+  }),
 });

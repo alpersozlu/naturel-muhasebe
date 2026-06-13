@@ -1,11 +1,29 @@
 "use client";
 
+import { useState } from "react";
 import { toast } from "sonner";
-import { Users, Shield, Store, Briefcase, User as UserIcon } from "lucide-react";
+import {
+  Users,
+  Shield,
+  Store,
+  Briefcase,
+  User as UserIcon,
+  Trash2,
+  Loader2,
+} from "lucide-react";
 import type { UserRole } from "@prisma/client";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -37,10 +55,29 @@ const ROLE_COLOR: Record<UserRole, string> = {
 
 export function UserList() {
   const { data, isLoading } = trpc.user.list.useQuery();
+  const { data: me } = trpc.user.me.useQuery();
   const utils = trpc.useUtils();
+  const [pendingDelete, setPendingDelete] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+
   const updateRole = trpc.user.updateRole.useMutation({
     onSuccess: () => {
       toast.success("Rol güncellendi");
+      utils.user.list.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const deleteUser = trpc.user.delete.useMutation({
+    onSuccess: (res) => {
+      toast.success(
+        res.mode === "soft"
+          ? "Kullanıcı kaldırıldı — geçmiş kayıtları korundu"
+          : "Kullanıcı silindi"
+      );
+      setPendingDelete(null);
       utils.user.list.invalidate();
     },
     onError: (e) => toast.error(e.message),
@@ -71,62 +108,167 @@ export function UserList() {
   }
 
   return (
-    <Card>
-      <CardContent className="p-0">
-        <div className="divide-y">
-          {data.map((user) => {
-            const Icon = ROLE_ICON[user.role];
-            return (
-              <div
-                key={user.id}
-                className="flex items-center justify-between gap-4 px-5 py-4"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div
-                    className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${ROLE_COLOR[user.role]}`}
-                  >
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="font-medium truncate">
-                      {user.full_name ?? user.email}
+    <>
+      <Card>
+        <CardContent className="p-0">
+          <div className="divide-y">
+            {data.map((user) => {
+              const Icon = ROLE_ICON[user.role];
+              const storeNames = user.store_access.map((a) => a.store.name);
+              const isSelf = me?.id === user.id;
+              return (
+                <div
+                  key={user.id}
+                  className="flex items-center justify-between gap-4 px-5 py-4"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${ROLE_COLOR[user.role]}`}
+                    >
+                      <Icon className="h-5 w-5" />
                     </div>
-                    <div className="text-sm text-muted-foreground truncate">
-                      {user.email}
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">
+                        {user.full_name ?? user.email}
+                      </div>
+                      <div className="text-sm text-muted-foreground truncate">
+                        {user.email}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="flex items-center gap-3 shrink-0">
-                  <Badge variant="outline" className="hidden sm:inline-flex">
-                    {user._count.store_access} mağaza
-                  </Badge>
-                  <Select
-                    value={user.role}
-                    onValueChange={(v) =>
-                      updateRole.mutate({
-                        id: user.id,
-                        role: v as UserRole,
-                      })
-                    }
-                  >
-                    <SelectTrigger className="w-44">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(Object.keys(ROLE_LABEL) as UserRole[]).map((r) => (
-                        <SelectItem key={r} value={r}>
-                          {ROLE_LABEL[r]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center gap-3 shrink-0">
+                    {/* Atanan mağazalar — admin tüm mağazaları görür */}
+                    <div className="hidden sm:flex items-center gap-1.5 flex-wrap justify-end max-w-xs">
+                      {user.role === "admin" ? (
+                        <span className="text-xs text-muted-foreground">
+                          Tüm mağazalar
+                        </span>
+                      ) : storeNames.length === 0 ? (
+                        <span className="text-xs text-amber-600 font-medium">
+                          Mağaza atanmadı
+                        </span>
+                      ) : (
+                        <>
+                          {storeNames.slice(0, 2).map((s) => (
+                            <Badge
+                              key={s}
+                              variant="outline"
+                              className="font-normal gap-1"
+                            >
+                              <Store className="h-3 w-3 text-muted-foreground" />
+                              {s}
+                            </Badge>
+                          ))}
+                          {storeNames.length > 2 ? (
+                            <Badge
+                              variant="outline"
+                              className="font-normal"
+                              title={storeNames.join(", ")}
+                            >
+                              +{storeNames.length - 2}
+                            </Badge>
+                          ) : null}
+                        </>
+                      )}
+                    </div>
+
+                    <Select
+                      value={user.role}
+                      onValueChange={(v) =>
+                        updateRole.mutate({
+                          id: user.id,
+                          role: v as UserRole,
+                        })
+                      }
+                    >
+                      <SelectTrigger className="w-44">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.keys(ROLE_LABEL) as UserRole[]).map((r) => (
+                          <SelectItem key={r} value={r}>
+                            {ROLE_LABEL[r]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    {!isSelf ? (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-muted-foreground hover:text-destructive hover:bg-rose-50"
+                        title="Kullanıcıyı kaldır"
+                        onClick={() =>
+                          setPendingDelete({
+                            id: user.id,
+                            name: user.full_name ?? user.email,
+                          })
+                        }
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    ) : (
+                      <div className="h-9 w-9" aria-hidden />
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      </CardContent>
-    </Card>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Silme onayı */}
+      <Dialog
+        open={!!pendingDelete}
+        onOpenChange={(o) => {
+          if (!o && !deleteUser.isPending) setPendingDelete(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Kullanıcıyı kaldır</DialogTitle>
+            <DialogDescription>
+              <span className="font-medium text-foreground">
+                {pendingDelete?.name}
+              </span>{" "}
+              sistemden kaldırılacak: giriş yapamaz ve mağaza erişimleri
+              silinir. Yaptığı yüklemeler ve geçmiş kayıtları korunur. Bu işlem
+              geri alınamaz.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              disabled={deleteUser.isPending}
+              onClick={() => setPendingDelete(null)}
+            >
+              Vazgeç
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteUser.isPending}
+              onClick={() =>
+                pendingDelete && deleteUser.mutate({ id: pendingDelete.id })
+              }
+            >
+              {deleteUser.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                  Kaldırılıyor
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-1.5" />
+                  Kaldır
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

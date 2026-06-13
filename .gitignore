@@ -58,4 +58,4 @@ sap-sample.xlsx
 scripts/list-brands.mjs
 
 # DB yedekleri (hassas veri)
-*.sql
+/*.sql
