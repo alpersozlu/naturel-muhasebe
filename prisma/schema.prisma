@@ -142,10 +142,11 @@ model Store {
   created_at DateTime  @default(now())
   deleted_at DateTime?
 
-  user_access   UserStoreAccess[]
-  daily_records DailyRecord[]
-  budget_limits BudgetLimit[]
-  merge_groups  DayMergeGroup[]
+  user_access     UserStoreAccess[]
+  daily_records   DailyRecord[]
+  budget_limits   BudgetLimit[]
+  merge_groups    DayMergeGroup[]
+  nebim_sale_lines NebimSaleLine[]
 
   @@index([brand_id])
   @@index([deleted_at])
@@ -670,4 +671,63 @@ model ManualInvoice {
   updated_at      DateTime @updatedAt
 
   @@index([daily_record_id])
+}
+
+// ─────────────────────────────────────────────────────────────
+// NEBIM PERAKENDE SATIŞ (Derimod — satır satır ham satış)
+// NEBIM V3 SQL'den günlük API köprüsüyle aktarılır (dosya yükleme DEĞİL).
+// Her satır = bir fişin bir ürün satırı. (company_code, invoice_ref,
+// sort_order) benzersiz → köprü son N günü tekrar gönderse de çiftlemez.
+// DealerDailyReport (gün-özet) ile ilişkisiz; ham/granül kaynak.
+// ─────────────────────────────────────────────────────────────
+
+model NebimSaleLine {
+  id String @id @default(uuid())
+
+  // Kaynak kimliği (idempotent upsert anahtarı)
+  company_code Int // NEBIM şirket kodu (Derimod = 1)
+  invoice_ref  String // Fatura ref no, örn "1-R-7-87640"
+  sort_order   Int // Fiş içi satır sırası
+
+  // Mağaza — NEBIM adından Derimod mağazasına eşlenir (eşleşmezse null kalır)
+  store_id         String?
+  store            Store?  @relation(fields: [store_id], references: [id])
+  nebim_store_code String? // Ham NEBIM mağaza kodu (S01/S02/S03)
+  store_name_raw   String? // NEBIM mağaza adı, örn "Girne Mağaza"
+
+  invoice_date DateTime  @db.Date
+  created_date DateTime?
+  is_return    Boolean   @default(false)
+  office       String?
+
+  // Ürün
+  item_code  String?
+  item_desc  String?
+  color_code String?
+  color_desc String?
+  size       String?
+
+  salesperson_code String?
+  salesperson_name String?
+
+  // Tutarlar (D = yerel para / TRY)
+  qty        Decimal  @db.Decimal(14, 3)
+  price      Decimal? @db.Decimal(14, 2)
+  vat_rate   Decimal? @db.Decimal(5, 2)
+  amount_vi  Decimal? @db.Decimal(14, 2) // Tutar (VD)(D)
+  line_disc  Decimal? @db.Decimal(14, 2) // Toplam satır iskonto
+  doc_disc   Decimal? @db.Decimal(14, 2) // Toplam dip iskonto
+  tax_base   Decimal? @db.Decimal(14, 2) // Vergi hariç tutar (KDV matrahı)
+  vat        Decimal? @db.Decimal(14, 2) // KDV
+  net_amount Decimal? @db.Decimal(14, 2) // Net tutar (KDV dahil)
+  currency   Currency @default(TRY)
+
+  source     String   @default("nebim")
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([company_code, invoice_ref, sort_order])
+  @@index([store_id])
+  @@index([invoice_date])
+  @@index([store_name_raw, invoice_date])
 }
