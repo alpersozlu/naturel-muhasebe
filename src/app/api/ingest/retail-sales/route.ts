@@ -22,12 +22,6 @@ function configuredToken(): string {
   return (process.env.INGEST_API_TOKEN || "").trim();
 }
 
-// GEÇİCİ TEŞHİS: token ortam değişkeni sunucuda ayarlı mı? (DEĞERİ sızdırmaz)
-export async function GET() {
-  const t = configuredToken();
-  return NextResponse.json({ token_configured: t.length > 0, token_len: t.length });
-}
-
 export async function POST(req: Request) {
   const token = configuredToken();
   const auth = (req.headers.get("authorization") || "").trim();
