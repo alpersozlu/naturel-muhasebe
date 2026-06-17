@@ -17,9 +17,20 @@ const CHUNK = 25;
  * Bearer token ile korunur. (company_code, invoice_ref, sort_order) üzerinden
  * idempotent upsert — köprü son N günü tekrar gönderse de satır çiftlenmez.
  */
+function configuredToken(): string {
+  // .trim(): Vercel'e yapıştırırken sona eklenen boşluk/satır sonunu temizle.
+  return (process.env.INGEST_API_TOKEN || "").trim();
+}
+
+// GEÇİCİ TEŞHİS: token ortam değişkeni sunucuda ayarlı mı? (DEĞERİ sızdırmaz)
+export async function GET() {
+  const t = configuredToken();
+  return NextResponse.json({ token_configured: t.length > 0, token_len: t.length });
+}
+
 export async function POST(req: Request) {
-  const token = process.env.INGEST_API_TOKEN;
-  const auth = req.headers.get("authorization");
+  const token = configuredToken();
+  const auth = (req.headers.get("authorization") || "").trim();
   if (!token || auth !== `Bearer ${token}`) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
