@@ -74,6 +74,7 @@ export async function computeDay(
     bank_receipts: { select: { amount_try: true } },
     expenses: { select: { amount_try: true } },
     cash_advances: { select: { amount_try: true } },
+    corporate_purchases: { select: { amount_try: true } },
   } as const;
 
   const base = await prisma.dailyRecord.findUnique({
@@ -216,6 +217,15 @@ export async function computeDay(
     0
   );
 
+  // ── Kurumsal & Yönetim Alışverişi ──
+  // Fiziksel ödeme yok ama satış StoreSummary.sales_total'a işlenmiş. Nakit
+  // DEĞİL — ayrı bir "ödeme/satış kanalı" gibi GENEL TOPLAM'ın belge tarafına
+  // eklenir (nakit denklemine girmez). Borç durumundan (is_paid) bağımsız:
+  // o gün kasaya fiziksel para girmediği için hepsi eklenir.
+  const corporatePurchaseTotal = records
+    .flatMap((r) => r.corporate_purchases)
+    .reduce((s, c) => s + num(c.amount_try), 0);
+
   const wireIsSeparate = summaryWire > TOLERANCE_TL;
   const cashSourcesTotal =
     (reportedCash ?? 0) +
@@ -233,6 +243,7 @@ export async function computeDay(
     posSumTRY +
     cashSourcesTotal +
     loyalty +
+    corporatePurchaseTotal +
     (wireIsSeparate ? bankReceiptTotal : 0);
   const actual_total = summarySales;
   const difference = expected_total - actual_total;
@@ -314,6 +325,19 @@ export async function computeDay(
       difference: 0,
       matches: true,
     },
+    // Kurumsal & Yönetim Alışverişi — fiziksel ödeme yok, satışa dahil.
+    // Bir "ödeme kanalı" gibi GENEL TOPLAM'a katkı verir; karşılaştırma değil.
+    ...(corporatePurchaseTotal > TOLERANCE_TL
+      ? [
+          {
+            label: "Kurumsal & Yönetim Alışverişi",
+            document_total: corporatePurchaseTotal,
+            summary_total: corporatePurchaseTotal,
+            difference: 0,
+            matches: true,
+          } as ComparisonRow,
+        ]
+      : []),
     {
       label:
         zReportTotal > 0 && manualInvoiceTotal > 0

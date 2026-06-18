@@ -29,6 +29,10 @@ import {
   advancesSummary,
   type AdvancesSummary,
 } from "@/server/services/analytics/advances";
+import {
+  corporateSummary,
+  type CorporateSummary,
+} from "@/server/services/analytics/corporate";
 import { buildRevenueExcel } from "@/server/services/exports/excel/revenue";
 import { buildExpenseExcel } from "@/server/services/exports/excel/expense";
 import { buildAdvancesExcel } from "@/server/services/exports/excel/advances";
@@ -126,6 +130,17 @@ export const analyticsRouter = router({
         if (ids.length > 0) filter.store_id = ids[0];
       }
       return advancesSummary(ctx.prisma, filter);
+    }),
+
+  corporate: protectedProcedure
+    .input(analyticsFilterSchema)
+    .query(async ({ ctx, input }): Promise<CorporateSummary> => {
+      const filter = { ...input };
+      if (!isAdmin(ctx.user) && !filter.store_id && !filter.brand_id) {
+        const ids = await getAccessibleStoreIds(ctx.user);
+        if (ids.length > 0) filter.store_id = ids[0];
+      }
+      return corporateSummary(ctx.prisma, filter);
     }),
 
   bankCommission: protectedProcedure

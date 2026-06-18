@@ -18,6 +18,7 @@ import {
 } from "@/components/upload/upload-selectors";
 import { UploadCard } from "@/components/upload/upload-card";
 import { CashAdvanceCard } from "@/components/upload/cash-advance-card";
+import { CorporatePurchaseCard } from "@/components/upload/corporate-purchase-card";
 import { DailyCashCard } from "@/components/upload/daily-cash-card";
 import { ManualInvoiceCard } from "@/components/upload/manual-invoice-card";
 import { MasrafFaturaCard } from "@/components/upload/masraf-fatura-card";
@@ -145,6 +146,7 @@ export default function UploadPage() {
         <GiftVoucherCard storeId={sel.storeId} date={sel.date} />
         <ManualInvoiceCard storeId={sel.storeId} date={sel.date} />
         <CashAdvanceCard storeId={sel.storeId} date={sel.date} />
+        <CorporatePurchaseCard storeId={sel.storeId} date={sel.date} />
         {/* Mavi Hediye Çeki — SADECE Derimod mağazaları */}
         {isDerimod ? (
           <MaviGiftVoucherCard storeId={sel.storeId} date={sel.date} />
