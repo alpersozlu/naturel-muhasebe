@@ -5,7 +5,7 @@
 > kaydediyor) + şirket kartı "Faturalı Masraflar" (kullanıcı her ay yükler) +
 > Defolu (İndirim Kontrol programından push). Çıktı: "Mavi Masraflar" Excel.
 
-**Durum:** Faz 0 (kategori mutabakatı) BİTTİ — 2026-06-19. Kullanıcı: Alper.
+**Durum:** Faz 0-4 BİTTİ — 2026-06-19. Sıradaki: Faz 5 (DEFOLU ingest API). Kullanıcı: Alper.
 
 ## Kaynak dosyalar (2025, örnek)
 1. **Naturel Ticaret Muhasebe 2025.xlsx** — KASADAN çıkan masraflar. 7 mağaza sayfası,
@@ -56,7 +56,14 @@
 - **Faz 1** ✅ Kategorize motoru (`src/lib/masraf/categorize.ts`, kelime-sınırı) + KKTCMB döviz servisi (`src/server/services/fx/kktcmb.ts`, tarih bazlı satış kuru).
 - **Faz 2** ✅ Faturalı Masraf yükleme: model (`InvoicedExpenseBatch`/`Item`), parse (`parse-invoiced.ts`), router (`invoicedExpense`), UI `/tr/invoiced-expense` (sürükle-bırak + ay ay + kategori düzelt + onayla). Gerçek 2026 dosyasıyla test edildi.
 - **Faz 3** ✅ Dağıtım motoru (`src/server/services/masraf/dagitim.ts`): `faturaliDagitim` (÷7, MARKET ½/½, KİRA→Güzelyurt belongs_month) + `masrafMatrix` (faturalı + kasa[Expense/CashAdvance açıklamadan kategorize] + POS %5, kaynak ayrımlı). Query: `invoicedExpense.distribution` / `.matrix`.
-- **Faz 4** ⏳ "Mavi Masraflar" çıktısı: ekran matris görünümü (kategori×ay×mağaza) + Excel export (Dosya 3 formatı) + "eklendi / manuel bekliyor" raporu. Kaynak (faturalı/kasa/pos) şeffaflığı.
+- **Faz 4** ✅ "Mavi Masraflar" çıktısı. Satır sırası (`src/lib/masraf/mavi-rows.ts`,
+  oto + manuel kategoriler) → rapor şekillendirme (`src/server/services/masraf/mavi-report.ts`,
+  ay/mağaza toplamları + kaynak bayrakları) → Excel (`src/server/services/exports/excel/mavi-masraflar.ts`,
+  Dosya 3 matris sayfası + "Kaynak & Özet" sayfası). Query `invoicedExpense.report`,
+  mutation `invoicedExpense.exportMatrix`. UI: `/tr/invoiced-expense` altına matris bölümü
+  (`src/components/masraf/mavi-matrix-section.tsx`) — yıl/ay seçici + kaynak rozeti (aya duyarlı) +
+  "manuel bekliyor" işareti + Excel indir. Gerçek 2026 veriyle preview'da doğrulandı (Kira→sadece
+  Güzelyurt, POS→kilitli satış, manuel satırlar boş). Build temiz.
 - **Faz 5** DEFOLU ingest API (push, İndirim Kontrol → DocuFlow), Nebim `/api/ingest/retail-sales` pattern'i.
 - **Faz 6** Derimod'a genişletme.
 

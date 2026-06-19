@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { KATEGORI_LABEL } from "@/lib/masraf/categorize";
 import { MASRAF_KATEGORI_KEYS } from "@/lib/zod-schemas/invoiced-expense";
+import { MaviMatrixSection } from "@/components/masraf/mavi-matrix-section";
 
 const MONTHS = [
   "", "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
@@ -78,7 +79,7 @@ export default function InvoicedExpensePage() {
     <div>
       <PageHeader
         title="Faturalı Masraf (Şirket Kartı)"
-        description="Kart ile ödenen masraf Excel'ini yükle. Sistem otomatik kategorize eder, döviz tutarlarını KKTC MB satış kuruyla TL'ye çevirir. Sonra 7 mağazaya eşit dağıtılır (Faz 3)."
+        description="Kart ile ödenen masraf Excel'ini yükle. Sistem otomatik kategorize eder, döviz tutarlarını KKTC MB satış kuruyla TL'ye çevirir, 7 mağazaya eşit dağıtır. Aşağıda kategori × mağaza matrisini görüp 'Mavi Masraflar' Excel'ini indirebilirsin."
       />
 
       {/* Yükleme alanı */}
@@ -206,6 +207,9 @@ export default function InvoicedExpensePage() {
           ))}
         </div>
       )}
+
+      {/* Faz 4 — Mavi Masraf çıktısı (matris + Excel) */}
+      <MaviMatrixSection />
     </div>
   );
 }

@@ -3,6 +3,8 @@ import type { Currency } from "@prisma/client";
 import { router, adminProcedure } from "../trpc";
 import { parseInvoicedExcel } from "@/server/services/masraf/parse-invoiced";
 import { faturaliDagitim, masrafMatrix } from "@/server/services/masraf/dagitim";
+import { buildMaviReport } from "@/server/services/masraf/mavi-report";
+import { buildMaviMasraflarExcel } from "@/server/services/exports/excel/mavi-masraflar";
 import {
   invoicedUploadSchema,
   invoicedBatchIdSchema,
@@ -195,6 +197,26 @@ export const invoicedExpenseRouter = router({
     .query(async ({ ctx, input }) => {
       const year = input.year ?? new Date().getUTCFullYear();
       return masrafMatrix(ctx.prisma, year);
+    }),
+
+  /**
+   * "Mavi Masraflar" raporu (Faz 4) — ekran tablosu için şekillendirilmiş matris:
+   * sabit satır sırası (oto + manuel), ay/mağaza toplamları, kaynak rozetleri.
+   */
+  report: adminProcedure
+    .input(invoicedListSchema)
+    .query(async ({ ctx, input }) => {
+      const year = input.year ?? new Date().getUTCFullYear();
+      return buildMaviReport(ctx.prisma, year);
+    }),
+
+  /** "Mavi Masraflar" Excel çıktısı (Dosya 3 formatı) → base64. */
+  exportMatrix: adminProcedure
+    .input(invoicedListSchema)
+    .mutation(async ({ ctx, input }) => {
+      const year = input.year ?? new Date().getUTCFullYear();
+      const report = await buildMaviReport(ctx.prisma, year);
+      return buildMaviMasraflarExcel({ report });
     }),
 
   /** Batch sil. */
