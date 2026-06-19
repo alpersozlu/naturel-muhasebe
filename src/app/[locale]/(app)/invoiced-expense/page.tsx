@@ -46,6 +46,7 @@ export default function InvoicedExpensePage() {
   const utils = trpc.useUtils();
   const fileRef = useRef<HTMLInputElement>(null);
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
 
   const { data: batches, isLoading } = trpc.invoicedExpense.list.useQuery({});
 
@@ -90,11 +91,34 @@ export default function InvoicedExpensePage() {
             className="hidden"
             onChange={(e) => onPick(e.target.files?.[0])}
           />
-          <button
-            type="button"
-            disabled={upload.isPending}
-            onClick={() => fileRef.current?.click()}
-            className="w-full rounded-2xl border-2 border-dashed border-border hover:border-primary/50 hover:bg-accent/30 transition-colors p-8 flex flex-col items-center gap-3 text-center disabled:opacity-60"
+          <div
+            role="button"
+            tabIndex={0}
+            aria-disabled={upload.isPending}
+            onClick={() => !upload.isPending && fileRef.current?.click()}
+            onKeyDown={(e) => {
+              if ((e.key === "Enter" || e.key === " ") && !upload.isPending) fileRef.current?.click();
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (!upload.isPending) setDragActive(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setDragActive(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragActive(false);
+              if (!upload.isPending) onPick(e.dataTransfer.files?.[0]);
+            }}
+            className={`w-full rounded-2xl border-2 border-dashed transition-colors p-8 flex flex-col items-center gap-3 text-center cursor-pointer ${
+              upload.isPending
+                ? "opacity-60 cursor-not-allowed border-border"
+                : dragActive
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/50 hover:bg-accent/30"
+            }`}
           >
             {upload.isPending ? (
               <Loader2 className="h-8 w-8 text-primary animate-spin" />
@@ -105,13 +129,17 @@ export default function InvoicedExpensePage() {
             )}
             <div>
               <div className="font-semibold">
-                {upload.isPending ? "İşleniyor — kategorize + döviz çevrimi…" : "Faturalı Masraf Excel'ini Yükle"}
+                {upload.isPending
+                  ? "İşleniyor — kategorize + döviz çevrimi…"
+                  : dragActive
+                    ? "Bırak — dosyayı yükle"
+                    : "Excel'i buraya sürükle ya da seçmek için tıkla"}
               </div>
               <div className="text-sm text-muted-foreground mt-0.5">
                 Sayfa adları OCAK..ARALIK olmalı · .xlsx · döviz satırları otomatik TL'ye çevrilir
               </div>
             </div>
-          </button>
+          </div>
         </CardContent>
       </Card>
 
