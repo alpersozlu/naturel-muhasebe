@@ -782,3 +782,53 @@ model NebimSaleLine {
   @@index([invoice_date])
   @@index([store_name_raw, invoice_date])
 }
+
+// ─────────────────────────────────────────────────────────────
+// FATURALI MASRAF (şirket kartı) — aylık yükleme + kategorize + dağıtım
+// ─────────────────────────────────────────────────────────────
+// Kullanıcı her ay "Faturalı Masraflar" Excel'ini yükler. Sistem kategorize
+// eder, $/£/€ tutarları KKTCMB satış kuruyla TL'ye çevirir. Sonra dağıtım
+// motoru kategoride aylık toplar → ÷7 → 7 mağazaya eşit dağıtır.
+// Detay: docs/MASRAF-MUHASEBE-PLANI.md
+
+model InvoicedExpenseBatch {
+  id              String    @id @default(uuid())
+  period_year     Int
+  period_month    Int // 1-12 — yüklemenin ait olduğu ay
+  source_filename String?
+  status          String    @default("draft") // draft | confirmed
+  uploaded_by     String // User.id (audit; FK değil)
+  created_at      DateTime  @default(now())
+  confirmed_at    DateTime?
+
+  items InvoicedExpenseItem[]
+
+  @@index([period_year, period_month])
+  @@index([status])
+}
+
+model InvoicedExpenseItem {
+  id       String               @id @default(uuid())
+  batch_id String
+  batch    InvoicedExpenseBatch @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+
+  expense_date    DateTime @db.Date
+  raw_description String
+
+  amount_original Decimal   @db.Decimal(14, 2)
+  currency        Currency  @default(TRY)
+  fx_rate         Decimal?  @db.Decimal(14, 5) // KKTCMB satış kuru (yabancı para ise)
+  fx_rate_date    DateTime? @db.Date // kurun alındığı gerçek tarih (hafta sonu fallback)
+  amount_try      Decimal   @db.Decimal(14, 2)
+
+  // Kategorize sonucu
+  category      String // MasrafKategori key (ISCI/YEMEK/TERZI/KIRTASIYE/MARKET/MAZOT/SEYAHAT/KIRA/DIGER/IGNORE)
+  auto_category String // sistemin ilk önerisi (audit — kullanıcı değiştirdiyse fark görünür)
+  needs_review  Boolean @default(false) // DİĞER'e düşen belirsizler
+  // KİRA için: ait olduğu ay (açıklamadan parse; ödeme ayından farklı olabilir)
+  belongs_month Int?
+  note          String?
+
+  @@index([batch_id])
+  @@index([category])
+}

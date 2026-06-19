@@ -82,6 +82,17 @@ function normalize(s: string): string {
     .trim();
 }
 
+/**
+ * Anahtar kelimeyi metinde KELİME SINIRINDA arar (substring değil).
+ * Aksi halde "su" → "super", "isci" → "iscilik" gibi yanlış eşleşmeler olur.
+ * Çok kelimeli keyword'ler ("orange mall") yine bütün olarak aranır.
+ */
+function matchesKeyword(text: string, keyword: string): boolean {
+  const k = normalize(keyword).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // \p{L}\p{N} = harf/rakam (Türkçe dahil). Keyword'ün iki yanı harf/rakam olmamalı.
+  return new RegExp(`(^|[^\\p{L}\\p{N}])${k}([^\\p{L}\\p{N}]|$)`, "u").test(text);
+}
+
 export type CategorizeResult = {
   category: MasrafKategori;
   /** true ise kullanıcı gözden geçirmeli (DİĞER'e düşen = belirsiz). */
@@ -101,7 +112,7 @@ export function categorizeMasraf(rawDescription: string): CategorizeResult {
     return { category: "DIGER", needsReview: true, matched: null };
   }
   for (const rule of RULES) {
-    const hit = rule.kw.find((k) => n.includes(normalize(k)));
+    const hit = rule.kw.find((k) => matchesKeyword(n, k));
     if (hit) {
       return { category: rule.cat, needsReview: false, matched: hit };
     }
