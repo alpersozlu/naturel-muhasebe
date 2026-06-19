@@ -60,4 +60,15 @@
 - **Faz 5** DEFOLU ingest API (push, İndirim Kontrol → DocuFlow), Nebim `/api/ingest/retail-sales` pattern'i.
 - **Faz 6** Derimod'a genişletme.
 
+### Faz 4 başlangıç notu (yeni session için)
+Hazır olan: `invoicedExpense.matrix` query → `masrafMatrix(year)` döner
+`matrix[kategori][ay 1-12][mağaza kodu 9400-9403] = {total, invoiced, cash, pos}`.
+Mağaza kodları: 9400 Lefkoşa / 9401 Girne / 9402 Mağusa / 9403 Güzelyurt.
+
+Yapılacaklar:
+1. **Excel export builder** — mevcut pattern `src/server/services/exports/excel/{advances,expense}.ts` model alınır → `mavi-masraflar.ts`. **Dosya 3 formatı:** satır = kategori (A kolonu), sütun = ay × 4 mağaza (R2'de 9400/9401/9402/9403 tekrarı). Mutation `invoicedExpense.exportMatrix` (exceljs buffer → base64 indir, bkz. mevcut `analytics.exportAdvances`).
+2. **Ekran matris görünümü** — `/tr/invoiced-expense` sayfasına sekme/bölüm ya da ayrı sayfa: yıl seç + kategori×ay×mağaza tablo + kaynak rozeti (faturalı/kasa/pos) + "Excel indir".
+3. **Manuel kategoriler** — Çalışma Ücreti, Elektrik(ana), Telefon/İnternet(ana), Kargo, Banka, Muhasebe, Sigorta, diğer mağaza kiraları, Defolu: sistemde otomatik dolmaz → tabloda "manuel bekliyor" olarak işaretle (kullanıcı kendi girer / Faz 5 defolu).
+Not: kasa/POS gerçek veri gelince dolacak; şu an çoğunlukla faturalı görünür.
+
 Her faz: kendi içinde build (npm run build) + preview test + commit + deploy doğrula.
