@@ -46,13 +46,20 @@ function triggerXlsxDownload(base64: string, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+const BRANDS = [
+  { key: "mavi", label: "Mavi" },
+  { key: "derimod", label: "Derimod" },
+] as const;
+type BrandKey = (typeof BRANDS)[number]["key"];
+
 export function MaviMatrixSection() {
   const nowYear = new Date().getFullYear();
   const [year, setYear] = useState(nowYear);
   const [month, setMonth] = useState(0); // 0 = tüm yıl
+  const [brand, setBrand] = useState<BrandKey>("mavi");
   const [xlsxLoading, setXlsxLoading] = useState(false);
 
-  const { data: report, isLoading } = trpc.invoicedExpense.report.useQuery({ year });
+  const { data: report, isLoading } = trpc.invoicedExpense.report.useQuery({ year, brand });
   const exportXlsx = trpc.invoicedExpense.exportMatrix.useMutation();
 
   const yearOptions = [nowYear, nowYear - 1, nowYear - 2];
@@ -60,7 +67,7 @@ export function MaviMatrixSection() {
   const handleExcel = async () => {
     setXlsxLoading(true);
     try {
-      const { base64, filename } = await exportXlsx.mutateAsync({ year });
+      const { base64, filename } = await exportXlsx.mutateAsync({ year, brand });
       triggerXlsxDownload(base64, filename);
       toast.success("Excel indirildi (tüm yıl — Dosya 3 formatı)");
     } catch (e) {
@@ -125,13 +132,23 @@ export function MaviMatrixSection() {
               <Table2 className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="font-semibold leading-tight">Mavi Masraf Matrisi</h2>
+              <h2 className="font-semibold leading-tight">{report?.title ?? "Masraf Matrisi"}</h2>
               <p className="text-xs text-muted-foreground">
                 Kategori × mağaza · faturalı + kasa + POS · manuel kategoriler elle doldurulur
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Select value={brand} onValueChange={(v) => setBrand(v as BrandKey)}>
+              <SelectTrigger className="h-9 w-[120px] text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {BRANDS.map((b) => (
+                  <SelectItem key={b.key} value={b.key}>{b.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
               <SelectTrigger className="h-9 w-[110px] text-sm">
                 <SelectValue />

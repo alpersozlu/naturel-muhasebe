@@ -3,12 +3,11 @@ import { z } from "zod";
 /**
  * DEFOLU ingest payload (Faz 5) — İndirim Kontrol → DocuFlow push.
  *
- * Program her ay (ya da tüm yıl) Mavi mağazaların defolu zarar toplamını gönderir.
- * Her satır bir (ay × mağaza) hücresi. Mağaza `store_code` (Mavi kodu 9400-9403)
- * ya da `store_name` ("Lefkoşa", "Girne"…) ile belirtilir — en az biri zorunlu.
+ * Program her ay (ya da tüm yıl) mağazaların defolu zarar toplamını gönderir.
+ * Her satır bir (ay × mağaza) hücresi. Mağaza `store_code` (marka kodu — Mavi 9400-9403,
+ * Derimod S01-S03) ya da `store_name` ("Lefkoşa", "Girne"…) ile belirtilir — en az biri zorunlu.
+ * Kod çözümleme route'ta marka registry'sine göre yapılır (src/lib/masraf/brands.ts).
  */
-
-export const MAVI_STORE_CODES = ["9400", "9401", "9402", "9403"] as const;
 
 const defoluEntrySchema = z
   .object({

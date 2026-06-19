@@ -1,21 +1,14 @@
 import "server-only";
 import type { PrismaClient } from "@prisma/client";
-import {
-  masrafMatrix,
-  MAVI_STORE_CODES,
-  MAVI_STORE_NAMES,
-  type MatrixCell,
-} from "./dagitim";
-import { MAVI_ROW_ORDER, type MaviRowDef } from "@/lib/masraf/mavi-rows";
+import { masrafMatrix, type MatrixCell } from "./dagitim";
+import { getMasrafBrand, type MasrafRow } from "@/lib/masraf/brands";
 
 /**
- * MAVI MASRAF RAPORU (Faz 4) — şekillendirme katmanı.
+ * MASRAF RAPORU (Faz 4, Faz 6'da brand-parametrik) — şekillendirme katmanı.
  *
- * `masrafMatrix` ham matrisini (kategori → ay → mağaza → {total,invoiced,cash,pos})
- * alır, sabit satır sırasına (`MAVI_ROW_ORDER`) oturtur ve ekran tablosu + Excel
- * export'un ihtiyaç duyduğu toplamları/kaynak bayraklarını ekler.
- *
- * Tek kaynak: hem `invoicedExpense.report` query'si hem Excel builder bunu kullanır.
+ * `masrafMatrix` ham matrisini alır, markanın sabit satır sırasına oturtur ve
+ * ekran tablosu + Excel export'un ihtiyaç duyduğu toplamları/kaynak bayraklarını
+ * ekler. Mavi ve Derimod aynı yapıyı paylaşır (registry: src/lib/masraf/brands.ts).
  */
 
 export const MAVI_MONTHS: readonly { num: number; label: string }[] = [
@@ -39,7 +32,7 @@ function round2(n: number): number {
 
 export type MaviSource = "invoiced" | "cash" | "pos" | "defolu";
 
-export type MaviReportRow = MaviRowDef & {
+export type MaviReportRow = MasrafRow & {
   /** ay(1-12) → mağaza kodu → hücre (kaynak ayrımıyla). Boş aylar atlanır. */
   cells: Record<number, Record<string, MatrixCell>>;
   /** mağaza kodu → bu kategorinin yıl toplamı */
@@ -54,6 +47,9 @@ export type MaviReportRow = MaviRowDef & {
 
 export type MaviReport = {
   year: number;
+  brand: string;
+  title: string;
+  fileTag: string;
   store_count: number;
   storeCodes: string[];
   storeNames: Record<string, string>;
@@ -74,15 +70,18 @@ export type MaviReport = {
 };
 
 /**
- * Mavi masraf raporunu kur. Manuel satırlar (`auto: false`) boş döner —
+ * Masraf raporunu kur (marka seçimli). Manuel satırlar (`auto: false`) boş döner —
  * UI/Excel bunları "manuel bekliyor" olarak işaretler.
  */
 export async function buildMaviReport(
   prisma: PrismaClient,
-  year: number
+  year: number,
+  brandKey = "mavi"
 ): Promise<MaviReport> {
-  const m = await masrafMatrix(prisma, year);
-  const codes = [...MAVI_STORE_CODES];
+  const brand = getMasrafBrand(brandKey);
+  const m = await masrafMatrix(prisma, year, brandKey);
+  const codes = brand.stores.map((s) => s.code);
+  const storeNames = Object.fromEntries(brand.stores.map((s) => [s.code, s.label]));
 
   const columnTotals: Record<number, Record<string, number>> = {};
   const storeTotals: Record<string, number> = Object.fromEntries(
@@ -92,7 +91,7 @@ export async function buildMaviReport(
   let grandTotal = 0;
   let autoTotal = 0;
 
-  const rows: MaviReportRow[] = MAVI_ROW_ORDER.map((def) => {
+  const rows: MaviReportRow[] = brand.rows.map((def) => {
     const byMonth = def.auto ? m.matrix[def.key] : undefined;
 
     const cells: Record<number, Record<string, MatrixCell>> = {};
@@ -149,9 +148,12 @@ export async function buildMaviReport(
 
   return {
     year,
+    brand: brandKey,
+    title: brand.title,
+    fileTag: brand.fileTag,
     store_count: m.store_count,
     storeCodes: codes,
-    storeNames: MAVI_STORE_NAMES,
+    storeNames,
     months: MAVI_MONTHS,
     rows,
     columnTotals,

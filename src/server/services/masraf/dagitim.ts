@@ -1,38 +1,35 @@
 import "server-only";
 import type { PrismaClient } from "@prisma/client";
 import { categorizeMasraf } from "@/lib/masraf/categorize";
+import {
+  getMasrafBrand,
+  brandCodeFromName,
+  type MasrafBrand,
+} from "@/lib/masraf/brands";
 
 /**
- * FATURALI MASRAF DAĞITIM MOTORU (Faz 3a)
+ * FATURALI MASRAF DAĞITIM MOTORU (Faz 3a, Faz 6'da brand-parametrik)
  *
  * Onaylanmış faturalı masraf dönemlerini alır, kategoride aylık toplar ve
- * mutabakat kurallarına göre Mavi mağazalarına dağıtır:
+ * mutabakat kurallarına göre SEÇİLEN MARKANIN mağazalarına dağıtır:
  *
  *  - Normal kategoriler (İŞÇİ, YEMEK, TERZİ, KIRTASİYE, MAZOT, SEYAHAT, DİĞER):
- *    aylık toplam ÷ (toplam mağaza sayısı = 7) → her mağazaya EŞİT pay.
+ *    aylık toplam ÷ (toplam ŞİRKET mağaza sayısı = 7) → markanın her mağazasına EŞİT pay.
+ *    (Faturalı dosya iki markayı da kapsar; Mavi 4 payı, Derimod 3 payı = 3/7 alır.)
  *  - MARKET: aylık toplam ÷7 → her mağaza payı → ½ TEMİZLİK + ½ YEMEK.
- *  - KİRA: 7'ye bölünmez — TAMAMI Güzelyurt'a (9403). Açıklamadan parse edilen
- *    "ait olduğu ay"a (belongs_month) yazılır; yoksa masraf ayına.
+ *  - KİRA: 7'ye bölünmez — TAMAMI markanın kira mağazasına (Mavi: Güzelyurt 9403).
+ *    kiraStoreCode null ise (Derimod) KİRA dağıtılmaz (manuel).
  *  - IGNORE (pazar): dağıtılmaz.
- *  - POS: burada değil (satışa dayalı, ayrı üretilir).
+ *  - POS: burada değil (satışa dayalı, masrafMatrix'te üretilir).
  *
- * Çıktı: matrix[kategori][ay 1-12][mağaza kodu 9400..9403] = TL.
- * Detay: docs/MASRAF-MUHASEBE-PLANI.md
+ * Çıktı: matrix[kategori][ay 1-12][mağaza kodu] = TL.
+ * Marka registry + kurallar: src/lib/masraf/brands.ts, docs/MASRAF-MUHASEBE-PLANI.md
  */
 
-export const MAVI_STORE_CODES = ["9400", "9401", "9402", "9403"] as const;
-export const MAVI_STORE_NAMES: Record<string, string> = {
-  "9400": "Lefkoşa",
-  "9401": "Girne",
-  "9402": "Mağusa",
-  "9403": "Güzelyurt",
-};
-const GUZELYURT = "9403";
-
-export type StoreCell = Record<string, number>; // 9400..9403 → TL
+export type StoreCell = Record<string, number>; // mağaza kodu → TL
 export type FaturaliDagitim = {
   year: number;
-  store_count: number; // ÷ böleni (kural: 7)
+  store_count: number; // ÷ böleni (toplam şirket mağazası, kural: 7)
   /** kategori → ay(1-12) → mağaza kodu → tutar (TL) */
   matrix: Record<string, Record<number, StoreCell>>;
   /** dağıtılan toplam (kontrol) */
@@ -45,9 +42,14 @@ function num(v: { toNumber: () => number } | null | undefined): number {
 
 export async function faturaliDagitim(
   prisma: PrismaClient,
-  year: number
+  year: number,
+  brandKey = "mavi"
 ): Promise<FaturaliDagitim> {
-  // ÷ böleni: toplam aktif mağaza (kural gereği 7; dinamik ki ileride değişirse uysun)
+  const brand = getMasrafBrand(brandKey);
+  const codes = brand.stores.map((s) => s.code);
+
+  // ÷ böleni: toplam aktif ŞİRKET mağazası (Mavi + Derimod = 7). Faturalı dosya
+  // tüm markaları kapsadığı için böl her zaman toplam mağaza sayısıdır.
   const storeCount = (await prisma.store.count({ where: { deleted_at: null } })) || 7;
 
   const items = await prisma.invoicedExpenseItem.findMany({
@@ -63,7 +65,7 @@ export async function faturaliDagitim(
   // Ara toplamlar
   const normal: Record<string, Record<number, number>> = {}; // cat → ay → toplam
   const market: Record<number, number> = {}; // ay → market toplam
-  const kira: Record<number, number> = {}; // ay → kira toplam (Güzelyurt)
+  const kira: Record<number, number> = {}; // ay → kira toplam
 
   for (const it of items) {
     const amt = num(it.amount_try);
@@ -93,12 +95,12 @@ export async function faturaliDagitim(
     totalDistributed += val;
   };
 
-  // Normal kategoriler — aylık ÷7, her Mavi mağazaya eşit pay
+  // Normal kategoriler — aylık ÷7, markanın her mağazasına eşit pay
   for (const [cat, byMonth] of Object.entries(normal)) {
     for (const [monthStr, total] of Object.entries(byMonth)) {
       const month = Number(monthStr);
       const per = total / storeCount;
-      for (const code of MAVI_STORE_CODES) add(cat, month, code, per);
+      for (const code of codes) add(cat, month, code, per);
     }
   }
 
@@ -107,15 +109,17 @@ export async function faturaliDagitim(
     const month = Number(monthStr);
     const per = total / storeCount;
     const half = per / 2;
-    for (const code of MAVI_STORE_CODES) {
+    for (const code of codes) {
       add("TEMIZLIK", month, code, half);
       add("YEMEK", month, code, half);
     }
   }
 
-  // Kira — tamamı Güzelyurt'a (bölünmez)
-  for (const [monthStr, total] of Object.entries(kira)) {
-    add("KIRA", Number(monthStr), GUZELYURT, total);
+  // Kira — tamamı markanın kira mağazasına (bölünmez). null ise dağıtılmaz (manuel).
+  if (brand.kiraStoreCode) {
+    for (const [monthStr, total] of Object.entries(kira)) {
+      add("KIRA", Number(monthStr), brand.kiraStoreCode, total);
+    }
   }
 
   return {
@@ -126,17 +130,12 @@ export async function faturaliDagitim(
   };
 }
 
-// POS gideri oranı (Mavi'ye gösterim — sabit %5; gerçek komisyon Gider Analizi'nde)
+// POS gideri oranı (gösterim — sabit %5; gerçek komisyon Gider Analizi'nde)
 const POS_RATE = 0.05;
 
-/** Mağaza adından Mavi kodu (9400-9403); Mavi değilse null. */
+/** Mağaza adından Mavi kodu (9400-9403); Mavi değilse null. (Geriye dönük uyum.) */
 export function maviCodeFromName(name: string): string | null {
-  const n = name.toLocaleLowerCase("tr").replace(/ı/g, "i");
-  if (n.includes("lefko")) return "9400";
-  if (n.includes("girne")) return "9401";
-  if (n.includes("magusa") || n.includes("mağusa")) return "9402";
-  if (n.includes("guzelyurt") || n.includes("güzelyurt")) return "9403";
-  return null;
+  return brandCodeFromName(getMasrafBrand("mavi"), name);
 }
 
 export type MatrixCell = {
@@ -148,21 +147,43 @@ export type MatrixCell = {
 };
 export type MasrafMatrix = {
   year: number;
+  brand: string;
   store_count: number;
   /** kategori → ay(1-12) → mağaza kodu → hücre (kaynak ayrımıyla) */
   matrix: Record<string, Record<number, Record<string, MatrixCell>>>;
 };
 
+/** Markanın mağazalarının DB id → çıktı kodu eşlemesi (brand-scoped; sızıntı yok). */
+async function buildStoreCodeMap(
+  prisma: PrismaClient,
+  brand: MasrafBrand
+): Promise<Map<string, string>> {
+  const stores = await prisma.store.findMany({
+    where: { brand: { name: brand.brandName }, deleted_at: null },
+    select: { id: true, name: true, city: true },
+  });
+  const map = new Map<string, string>();
+  for (const s of stores) {
+    const code = brandCodeFromName(brand, `${s.name} ${s.city ?? ""}`);
+    if (code) map.set(s.id, code);
+  }
+  return map;
+}
+
 /**
- * BİRLEŞİK MASRAF MATRİSİ (Faz 3b+3c) — Mavi.
- * Faturalı ÷7 dağıtım + her mağazanın kasa masrafı (açıklamadan kategorize) +
- * POS %5. Kaynak ayrımı (invoiced/cash/pos) korunur — "neyi ekledim" şeffaflığı.
+ * BİRLEŞİK MASRAF MATRİSİ (Faz 3b+3c, Faz 6'da brand-parametrik).
+ * Faturalı ÷7 dağıtım + markanın kasa masrafı (açıklamadan kategorize) + POS %5 +
+ * DEFOLU push. Kaynak ayrımı (invoiced/cash/pos/defolu) korunur — şeffaflık.
+ * Mağaza eşleştirmesi brand_id ile sınırlı (markalar arası sızıntı yok).
  */
 export async function masrafMatrix(
   prisma: PrismaClient,
-  year: number
+  year: number,
+  brandKey = "mavi"
 ): Promise<MasrafMatrix> {
-  const fatura = await faturaliDagitim(prisma, year);
+  const brand = getMasrafBrand(brandKey);
+  const fatura = await faturaliDagitim(prisma, year, brandKey);
+  const idToCode = await buildStoreCodeMap(prisma, brand);
 
   const matrix: Record<string, Record<number, Record<string, MatrixCell>>> = {};
   const cell = (cat: string, month: number, code: string): MatrixCell => {
@@ -191,12 +212,11 @@ export async function masrafMatrix(
   const yStart = new Date(Date.UTC(year, 0, 1));
   const yEnd = new Date(Date.UTC(year + 1, 0, 1));
 
-  // 2) Kasa masrafı — Mavi mağazaların Expense + CashAdvance (bonus/avans hariç).
+  // 2) Kasa masrafı — markanın Expense + CashAdvance (bonus/avans hariç).
   //    Açıklamadan kategorize, mağazanın KENDİSİNE (dağıtım yok). Market ½/½.
   const addCash = (
     code: string,
     month: number,
-    rawCategory: string,
     desc: string | null,
     amt: number
   ) => {
@@ -217,51 +237,59 @@ export async function masrafMatrix(
   };
 
   const expenses = await prisma.expense.findMany({
-    where: { expense_date: { gte: yStart, lt: yEnd } },
+    where: {
+      expense_date: { gte: yStart, lt: yEnd },
+      daily_record: { store: { brand: { name: brand.brandName } } },
+    },
     select: {
       amount_try: true,
       description: true,
-      category: true,
       expense_date: true,
-      daily_record: { select: { store: { select: { name: true } } } },
+      daily_record: { select: { store: { select: { id: true } } } },
     },
   });
   for (const e of expenses) {
-    const code = maviCodeFromName(e.daily_record.store.name);
-    if (!code) continue; // sadece Mavi
-    addCash(code, e.expense_date.getUTCMonth() + 1, e.category, e.description, num(e.amount_try));
+    const code = idToCode.get(e.daily_record.store.id);
+    if (!code) continue;
+    addCash(code, e.expense_date.getUTCMonth() + 1, e.description, num(e.amount_try));
   }
 
   const advances = await prisma.cashAdvance.findMany({
     where: {
       category: { not: "bonus" }, // avans (bonus) ayrı takip — masraf değil
-      daily_record: { date: { gte: yStart, lt: yEnd } },
+      daily_record: {
+        date: { gte: yStart, lt: yEnd },
+        store: { brand: { name: brand.brandName } },
+      },
     },
     select: {
       amount_try: true,
       description: true,
-      category: true,
-      daily_record: { select: { date: true, store: { select: { name: true } } } },
+      daily_record: { select: { date: true, store: { select: { id: true } } } },
     },
   });
   for (const a of advances) {
-    const code = maviCodeFromName(a.daily_record.store.name);
+    const code = idToCode.get(a.daily_record.store.id);
     if (!code) continue;
-    addCash(code, a.daily_record.date.getUTCMonth() + 1, a.category, a.description, num(a.amount_try));
+    addCash(code, a.daily_record.date.getUTCMonth() + 1, a.description, num(a.amount_try));
   }
 
-  // 3) POS %5 — her Mavi mağazanın aylık satışı (kilitli günler) × %5
+  // 3) POS %5 — markanın her mağazasının aylık satışı (kilitli günler) × %5
   const summaries = await prisma.storeSummary.findMany({
     where: {
-      daily_record: { date: { gte: yStart, lt: yEnd }, status: "locked" },
+      daily_record: {
+        date: { gte: yStart, lt: yEnd },
+        status: "locked",
+        store: { brand: { name: brand.brandName } },
+      },
     },
     select: {
       sales_total_try: true,
-      daily_record: { select: { date: true, store: { select: { name: true } } } },
+      daily_record: { select: { date: true, store: { select: { id: true } } } },
     },
   });
   for (const s of summaries) {
-    const code = maviCodeFromName(s.daily_record.store.name);
+    const code = idToCode.get(s.daily_record.store.id);
     if (!code) continue;
     const sales = num(s.sales_total_try);
     if (sales <= 0) continue;
@@ -272,15 +300,13 @@ export async function masrafMatrix(
     c.total += posCost;
   }
 
-  // 4) DEFOLU — İndirim Kontrol push (ay × Mavi mağaza defolu zarar toplamı).
-  //    Mağaza koduna göre doğrudan DEFOLU kategorisine yazılır (dağıtım yok).
-  const validCodes = new Set<string>(MAVI_STORE_CODES);
+  // 4) DEFOLU — İndirim Kontrol push. Markanın mağaza kodlarına göre filtrelenir.
+  const brandCodes = brand.stores.map((s) => s.code);
   const defoluRows = await prisma.defoluEntry.findMany({
-    where: { period_year: year },
+    where: { period_year: year, store_code: { in: brandCodes } },
     select: { period_month: true, store_code: true, amount_try: true },
   });
   for (const d of defoluRows) {
-    if (!validCodes.has(d.store_code)) continue;
     const amt = num(d.amount_try);
     if (amt === 0) continue;
     const c = cell("DEFOLU", d.period_month, d.store_code);
@@ -288,5 +314,5 @@ export async function masrafMatrix(
     c.total += amt;
   }
 
-  return { year, store_count: fatura.store_count, matrix };
+  return { year, brand: brandKey, store_count: fatura.store_count, matrix };
 }

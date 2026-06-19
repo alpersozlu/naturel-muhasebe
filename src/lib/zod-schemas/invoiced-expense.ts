@@ -31,4 +31,12 @@ export const invoicedListSchema = z.object({
   year: z.number().int().optional(),
 });
 
+export const MASRAF_BRAND_OPTIONS = ["mavi", "derimod"] as const;
+
+/** Masraf raporu/matris/export — yıl + marka seçimi. */
+export const masrafReportSchema = z.object({
+  year: z.number().int().optional(),
+  brand: z.enum(MASRAF_BRAND_OPTIONS).optional(),
+});
+
 export type InvoicedUploadInput = z.infer<typeof invoicedUploadSchema>;

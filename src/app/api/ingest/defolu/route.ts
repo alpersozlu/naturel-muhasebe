@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { defoluIngestSchema, MAVI_STORE_CODES } from "@/lib/zod-schemas/defolu-ingest";
-import { maviCodeFromName } from "@/server/services/masraf/dagitim";
+import { defoluIngestSchema } from "@/lib/zod-schemas/defolu-ingest";
+import {
+  ALL_STORE_CODES,
+  brandCodeFromName,
+  getMasrafBrand,
+  MASRAF_BRAND_KEYS,
+} from "@/lib/masraf/brands";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,24 +25,25 @@ function configuredToken(): string {
   return (process.env.INGEST_API_TOKEN || "").trim();
 }
 
-const MAVI_CODES = MAVI_STORE_CODES as readonly string[];
+/** Bir adı tüm markalarda sırayla (Mavi öncelik) koda çözer. */
+function codeFromName(name: string | undefined): string | null {
+  if (!name) return null;
+  for (const k of MASRAF_BRAND_KEYS) {
+    const c = brandCodeFromName(getMasrafBrand(k), name);
+    if (c) return c;
+  }
+  return null;
+}
 
-/** Bir satırı Mavi koduna çözer (store_code öncelikli, sonra store_name). */
-function resolveMaviCode(e: {
+/** Bir satırı mağaza koduna çözer (geçerli kod öncelikli, sonra ad eşleştirme). */
+function resolveStoreCode(e: {
   store_code?: string;
   store_name?: string;
 }): string | null {
-  if (e.store_code && MAVI_CODES.includes(e.store_code)) return e.store_code;
-  if (e.store_name) {
-    const byName = maviCodeFromName(e.store_name);
-    if (byName) return byName;
-  }
-  // store_code aslında bir ad olabilir ("Lefkoşa") — son şans
-  if (e.store_code) {
-    const byCode = maviCodeFromName(e.store_code);
-    if (byCode) return byCode;
-  }
-  return null;
+  // store_code zaten geçerli bir marka kodu mu? (9400-9403 / S01-S03)
+  if (e.store_code && ALL_STORE_CODES[e.store_code]) return e.store_code;
+  // ad eşleştirme (store_name; sonra store_code bir ad olabilir)
+  return codeFromName(e.store_name) ?? codeFromName(e.store_code);
 }
 
 export async function POST(req: Request) {
@@ -67,7 +73,7 @@ export async function POST(req: Request) {
   const unmatched: { month: number; store: string }[] = [];
 
   for (const e of entries) {
-    const code = resolveMaviCode(e);
+    const code = resolveStoreCode(e);
     if (!code) {
       unmatched.push({ month: e.month, store: e.store_name ?? e.store_code ?? "?" });
       continue;

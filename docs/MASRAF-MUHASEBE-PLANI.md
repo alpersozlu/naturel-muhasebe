@@ -5,7 +5,7 @@
 > kaydediyor) + şirket kartı "Faturalı Masraflar" (kullanıcı her ay yükler) +
 > Defolu (İndirim Kontrol programından push). Çıktı: "Mavi Masraflar" Excel.
 
-**Durum:** Faz 0-5 BİTTİ — 2026-06-19. Sıradaki: Faz 6 (Derimod'a genişletme). Kullanıcı: Alper.
+**Durum:** Faz 0-6 BİTTİ — 2026-06-19. Motor artık marka-parametrik (Mavi + Derimod). Kullanıcı: Alper.
 
 ## Kaynak dosyalar (2025, örnek)
 1. **Naturel Ticaret Muhasebe 2025.xlsx** — KASADAN çıkan masraflar. 7 mağaza sayfası,
@@ -16,8 +16,11 @@
 3. **MAVI 2025 MASRAFLAR@.xlsx** — HEDEF ÇIKTI. Satır=kategori (A kolonu),
    sütun=ay×mağaza (9400 Lefkoşa/9401 Girne/9402 Mağusa/9403 Güzelyurt).
 
-## Mağaza kodları (Mavi)
-9400 Lefkoşa · 9401 Girne · 9402 Mağusa · 9403 Güzelyurt
+## Mağaza kodları
+**Mavi (SAP):** 9400 Lefkoşa · 9401 Girne · 9402 Mağusa · 9403 Güzelyurt
+**Derimod (NEBIM):** S01 Lefkoşa · S02 Mağusa · S03 Girne
+> Şirket kartı faturalı masrafı 7 mağazayı (4 Mavi + 3 Derimod) kapsar; ÷7 → Mavi çıktısı
+> 4 payı, Derimod çıktısı 3 payı (3/7) gösterir. Registry: `src/lib/masraf/brands.ts`.
 
 ## KATEGORİ SÖZLÜĞÜ (mutabakat — final)
 
@@ -56,7 +59,7 @@
 - **Faz 1** ✅ Kategorize motoru (`src/lib/masraf/categorize.ts`, kelime-sınırı) + KKTCMB döviz servisi (`src/server/services/fx/kktcmb.ts`, tarih bazlı satış kuru).
 - **Faz 2** ✅ Faturalı Masraf yükleme: model (`InvoicedExpenseBatch`/`Item`), parse (`parse-invoiced.ts`), router (`invoicedExpense`), UI `/tr/invoiced-expense` (sürükle-bırak + ay ay + kategori düzelt + onayla). Gerçek 2026 dosyasıyla test edildi.
 - **Faz 3** ✅ Dağıtım motoru (`src/server/services/masraf/dagitim.ts`): `faturaliDagitim` (÷7, MARKET ½/½, KİRA→Güzelyurt belongs_month) + `masrafMatrix` (faturalı + kasa[Expense/CashAdvance açıklamadan kategorize] + POS %5, kaynak ayrımlı). Query: `invoicedExpense.distribution` / `.matrix`.
-- **Faz 4** ✅ "Mavi Masraflar" çıktısı. Satır sırası (`src/lib/masraf/mavi-rows.ts`,
+- **Faz 4** ✅ "Mavi Masraflar" çıktısı. Satır sırası (Faz 6'da `src/lib/masraf/brands.ts`'e taşındı,
   oto + manuel kategoriler) → rapor şekillendirme (`src/server/services/masraf/mavi-report.ts`,
   ay/mağaza toplamları + kaynak bayrakları) → Excel (`src/server/services/exports/excel/mavi-masraflar.ts`,
   Dosya 3 matris sayfası + "Kaynak & Özet" sayfası). Query `invoicedExpense.report`,
@@ -69,7 +72,15 @@
   çözümleme, idempotent upsert, matched/unmatched raporu). Matrise bağlandı: `MatrixCell.defolu` +
   `masrafMatrix` DEFOLU adımı + `mavi-rows` DEFOLU→auto + rapor/UI/Excel'de "Defolu" kaynak rozeti.
   Örnek push ile uçtan uca doğrulandı (401 auth, idempotency, ad çözümleme, matris dolumu); test verisi temizlendi.
-- **Faz 6** Derimod'a genişletme.
+- **Faz 6** ✅ Derimod'a genişletme — motor marka-parametrik. Marka registry `src/lib/masraf/brands.ts`
+  (tek kaynak: kodlar, kira hedefi, satır sırası, başlık/dosya adı). `faturaliDagitim`/`masrafMatrix`/
+  `buildMaviReport`/`exportMatrix`/`report` query'leri `brandKey` (default "mavi") alır. UI'da marka seçici
+  (Mavi/Derimod). Kararlar: ortak ÷7 (Derimod 3/7 payı), Derimod kodları S01/S02/S03 (NEBIM), Derimod KİRA+DEFOLU manuel.
+  **Sızıntı düzeltmesi:** kasa/POS artık `brand_id` ile filtreleniyor — önceden `maviCodeFromName("DERIMOD LEFKOSA")→9400`
+  olduğu için Derimod kasa/POS'u Mavi'ye sızıyordu. Mavi rakamları bu yüzden Faz 4'e göre düştü (DOĞRU hale geldi);
+  kaybolan veri Derimod çıktısında. Her iki marka preview'da doğrulandı, Excel ayrı dosya adlarıyla iniyor.
+  **Açık uçlar (Derimod operasyonu büyürse):** Derimod POS şu an `StoreSummary` kilitli günlerden gelir —
+  Derimod NEBIM satışından (NebimSaleLine) besleme gerekebilir; Derimod İndirim Kontrol/defolu push yok.
 
 ### Faz 4 başlangıç notu (yeni session için)
 Hazır olan: `invoicedExpense.matrix` query → `masrafMatrix(year)` döner

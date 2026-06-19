@@ -79,7 +79,7 @@ export default function InvoicedExpensePage() {
     <div>
       <PageHeader
         title="Faturalı Masraf (Şirket Kartı)"
-        description="Kart ile ödenen masraf Excel'ini yükle. Sistem otomatik kategorize eder, döviz tutarlarını KKTC MB satış kuruyla TL'ye çevirir, 7 mağazaya eşit dağıtır. Aşağıda kategori × mağaza matrisini görüp 'Mavi Masraflar' Excel'ini indirebilirsin."
+        description="Kart ile ödenen masraf Excel'ini yükle. Sistem otomatik kategorize eder, döviz tutarlarını KKTC MB satış kuruyla TL'ye çevirir, 7 mağazaya eşit dağıtır (Mavi + Derimod). Aşağıda marka seçip kategori × mağaza matrisini görüp 'Masraflar' Excel'ini indirebilirsin."
       />
 
       {/* Yükleme alanı */}

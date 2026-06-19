@@ -41,10 +41,10 @@ export async function buildMaviMasraflarExcel(opts: {
   const { report } = opts;
   const codes = report.storeCodes;
   const nStores = codes.length;
-  const wb = newWorkbook({ title: `Mavi Masraflar ${report.year}` });
+  const wb = newWorkbook({ title: `${report.title} ${report.year}` });
 
   // ── Sayfa 1: matris ─────────────────────────────────────────────────────
-  const ws = wb.addWorksheet("Mavi Masraflar", {
+  const ws = wb.addWorksheet(report.title, {
     views: [{ state: "frozen", xSplit: 1, ySplit: 5 }],
   });
 
@@ -55,7 +55,7 @@ export async function buildMaviMasraflarExcel(opts: {
   // Satır 1: başlık
   ws.mergeCells(1, 1, 1, Math.min(lastCol, 8));
   const t = ws.getCell(1, 1);
-  t.value = `Mavi Masraflar — ${report.year}`;
+  t.value = `${report.title} — ${report.year}`;
   t.font = TITLE_FONT;
   ws.getRow(1).height = 26;
 
@@ -201,7 +201,7 @@ export async function buildMaviMasraflarExcel(opts: {
   buildSummarySheet(wb.addWorksheet("Kaynak & Özet"), report);
 
   const base64 = await workbookToBase64(wb);
-  return { base64, filename: `Mavi_Masraflar_${report.year}.xlsx` };
+  return { base64, filename: `${report.fileTag}_${report.year}.xlsx` };
 }
 
 /** Sayfa 2 — her kategorinin yıl toplamı + faturalı/kasa/POS ayrımı + durum. */

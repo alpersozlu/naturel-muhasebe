@@ -10,6 +10,7 @@ import {
   invoicedBatchIdSchema,
   invoicedUpdateItemSchema,
   invoicedListSchema,
+  masrafReportSchema,
 } from "@/lib/zod-schemas/invoiced-expense";
 
 export const invoicedExpenseRouter = router({
@@ -183,39 +184,39 @@ export const invoicedExpenseRouter = router({
       });
     }),
 
-  /** Faturalı masrafın Mavi mağazalarına ÷7 dağıtımı (onaylı dönemler). */
+  /** Faturalı masrafın markaya ÷7 dağıtımı (onaylı dönemler). */
   distribution: adminProcedure
-    .input(invoicedListSchema)
+    .input(masrafReportSchema)
     .query(async ({ ctx, input }) => {
       const year = input.year ?? new Date().getUTCFullYear();
-      return faturaliDagitim(ctx.prisma, year);
+      return faturaliDagitim(ctx.prisma, year, input.brand ?? "mavi");
     }),
 
-  /** Birleşik Mavi masraf matrisi: faturalı dağıtım + kasa + POS. */
+  /** Birleşik masraf matrisi: faturalı dağıtım + kasa + POS + defolu (marka seçimli). */
   matrix: adminProcedure
-    .input(invoicedListSchema)
+    .input(masrafReportSchema)
     .query(async ({ ctx, input }) => {
       const year = input.year ?? new Date().getUTCFullYear();
-      return masrafMatrix(ctx.prisma, year);
+      return masrafMatrix(ctx.prisma, year, input.brand ?? "mavi");
     }),
 
   /**
-   * "Mavi Masraflar" raporu (Faz 4) — ekran tablosu için şekillendirilmiş matris:
-   * sabit satır sırası (oto + manuel), ay/mağaza toplamları, kaynak rozetleri.
+   * Masraf raporu (Faz 4, Faz 6 marka-parametrik) — ekran tablosu için
+   * şekillendirilmiş matris: sabit satır sırası, ay/mağaza toplamları, kaynak rozetleri.
    */
   report: adminProcedure
-    .input(invoicedListSchema)
+    .input(masrafReportSchema)
     .query(async ({ ctx, input }) => {
       const year = input.year ?? new Date().getUTCFullYear();
-      return buildMaviReport(ctx.prisma, year);
+      return buildMaviReport(ctx.prisma, year, input.brand ?? "mavi");
     }),
 
-  /** "Mavi Masraflar" Excel çıktısı (Dosya 3 formatı) → base64. */
+  /** Masraf Excel çıktısı (Dosya 3 formatı, marka seçimli) → base64. */
   exportMatrix: adminProcedure
-    .input(invoicedListSchema)
+    .input(masrafReportSchema)
     .mutation(async ({ ctx, input }) => {
       const year = input.year ?? new Date().getUTCFullYear();
-      const report = await buildMaviReport(ctx.prisma, year);
+      const report = await buildMaviReport(ctx.prisma, year, input.brand ?? "mavi");
       return buildMaviMasraflarExcel({ report });
     }),
 
