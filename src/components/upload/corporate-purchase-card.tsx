@@ -104,7 +104,6 @@ export function CorporatePurchaseCard({
   });
 
   const type = useWatch({ control, name: "type" });
-  const isPaid = useWatch({ control, name: "is_paid" });
   const isCorporate = type === "corporate";
 
   const onSubmit = (vals: CorporatePurchaseCreateInput) =>
