@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import type { Currency } from "@prisma/client";
 import { router, adminProcedure } from "../trpc";
 import { parseInvoicedExcel } from "@/server/services/masraf/parse-invoiced";
-import { faturaliDagitim } from "@/server/services/masraf/dagitim";
+import { faturaliDagitim, masrafMatrix } from "@/server/services/masraf/dagitim";
 import {
   invoicedUploadSchema,
   invoicedBatchIdSchema,
@@ -187,6 +187,14 @@ export const invoicedExpenseRouter = router({
     .query(async ({ ctx, input }) => {
       const year = input.year ?? new Date().getUTCFullYear();
       return faturaliDagitim(ctx.prisma, year);
+    }),
+
+  /** Birleşik Mavi masraf matrisi: faturalı dağıtım + kasa + POS. */
+  matrix: adminProcedure
+    .input(invoicedListSchema)
+    .query(async ({ ctx, input }) => {
+      const year = input.year ?? new Date().getUTCFullYear();
+      return masrafMatrix(ctx.prisma, year);
     }),
 
   /** Batch sil. */
