@@ -16,6 +16,7 @@ const ADMIN_ONLY_PREFIXES = [
   "/revenues",
   "/expenses",
   "/advances",
+  "/invoiced-expense",
   "/corporate",
   "/history",
   "/stores",

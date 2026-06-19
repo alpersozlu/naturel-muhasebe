@@ -131,21 +131,27 @@ export async function parseInvoicedExcel(
     months.push({ month, month_label: AY_AD[month], items, total_try: 0 });
   }
 
-  // FX çevrimi — yabancı para satırları için KKTCMB satış kuru
+  // FX çevrimi — yabancı para satırları için KKTCMB satış kuru.
+  // Paralel: çok döviz satırında bile tek turda (dayCache tekrar isteği önler),
+  // Vercel timeout riskini azaltır.
+  await Promise.all(
+    months.flatMap((m) =>
+      m.items.map(async (it) => {
+        const fx = await convertToTRY(
+          it.amount_original,
+          it.currency,
+          new Date(`${it.expense_date}T00:00:00.000Z`)
+        );
+        it.amount_try = Math.round(fx.amountTRY * 100) / 100;
+        it.fx_rate = it.currency === "TRY" ? null : fx.rate;
+        it.fx_rate_date = fx.rateDate
+          ? `${fx.rateDate.slice(0, 4)}-${fx.rateDate.slice(4, 6)}-${fx.rateDate.slice(6, 8)}`
+          : null;
+        it.fx_failed = !fx.converted;
+      })
+    )
+  );
   for (const m of months) {
-    for (const it of m.items) {
-      const fx = await convertToTRY(
-        it.amount_original,
-        it.currency,
-        new Date(`${it.expense_date}T00:00:00.000Z`)
-      );
-      it.amount_try = Math.round(fx.amountTRY * 100) / 100;
-      it.fx_rate = it.currency === "TRY" ? null : fx.rate;
-      it.fx_rate_date = fx.rateDate
-        ? `${fx.rateDate.slice(0, 4)}-${fx.rateDate.slice(4, 6)}-${fx.rateDate.slice(6, 8)}`
-        : null;
-      it.fx_failed = !fx.converted;
-    }
     m.total_try = Math.round(m.items.reduce((s, it) => s + it.amount_try, 0) * 100) / 100;
   }
 

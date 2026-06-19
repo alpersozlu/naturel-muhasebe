@@ -15,6 +15,7 @@ import {
   Mail,
   ShoppingCart,
   Building2,
+  FileSpreadsheet,
 } from "lucide-react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ const NAV_ADMIN = [
   { href: "/z-analysis", icon: ScrollText, key: "zAnalysis" as const },
   { href: "/revenues", icon: TrendingUp, key: "revenues" as const },
   { href: "/expenses", icon: BarChart3, key: "expenses" as const },
+  { href: "/invoiced-expense", icon: FileSpreadsheet, key: "invoicedExpense" as const },
   { href: "/advances", icon: Wallet, key: "advances" as const },
   { href: "/corporate", icon: Building2, key: "corporate" as const },
   { href: "/upload", icon: Upload, key: "upload" as const },

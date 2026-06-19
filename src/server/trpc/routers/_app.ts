@@ -7,6 +7,7 @@ import { auditRouter } from "./audit";
 import { uploadRouter } from "./upload";
 import { cashAdvanceRouter } from "./cashAdvance";
 import { corporatePurchaseRouter } from "./corporatePurchase";
+import { invoicedExpenseRouter } from "./invoicedExpense";
 import { verificationRouter } from "./verification";
 import { dailyRecordRouter } from "./dailyRecord";
 import { analyticsRouter } from "./analytics";
@@ -30,6 +31,7 @@ export const appRouter = router({
   upload: uploadRouter,
   cashAdvance: cashAdvanceRouter,
   corporatePurchase: corporatePurchaseRouter,
+  invoicedExpense: invoicedExpenseRouter,
   verification: verificationRouter,
   dailyRecord: dailyRecordRouter,
   analytics: analyticsRouter,
