@@ -75,11 +75,6 @@ export function CorporatePurchaseCard({
     onError: (e) => toast.error(e.message),
   });
 
-  const setPaid = trpc.corporatePurchase.setPaid.useMutation({
-    onSuccess: () => invalidate(),
-    onError: (e) => toast.error(e.message),
-  });
-
   const {
     register,
     handleSubmit,
@@ -232,44 +227,13 @@ export function CorporatePurchaseCard({
             </div>
           </div>
 
-          {/* Ödeme durumu: Borç / Ödendi */}
-          <div>
-            <Label className="text-xs">Ödeme Durumu</Label>
-            <Controller
-              control={control}
-              name="is_paid"
-              render={({ field }) => (
-                <div className="grid grid-cols-2 gap-2 mt-1">
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => field.onChange(false)}
-                    className={`inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
-                      field.value === false
-                        ? "border-rose-400 bg-rose-50 text-rose-700"
-                        : "border-border text-muted-foreground hover:bg-accent/50"
-                    }`}
-                  >
-                    <Clock className="h-3.5 w-3.5" />
-                    Borç
-                  </button>
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => field.onChange(true)}
-                    className={`inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
-                      field.value === true
-                        ? "border-emerald-400 bg-emerald-50 text-emerald-700"
-                        : "border-border text-muted-foreground hover:bg-accent/50"
-                    }`}
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                    Ödendi
-                  </button>
-                </div>
-              )}
-            />
-          </div>
+          {/* Ödeme durumu giriş anında sorulmaz — bu karta mağazada ödeme
+              yapmayanlar (borçlular) girilir. Borç kapatınca Kurumsal & Yönetim
+              analiz sayfasından 'ödendi' işaretlenir. */}
+          <p className="text-[11px] text-muted-foreground bg-muted/40 rounded-md px-2.5 py-1.5">
+            Kayıt <span className="font-medium text-rose-600">borç</span> olarak
+            eklenir. Ödendiğinde Kurumsal & Yönetim sayfasından işaretle.
+          </p>
 
           <div>
             <Label htmlFor="note" className="text-xs">
@@ -307,11 +271,8 @@ export function CorporatePurchaseCard({
                     {formatDistanceToNow(r.created_at, { addSuffix: true, locale: tr })}
                   </div>
                 </div>
-                {/* Borç/Ödendi rozeti — tıklayınca toggle */}
-                <button
-                  type="button"
-                  onClick={() => setPaid.mutate({ id: r.id, is_paid: !r.is_paid })}
-                  title={r.is_paid ? "Ödendi (tıkla: borç yap)" : "Borç (tıkla: ödendi yap)"}
+                {/* Borç/Ödendi durumu — gösterim; işaretleme analiz sayfasında */}
+                <span
                   className={`shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border ${
                     r.is_paid
                       ? "bg-emerald-50 text-emerald-700 border-emerald-200"
@@ -320,7 +281,7 @@ export function CorporatePurchaseCard({
                 >
                   {r.is_paid ? <Check className="h-2.5 w-2.5" /> : <Clock className="h-2.5 w-2.5" />}
                   {r.is_paid ? "Ödendi" : "Borç"}
-                </button>
+                </span>
                 <Button
                   variant="ghost"
                   size="icon"

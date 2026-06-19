@@ -9,6 +9,7 @@ import {
   Clock,
   Check,
 } from "lucide-react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { ChartSkeleton } from "@/components/shared/skeleton";
@@ -123,6 +124,15 @@ function PartyCard({
   const Icon = kind === "corporate" ? Building : User;
   const tone = kind === "corporate" ? "bg-indigo-100 text-indigo-700" : "bg-violet-100 text-violet-700";
 
+  const utils = trpc.useUtils();
+  const setPaid = trpc.corporatePurchase.setPaid.useMutation({
+    onSuccess: (_d, vars) => {
+      toast.success(vars.is_paid ? "Ödendi olarak işaretlendi" : "Borç olarak işaretlendi");
+      utils.analytics.corporate.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   return (
     <Card className="animate-fade-in">
       <CardContent className="p-5">
@@ -207,15 +217,30 @@ function PartyCard({
                       </span>
                     </td>
                     <td className="py-2 px-3 text-center">
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border ${
+                      <button
+                        type="button"
+                        disabled={setPaid.isPending}
+                        onClick={() =>
+                          setPaid.mutate({ id: e.id, is_paid: !e.is_paid })
+                        }
+                        title={
                           e.is_paid
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                            : "bg-rose-50 text-rose-700 border-rose-200"
+                            ? "Ödendi — tıkla: borç yap"
+                            : "Borç — tıkla: ödendi işaretle"
+                        }
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border transition-colors disabled:opacity-50 ${
+                          e.is_paid
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                            : "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
                         }`}
                       >
+                        {e.is_paid ? (
+                          <Check className="h-2.5 w-2.5" />
+                        ) : (
+                          <Clock className="h-2.5 w-2.5" />
+                        )}
                         {e.is_paid ? "Ödendi" : "Borç"}
-                      </span>
+                      </button>
                     </td>
                     <td className="py-2 px-3 text-right tabular-nums font-medium">
                       {fmt(e.amount)}
