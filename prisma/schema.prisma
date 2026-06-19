@@ -832,3 +832,25 @@ model InvoicedExpenseItem {
   @@index([batch_id])
   @@index([category])
 }
+
+// ─────────────────────────────────────────────────────────────
+// DEFOLU — İndirim Kontrol programından push (ay × Mavi mağaza zarar toplamı)
+// ─────────────────────────────────────────────────────────────
+// mavi-iskonto-sistemi → POST /api/ingest/defolu (Bearer INGEST_API_TOKEN).
+// Masraf matrisinde "DEFOLU" kategori satırını Mavi kodu bazlı doldurur.
+// Idempotent: (year, month, store_code) tekrar gelirse tutar güncellenir.
+// Detay: docs/MASRAF-MUHASEBE-PLANI.md (Faz 5)
+
+model DefoluEntry {
+  id           String   @id @default(uuid())
+  period_year  Int
+  period_month Int // 1-12
+  store_code   String // Mavi kodu: 9400 Lefkoşa / 9401 Girne / 9402 Mağusa / 9403 Güzelyurt
+  amount_try   Decimal  @db.Decimal(14, 2) // ay×mağaza defolu zarar toplamı (TL)
+  source       String   @default("indirim-kontrol")
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@unique([period_year, period_month, store_code])
+  @@index([period_year])
+}

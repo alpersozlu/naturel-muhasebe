@@ -212,21 +212,26 @@ function buildSummarySheet(ws: Worksheet, report: MaviReport): void {
   ws.mergeCells(1, 1, 1, 6);
   ws.getRow(1).height = 24;
 
-  const headers = ["Kategori", "Yıl Toplam (₺)", "Faturalı", "Kasa", "POS", "Durum"];
+  const headers = ["Kategori", "Yıl Toplam (₺)", "Faturalı", "Kasa", "POS", "Defolu", "Durum"];
+  const statusCol = headers.length; // "Durum" sütunu (1 tabanlı)
   const headRow = 3;
   headers.forEach((h, i) => {
     const c = ws.getCell(headRow, i + 1);
     c.value = h;
     c.font = { name: "Inter", size: 10, bold: true, color: { argb: COLORS.text } };
     c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.primaryLight } };
-    c.alignment = { horizontal: i === 0 || i === 5 ? "left" : "right", vertical: "middle" };
+    c.alignment = {
+      horizontal: i === 0 || i === statusCol - 1 ? "left" : "right",
+      vertical: "middle",
+    };
   });
   ws.getColumn(1).width = 26;
   ws.getColumn(2).width = 16;
   ws.getColumn(3).width = 14;
   ws.getColumn(4).width = 14;
   ws.getColumn(5).width = 14;
-  ws.getColumn(6).width = 22;
+  ws.getColumn(6).width = 14;
+  ws.getColumn(7).width = 24;
   ws.getRow(headRow).height = 20;
 
   let row = headRow + 1;
@@ -235,11 +240,13 @@ function buildSummarySheet(ws: Worksheet, report: MaviReport): void {
     let inv = 0;
     let cash = 0;
     let pos = 0;
+    let defolu = 0;
     for (const byStore of Object.values(r.cells)) {
       for (const cell of Object.values(byStore)) {
         inv += cell.invoiced;
         cash += cell.cash;
         pos += cell.pos;
+        defolu += cell.defolu;
       }
     }
     const money = (col: number, val: number) => {
@@ -259,8 +266,9 @@ function buildSummarySheet(ws: Worksheet, report: MaviReport): void {
     money(3, inv);
     money(4, cash);
     money(5, pos);
+    money(6, defolu);
 
-    const status = ws.getCell(row, 6);
+    const status = ws.getCell(row, statusCol);
     status.value = r.auto ? (r.hasData ? "Otomatik" : "Otomatik — veri bekleniyor") : "Manuel bekliyor";
     status.font = {
       name: "Inter",

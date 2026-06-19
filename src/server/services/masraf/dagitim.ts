@@ -144,6 +144,7 @@ export type MatrixCell = {
   invoiced: number; // faturalı ÷7 dağıtım payı
   cash: number; // mağazanın kendi kasa masrafı
   pos: number; // POS %5
+  defolu: number; // İndirim Kontrol push (DEFOLU kategorisi)
 };
 export type MasrafMatrix = {
   year: number;
@@ -170,6 +171,7 @@ export async function masrafMatrix(
       invoiced: 0,
       cash: 0,
       pos: 0,
+      defolu: 0,
     });
     return c;
   };
@@ -268,6 +270,22 @@ export async function masrafMatrix(
     const c = cell("POS", month, code);
     c.pos += posCost;
     c.total += posCost;
+  }
+
+  // 4) DEFOLU — İndirim Kontrol push (ay × Mavi mağaza defolu zarar toplamı).
+  //    Mağaza koduna göre doğrudan DEFOLU kategorisine yazılır (dağıtım yok).
+  const validCodes = new Set<string>(MAVI_STORE_CODES);
+  const defoluRows = await prisma.defoluEntry.findMany({
+    where: { period_year: year },
+    select: { period_month: true, store_code: true, amount_try: true },
+  });
+  for (const d of defoluRows) {
+    if (!validCodes.has(d.store_code)) continue;
+    const amt = num(d.amount_try);
+    if (amt === 0) continue;
+    const c = cell("DEFOLU", d.period_month, d.store_code);
+    c.defolu += amt;
+    c.total += amt;
   }
 
   return { year, store_count: fatura.store_count, matrix };

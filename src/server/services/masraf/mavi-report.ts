@@ -37,7 +37,7 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export type MaviSource = "invoiced" | "cash" | "pos";
+export type MaviSource = "invoiced" | "cash" | "pos" | "defolu";
 
 export type MaviReportRow = MaviRowDef & {
   /** ay(1-12) → mağaza kodu → hücre (kaynak ayrımıyla). Boş aylar atlanır. */
@@ -100,7 +100,7 @@ export async function buildMaviReport(
       codes.map((c) => [c, 0])
     );
     let rowTotal = 0;
-    const srcSet = { invoiced: false, cash: false, pos: false };
+    const srcSet = { invoiced: false, cash: false, pos: false, defolu: false };
 
     if (byMonth) {
       for (const { num: month } of MAVI_MONTHS) {
@@ -115,6 +115,7 @@ export async function buildMaviReport(
           if (cell.invoiced) srcSet.invoiced = true;
           if (cell.cash) srcSet.cash = true;
           if (cell.pos) srcSet.pos = true;
+          if (cell.defolu) srcSet.defolu = true;
 
           // toplamlar
           const colByStore = (columnTotals[month] ??= {});
@@ -134,6 +135,7 @@ export async function buildMaviReport(
     if (srcSet.invoiced) sources.push("invoiced");
     if (srcSet.cash) sources.push("cash");
     if (srcSet.pos) sources.push("pos");
+    if (srcSet.defolu) sources.push("defolu");
 
     return {
       ...def,

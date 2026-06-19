@@ -44,7 +44,8 @@ export const MAVI_ROW_ORDER: readonly MaviRowDef[] = [
   { key: "MUHASEBE", label: "Muhasebe", auto: false },
   { key: "SIGORTA", label: "Sigorta", auto: false },
   { key: "MAGAZA_KIRA", label: "Diğer Mağaza Kiraları", auto: false, note: "Güzelyurt hariç 3 Mavi + ortak giderler" },
-  { key: "DEFOLU", label: "Defolu", auto: false, note: "Faz 5: İndirim Kontrol → otomatik push" },
+  // DEFOLU: İndirim Kontrol programından otomatik push (Faz 5) — veri gelene dek boş görünür.
+  { key: "DEFOLU", label: "Defolu", auto: true, note: "İndirim Kontrol → otomatik push" },
 ] as const;
 
 /** Auto satır anahtarları seti (matris bu anahtarlarla gelir). */

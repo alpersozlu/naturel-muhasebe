@@ -5,7 +5,7 @@
 > kaydediyor) + şirket kartı "Faturalı Masraflar" (kullanıcı her ay yükler) +
 > Defolu (İndirim Kontrol programından push). Çıktı: "Mavi Masraflar" Excel.
 
-**Durum:** Faz 0-4 BİTTİ — 2026-06-19. Sıradaki: Faz 5 (DEFOLU ingest API). Kullanıcı: Alper.
+**Durum:** Faz 0-5 BİTTİ — 2026-06-19. Sıradaki: Faz 6 (Derimod'a genişletme). Kullanıcı: Alper.
 
 ## Kaynak dosyalar (2025, örnek)
 1. **Naturel Ticaret Muhasebe 2025.xlsx** — KASADAN çıkan masraflar. 7 mağaza sayfası,
@@ -64,7 +64,11 @@
   (`src/components/masraf/mavi-matrix-section.tsx`) — yıl/ay seçici + kaynak rozeti (aya duyarlı) +
   "manuel bekliyor" işareti + Excel indir. Gerçek 2026 veriyle preview'da doğrulandı (Kira→sadece
   Güzelyurt, POS→kilitli satış, manuel satırlar boş). Build temiz.
-- **Faz 5** DEFOLU ingest API (push, İndirim Kontrol → DocuFlow), Nebim `/api/ingest/retail-sales` pattern'i.
+- **Faz 5** ✅ DEFOLU ingest API. Model `DefoluEntry` (year/month/store_code/amount_try, unique).
+  Route `POST /api/ingest/defolu` (Bearer `INGEST_API_TOKEN`, Nebim pattern'i; store_code/store_name→Mavi kodu
+  çözümleme, idempotent upsert, matched/unmatched raporu). Matrise bağlandı: `MatrixCell.defolu` +
+  `masrafMatrix` DEFOLU adımı + `mavi-rows` DEFOLU→auto + rapor/UI/Excel'de "Defolu" kaynak rozeti.
+  Örnek push ile uçtan uca doğrulandı (401 auth, idempotency, ad çözümleme, matris dolumu); test verisi temizlendi.
 - **Faz 6** Derimod'a genişletme.
 
 ### Faz 4 başlangıç notu (yeni session için)

@@ -26,6 +26,7 @@ const SOURCE_META: Record<string, { label: string; cls: string }> = {
   invoiced: { label: "Faturalı", cls: "bg-indigo-50 text-indigo-700 border-indigo-200" },
   cash: { label: "Kasa", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   pos: { label: "POS", cls: "bg-slate-100 text-slate-600 border-slate-200" },
+  defolu: { label: "Defolu", cls: "bg-rose-50 text-rose-700 border-rose-200" },
 };
 
 function triggerXlsxDownload(base64: string, filename: string): void {
@@ -91,13 +92,14 @@ export function MaviMatrixSection() {
     if (month === 0) return r.sources;
     const byStore = r.cells[month];
     if (!byStore) return [];
-    const acc = { invoiced: false, cash: false, pos: false };
+    const acc = { invoiced: false, cash: false, pos: false, defolu: false };
     for (const cell of Object.values(byStore)) {
       if (cell.invoiced) acc.invoiced = true;
       if (cell.cash) acc.cash = true;
       if (cell.pos) acc.pos = true;
+      if (cell.defolu) acc.defolu = true;
     }
-    return (["invoiced", "cash", "pos"] as const).filter((s) => acc[s]);
+    return (["invoiced", "cash", "pos", "defolu"] as const).filter((s) => acc[s]);
   };
 
   // Alt TOPLAM satırı
@@ -257,9 +259,10 @@ export function MaviMatrixSection() {
 
         <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
           <strong>Otomatik</strong> satırlar onaylı faturalı dönemler (÷{report?.store_count ?? 7}),
-          mağaza kasası ve POS %5'ten dolar. <strong className="text-amber-700">Manuel bekliyor</strong> satırlar
+          mağaza kasası, POS %5 ve <strong className="text-rose-700">Defolu</strong> (İndirim Kontrol
+          programından otomatik push) ile dolar. <strong className="text-amber-700">Manuel bekliyor</strong> satırlar
           (Çalışma Ücreti, Elektrik, Telefon/İnternet, Kargo, Banka, Muhasebe, Sigorta, diğer mağaza
-          kiraları, Defolu) Excel'de boş gelir — muhasebede elle doldurulur. Kasa/POS gerçek veri
+          kiraları) Excel'de boş gelir — muhasebede elle doldurulur. Kasa/POS/Defolu gerçek veri
           girildikçe tablo otomatik dolar.
         </p>
       </CardContent>
