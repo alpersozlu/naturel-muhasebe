@@ -53,10 +53,10 @@
 
 ## FAZ PLANI
 - **Faz 0** ✅ Kategori mutabakatı (bu döküman)
-- **Faz 1** Veri modeli + kategori altyapısı: sistemdeki kategori setini hedefe hizala; "Faturalı Masraf (kart)" modeli.
-- **Faz 2** Faturalı Masraf yükleme: Excel upload → parse → otomatik kategorize → manuel düzeltme/onay UI (her ay kullanıcı yükler).
-- **Faz 3** Dağıtım motoru: ÷7 eşit dağıtım, MARKET ½/½ kuralı, KİRA ay-parse, POS %5, MAZOT.
-- **Faz 4** "Mavi Masraflar" export: kategori×ay×mağaza Excel (Dosya 3 formatı) + "eklendi / manuel bekliyor" raporu.
+- **Faz 1** ✅ Kategorize motoru (`src/lib/masraf/categorize.ts`, kelime-sınırı) + KKTCMB döviz servisi (`src/server/services/fx/kktcmb.ts`, tarih bazlı satış kuru).
+- **Faz 2** ✅ Faturalı Masraf yükleme: model (`InvoicedExpenseBatch`/`Item`), parse (`parse-invoiced.ts`), router (`invoicedExpense`), UI `/tr/invoiced-expense` (sürükle-bırak + ay ay + kategori düzelt + onayla). Gerçek 2026 dosyasıyla test edildi.
+- **Faz 3** ✅ Dağıtım motoru (`src/server/services/masraf/dagitim.ts`): `faturaliDagitim` (÷7, MARKET ½/½, KİRA→Güzelyurt belongs_month) + `masrafMatrix` (faturalı + kasa[Expense/CashAdvance açıklamadan kategorize] + POS %5, kaynak ayrımlı). Query: `invoicedExpense.distribution` / `.matrix`.
+- **Faz 4** ⏳ "Mavi Masraflar" çıktısı: ekran matris görünümü (kategori×ay×mağaza) + Excel export (Dosya 3 formatı) + "eklendi / manuel bekliyor" raporu. Kaynak (faturalı/kasa/pos) şeffaflığı.
 - **Faz 5** DEFOLU ingest API (push, İndirim Kontrol → DocuFlow), Nebim `/api/ingest/retail-sales` pattern'i.
 - **Faz 6** Derimod'a genişletme.
 
