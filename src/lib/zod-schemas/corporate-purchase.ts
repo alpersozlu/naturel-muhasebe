@@ -7,36 +7,36 @@ const dateOnly = z
 
 export const CORPORATE_PURCHASE_TYPES = ["corporate", "management"] as const;
 
-export const corporatePurchaseCreateSchema = z
-  .object({
-    store_id: z.string().uuid(),
-    date: dateOnly,
-    type: z.enum(CORPORATE_PURCHASE_TYPES),
-    // Kurumsal için şirket adı — opsiyonel (boş bırakılabilir)
-    company_name: z
-      .union([z.string(), z.null(), z.undefined()])
-      .transform((v) => (v && typeof v === "string" && v.trim() ? v.trim() : undefined)),
-    // İsim soyisim — HER ZAMAN zorunlu
-    person_name: z
-      .union([z.string(), z.null(), z.undefined()])
-      .transform((v) => (v && typeof v === "string" && v.trim() ? v.trim() : undefined)),
-    amount: z.number().positive("Tutar 0'dan büyük olmalı"),
-    currency: z.enum(SUPPORTED_CURRENCIES).default("TRY"),
-    is_paid: z.boolean().default(false),
-    note: z
-      .union([z.string(), z.null(), z.undefined()])
-      .transform((v) => (v && typeof v === "string" && v.trim() ? v.trim() : undefined)),
-  })
-  .superRefine((val, ctx) => {
-    // İsim soyisim her zaman zorunlu
-    if (!val.person_name) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["person_name"],
-        message: "İsim soyisim girilmeli (kim aldı)",
-      });
-    }
-  });
+// Zod 4 NOT: `z.union([z.string(), z.null(), z.undefined()])` bir alanı
+// optional YAPMAZ (key zorunlu kalır → "nonoptional / Invalid input"). Opsiyonel
+// metin için `.optional()` + transform kullan. (Handoff Zod-4 gotcha.)
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .optional()
+    .transform((v) => (v && v.length ? v : undefined));
+
+export const corporatePurchaseCreateSchema = z.object({
+  store_id: z.string().uuid(),
+  date: dateOnly,
+  type: z.enum(CORPORATE_PURCHASE_TYPES),
+  // Kurumsal için şirket adı — opsiyonel (boş bırakılabilir)
+  company_name: optionalText(120),
+  // İsim soyisim — HER ZAMAN zorunlu
+  person_name: z
+    .string()
+    .trim()
+    .min(1, "İsim soyisim girilmeli (kim aldı)")
+    .max(120),
+  // coerce: input string ("1899.97") de gelse number'a çevrilir —
+  // RHF valueAsNumber kırılganlığına bağımlı kalma.
+  amount: z.coerce.number().positive("Tutar 0'dan büyük olmalı"),
+  currency: z.enum(SUPPORTED_CURRENCIES).default("TRY"),
+  is_paid: z.boolean().default(false),
+  note: optionalText(300),
+});
 
 export const corporatePurchaseIdSchema = z.object({ id: z.string().uuid() });
 

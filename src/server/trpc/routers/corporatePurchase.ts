@@ -50,7 +50,7 @@ export const corporatePurchaseRouter = router({
           // Şirket adı yalnızca kurumsal için anlamlı
           company_name:
             input.type === "corporate" ? input.company_name ?? null : null,
-          person_name: input.person_name!,
+          person_name: input.person_name,
           amount: input.amount,
           currency: input.currency,
           amount_try,

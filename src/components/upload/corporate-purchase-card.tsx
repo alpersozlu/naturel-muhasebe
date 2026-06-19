@@ -104,6 +104,12 @@ export function CorporatePurchaseCard({
   const onSubmit = (vals: CorporatePurchaseCreateInput) =>
     create.mutateAsync({ ...vals, store_id: storeId, date });
 
+  // Validation sessiz fail'i önle — ilk hatayı toast olarak göster
+  const onInvalid = (errs: Record<string, { message?: string }>) => {
+    const first = Object.values(errs)[0];
+    toast.error(first?.message ?? "Lütfen zorunlu alanları doldur");
+  };
+
   return (
     <Card className={disabled ? "opacity-50" : ""}>
       <CardContent className="p-5">
@@ -117,7 +123,7 @@ export function CorporatePurchaseCard({
             : "Ödemesiz satış — kasa toplamına eklenir"}
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
+        <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-3">
           {/* Tip: Kurumsal / Yönetim */}
           <div>
             <Label className="text-xs">Tür</Label>
@@ -198,7 +204,7 @@ export function CorporatePurchaseCard({
                 type="number"
                 step="0.01"
                 disabled={disabled}
-                {...register("amount", { valueAsNumber: true })}
+                {...register("amount")}
               />
               {errors.amount ? (
                 <p className="text-xs text-destructive mt-1">{errors.amount.message}</p>
