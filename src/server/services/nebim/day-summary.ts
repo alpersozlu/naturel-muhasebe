@@ -61,21 +61,24 @@ export async function computeNebimDaySummary(
   });
   if (lines.length === 0) return null;
 
-  let sales = 0;
-  let returns = 0;
+  // ÖNEMLİ: Nebim iadeleri (is_return) net_amount'ı ZATEN NEGATİF saklar.
+  // Bu yüzden net satış = tüm net_amount toplamı (iadeler kendiliğinden düşülür).
+  // Derimod Satışları sayfasıyla (_sum net_amount) birebir aynı sonucu verir.
+  let total = 0; // = net satış (iadeler dahil/negatif)
+  let returns = 0; // sadece iade satırları toplamı (negatif) — gösterim için
   const invoices = new Set<string>();
   for (const l of lines) {
     const amt = l.net_amount?.toNumber() ?? 0;
+    total += amt;
     if (l.is_return) returns += amt;
-    else sales += amt;
     invoices.add(l.invoice_ref);
   }
   const r2 = (n: number) => Math.round(n * 100) / 100;
-  const net = r2(sales - returns);
+  const net = r2(total);
   return {
     net,
-    sales: r2(sales),
-    returns: r2(returns),
+    sales: r2(total - returns), // iade öncesi brüt (iade satırları hariç)
+    returns: r2(returns), // negatif (iade tutarı)
     line_count: lines.length,
     invoice_count: invoices.size,
     summary_sales: r2(summarySales),

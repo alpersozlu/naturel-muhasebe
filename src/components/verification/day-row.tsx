@@ -677,7 +677,7 @@ function NebimBlock({
 
           <div className="text-[11px] text-muted-foreground mt-2">
             {n.invoice_count} fiş · {n.line_count} satır
-            {n.returns > 0 ? ` · iadeler düşülü (${fmt(n.returns)} ₺)` : ""}
+            {n.returns < 0 ? ` · iade düşülü ${fmt(Math.abs(n.returns))} ₺` : ""}
           </div>
         </div>
       </div>
