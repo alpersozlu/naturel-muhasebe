@@ -6,6 +6,7 @@ import {
   computeDay,
   persistVerification,
 } from "@/server/services/verification/compute";
+import { computeNebimDaySummary } from "@/server/services/nebim/day-summary";
 
 export const verificationRouter = router({
   /**
@@ -69,6 +70,12 @@ export const verificationRouter = router({
       });
       if (!dr) throw new TRPCError({ code: "NOT_FOUND" });
       await assertCanAccessStore(ctx.user, dr.store_id);
-      return computeDay(ctx.prisma, input.daily_record_id);
+      const result = await computeDay(ctx.prisma, input.daily_record_id);
+      // NEBİM canlı server karşılaştırması (Derimod 3. kontrol) — varsa ekle.
+      const nebim_summary = await computeNebimDaySummary(
+        ctx.prisma,
+        input.daily_record_id
+      );
+      return { ...result, nebim_summary };
     }),
 });

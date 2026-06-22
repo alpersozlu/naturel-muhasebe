@@ -11,6 +11,9 @@ import {
   ChevronUp,
   Loader2,
   AlertCircle,
+  Radio,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -476,6 +479,15 @@ function ComparisonPanel({
     }>;
     status: "match" | "mismatch" | "no_data" | "no_summary";
     notes: string | null;
+    nebim_summary?: {
+      net: number;
+      sales: number;
+      returns: number;
+      line_count: number;
+      invoice_count: number;
+      summary_sales: number;
+      difference: number;
+    } | null;
   };
 }) {
   if (result.status === "no_summary") {
@@ -556,6 +568,9 @@ function ComparisonPanel({
         </div>
       </div>
 
+      {/* NEBİM canlı server karşılaştırması (3. kontrol — Derimod) */}
+      {result.nebim_summary ? <NebimBlock n={result.nebim_summary} /> : null}
+
       {/* Açıklama notları — varsa */}
       {noteList.length > 0 ? (
         <div className="mt-3 space-y-1.5">
@@ -564,6 +579,108 @@ function ComparisonPanel({
           ))}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * NEBİM canlı server karşılaştırması (Derimod 3. kontrol aşaması).
+ * Günün Nebim net satış toplamı (iade düşülü) ↔ Mağaza Özeti satış toplamı.
+ * "Server'da gerçekten o kadar satış oldu mu" kontrolü.
+ * difference = Nebim net − Mağaza Özeti:
+ *  > 0 → server > özet → ÖZET AZ (kritik) · < 0 → server < özet → ÖZET FAZLA (anomali)
+ */
+function NebimBlock({
+  n,
+}: {
+  n: {
+    net: number;
+    sales: number;
+    returns: number;
+    line_count: number;
+    invoice_count: number;
+    summary_sales: number;
+    difference: number;
+  };
+}) {
+  const matches = Math.abs(n.difference) <= 1;
+  const tone = matches
+    ? {
+        bar: "border-emerald-200 bg-gradient-to-r from-emerald-50 to-white",
+        accent: "text-emerald-600",
+        title: "text-emerald-900",
+        Icon: ShieldCheck,
+        label: "Server ile uyumlu",
+        explainer: "Mağaza Özeti, server'daki gerçek satışla tutuyor.",
+      }
+    : n.difference > 0
+      ? {
+          bar: "border-rose-300 bg-gradient-to-r from-rose-50 to-rose-50/40",
+          accent: "text-rose-600",
+          title: "text-rose-900",
+          Icon: ShieldAlert,
+          label: "Özet, server'dan AZ",
+          explainer:
+            "Nebim server'da bu günün satışı Mağaza Özeti'nden yüksek — özette daha az satış gösterilmiş olabilir.",
+        }
+      : {
+          bar: "border-amber-300 bg-gradient-to-r from-amber-50 to-amber-50/40",
+          accent: "text-amber-600",
+          title: "text-amber-900",
+          Icon: AlertTriangle,
+          label: "Özet, server'dan FAZLA",
+          explainer:
+            "Mağaza Özeti server'daki satıştan yüksek — server'a henüz işlenmemiş satış olabilir, kontrol et.",
+        };
+  const Icon = tone.Icon;
+
+  return (
+    <div className={`mt-4 rounded-2xl border-2 ${tone.bar} p-4 shadow-sm`}>
+      <div className="flex items-start gap-3">
+        <div className={`shrink-0 ${tone.accent}`}>
+          <Icon className="h-6 w-6" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className={`font-semibold text-sm ${tone.title} flex items-center gap-2 flex-wrap`}>
+            📡 Nebim Server Karşılaştırması — {tone.label}
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium rounded-full bg-slate-900/5 px-2 py-0.5 text-slate-600">
+              <Radio className="h-3 w-3" /> canlı · 3. kontrol
+            </span>
+          </div>
+          <div className="text-xs text-foreground/80 mt-1">{tone.explainer}</div>
+
+          <div className="grid grid-cols-3 gap-2 mt-3">
+            <div className="rounded-lg bg-white/70 border border-border/60 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Server Net Satış
+              </div>
+              <div className="tabular-nums font-semibold text-sm">{fmt(n.net)} ₺</div>
+            </div>
+            <div className="rounded-lg bg-white/70 border border-border/60 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Mağaza Özeti
+              </div>
+              <div className="tabular-nums font-semibold text-sm">
+                {fmt(n.summary_sales)} ₺
+              </div>
+            </div>
+            <div className="rounded-lg bg-white/70 border border-border/60 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Fark
+              </div>
+              <div className={`tabular-nums font-semibold text-sm ${tone.accent}`}>
+                {n.difference >= 0 ? "+" : ""}
+                {fmt(n.difference)} ₺
+              </div>
+            </div>
+          </div>
+
+          <div className="text-[11px] text-muted-foreground mt-2">
+            {n.invoice_count} fiş · {n.line_count} satır
+            {n.returns > 0 ? ` · iadeler düşülü (${fmt(n.returns)} ₺)` : ""}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
