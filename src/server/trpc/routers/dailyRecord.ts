@@ -215,6 +215,7 @@ export const dailyRecordRouter = router({
           reconciliation_notes_at: null,
           merge: null,
           verification: null,
+          nebim_summary: null,
         };
       }
 
@@ -281,6 +282,50 @@ export const dailyRecordRouter = router({
         ? await computeDay(ctx.prisma, computeRecordId)
         : null;
 
+      // NEBİM canlı server karşılaştırması (3. kontrol aşaması — Derimod).
+      // Bu mağaza+gün(ler) için Nebim'e kaydedilen net satış toplamı. İade
+      // satırları (is_return) düşülür. Nebim verisi yoksa (örn. Mavi) null.
+      const nebimLines = await ctx.prisma.nebimSaleLine.findMany({
+        where: {
+          store_id: input.store_id,
+          invoice_date: { in: agg.map((r) => r.date) },
+        },
+        select: { net_amount: true, is_return: true, invoice_ref: true },
+      });
+      let nebimSummary: {
+        net: number;
+        sales: number;
+        returns: number;
+        line_count: number;
+        invoice_count: number;
+        summary_sales: number;
+        difference: number;
+      } | null = null;
+      if (nebimLines.length > 0) {
+        let sales = 0;
+        let returns = 0;
+        const invoices = new Set<string>();
+        for (const l of nebimLines) {
+          const amt = l.net_amount?.toNumber() ?? 0;
+          if (l.is_return) returns += amt;
+          else sales += amt;
+          invoices.add(l.invoice_ref);
+        }
+        const r2 = (n: number) => Math.round(n * 100) / 100;
+        const net = r2(sales - returns);
+        const summarySales =
+          summaryRec?.store_summary?.sales_total_try?.toNumber() ?? 0;
+        nebimSummary = {
+          net,
+          sales: r2(sales),
+          returns: r2(returns),
+          line_count: nebimLines.length,
+          invoice_count: invoices.size,
+          summary_sales: r2(summarySales),
+          difference: r2(net - summarySales),
+        };
+      }
+
       let status:
         | "empty"
         | "incomplete"
@@ -325,6 +370,7 @@ export const dailyRecordRouter = router({
         daily_record_id: dr.id,
         reconciliation_notes: dr.reconciliation_notes,
         reconciliation_notes_at: dr.reconciliation_notes_at,
+        nebim_summary: nebimSummary,
         // Gün birleşmesi bağlamı (varsa) — panel grup bilgisini gösterir
         merge: dr.merge_group
           ? {
