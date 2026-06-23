@@ -1,7 +1,38 @@
 import type { Prisma } from "@prisma/client";
 import { router, protectedProcedure } from "../trpc";
-import { nebimSalesFilterSchema } from "@/lib/zod-schemas/nebim-sales";
+import {
+  nebimSalesFilterSchema,
+  nebimAnalizSchema,
+  nebimCustomerProductsSchema,
+} from "@/lib/zod-schemas/nebim-sales";
 import { getAccessibleStoreIds, isAdmin } from "@/lib/auth/permissions";
+
+/** Filtre (mağaza kapsamı + tarih + iade) → Prisma where. Erişim yoksa null. */
+async function buildWhere(
+  ctx: { user: unknown; prisma: unknown },
+  input: { store_id?: string; date_from?: string; date_to?: string; only_returns?: boolean }
+): Promise<Prisma.NebimSaleLineWhereInput | null> {
+  // ctx tiplerini gevşek aldık; gerçek erişim kontrolü aşağıda.
+  const c = ctx as { user: Parameters<typeof isAdmin>[0] };
+  let allowed: string[] | null = null;
+  if (!isAdmin(c.user)) {
+    allowed = await getAccessibleStoreIds(c.user);
+    if (allowed.length === 0) return null;
+  }
+  let storeFilter: string[] | undefined;
+  if (input.store_id) storeFilter = [input.store_id];
+  else if (allowed) storeFilter = allowed;
+
+  const dateFilter: { gte?: Date; lte?: Date } = {};
+  if (input.date_from) dateFilter.gte = new Date(`${input.date_from}T00:00:00.000Z`);
+  if (input.date_to) dateFilter.lte = new Date(`${input.date_to}T00:00:00.000Z`);
+
+  return {
+    ...(storeFilter ? { store_id: { in: storeFilter } } : {}),
+    ...(Object.keys(dateFilter).length > 0 ? { invoice_date: dateFilter } : {}),
+    ...(input.only_returns ? { is_return: true } : {}),
+  };
+}
 
 const EMPTY_SUMMARY = {
   lines: 0,
@@ -125,5 +156,131 @@ export const nebimSalesRouter = router({
           by_store,
         },
       };
+    }),
+
+  /**
+   * Satış analizi — personel / müşteri / mağaza kırılımı (tarih aralığına göre).
+   * Net = sum(net_amount) (iadeler negatif → kendiliğinden düşer).
+   */
+  analiz: protectedProcedure
+    .input(nebimAnalizSchema)
+    .query(async ({ ctx, input }) => {
+      const where = await buildWhere(ctx, input);
+      const empty = {
+        kpi: { net_total: 0, invoices: 0, lines: 0 },
+        by_salesperson: [] as Array<{ name: string; net: number; lines: number; invoices: number }>,
+        by_customer: [] as Array<{ name: string; net: number; lines: number; invoices: number }>,
+        by_store: [] as Array<{ store_name: string | null; net: number; lines: number }>,
+      };
+      if (!where) return empty;
+
+      const custWhere: Prisma.NebimSaleLineWhereInput = {
+        ...where,
+        customer_name: { not: null },
+      };
+
+      const [
+        agg,
+        bySales,
+        salesInv,
+        byCust,
+        custInv,
+        byStoreRaw,
+        invoiceGroups,
+        stores,
+      ] = await Promise.all([
+        ctx.prisma.nebimSaleLine.aggregate({ where, _count: { _all: true }, _sum: { net_amount: true } }),
+        ctx.prisma.nebimSaleLine.groupBy({ by: ["salesperson_name"], where, _count: { _all: true }, _sum: { net_amount: true } }),
+        ctx.prisma.nebimSaleLine.groupBy({ by: ["salesperson_name", "invoice_ref"], where }),
+        ctx.prisma.nebimSaleLine.groupBy({ by: ["customer_name"], where: custWhere, _count: { _all: true }, _sum: { net_amount: true } }),
+        ctx.prisma.nebimSaleLine.groupBy({ by: ["customer_name", "invoice_ref"], where: custWhere }),
+        ctx.prisma.nebimSaleLine.groupBy({ by: ["store_id"], where, _count: { _all: true }, _sum: { net_amount: true } }),
+        ctx.prisma.nebimSaleLine.groupBy({ by: ["company_code", "invoice_ref"], where }),
+        ctx.prisma.store.findMany({ select: { id: true, name: true } }),
+      ]);
+
+      const countFis = (rows: Array<{ [k: string]: unknown }>, key: string) => {
+        const m = new Map<string, number>();
+        for (const g of rows) {
+          const k = (g[key] as string | null) ?? "—";
+          m.set(k, (m.get(k) ?? 0) + 1);
+        }
+        return m;
+      };
+      const salesFis = countFis(salesInv, "salesperson_name");
+      const custFis = countFis(custInv, "customer_name");
+
+      const by_salesperson = bySales
+        .map((g) => ({
+          name: g.salesperson_name ?? "—",
+          net: Number(g._sum.net_amount ?? 0),
+          lines: g._count._all,
+          invoices: salesFis.get(g.salesperson_name ?? "—") ?? 0,
+        }))
+        .sort((a, b) => b.net - a.net);
+
+      const by_customer = byCust
+        .map((g) => ({
+          name: g.customer_name ?? "—",
+          net: Number(g._sum.net_amount ?? 0),
+          lines: g._count._all,
+          invoices: custFis.get(g.customer_name ?? "—") ?? 0,
+        }))
+        .sort((a, b) => b.net - a.net)
+        .slice(0, 300);
+
+      const nameOf = new Map(stores.map((s) => [s.id, s.name]));
+      const by_store = byStoreRaw
+        .map((g) => ({
+          store_name: g.store_id ? nameOf.get(g.store_id) ?? null : null,
+          net: Number(g._sum.net_amount ?? 0),
+          lines: g._count._all,
+        }))
+        .sort((a, b) => b.net - a.net);
+
+      return {
+        kpi: {
+          net_total: Number(agg._sum.net_amount ?? 0),
+          invoices: invoiceGroups.length,
+          lines: agg._count._all,
+        },
+        by_salesperson,
+        by_customer,
+        by_store,
+      };
+    }),
+
+  /** Bir müşterinin aldığı ürünler (drill-down) — filtre + customer_name. */
+  customerProducts: protectedProcedure
+    .input(nebimCustomerProductsSchema)
+    .query(async ({ ctx, input }) => {
+      const base = await buildWhere(ctx, input);
+      if (!base) return { items: [], net_total: 0 };
+      const where: Prisma.NebimSaleLineWhereInput = {
+        ...base,
+        customer_name: input.customer_name,
+      };
+      const rows = await ctx.prisma.nebimSaleLine.findMany({
+        where,
+        orderBy: [{ invoice_date: "desc" }, { invoice_ref: "desc" }, { sort_order: "asc" }],
+        take: 500,
+        include: { store: { select: { name: true } } },
+      });
+      const items = rows.map((r) => ({
+        id: r.id,
+        invoice_ref: r.invoice_ref,
+        invoice_date: r.invoice_date,
+        store_name: r.store?.name ?? r.store_name_raw,
+        is_return: r.is_return,
+        item_desc: r.item_desc,
+        item_code: r.item_code,
+        color_desc: r.color_desc,
+        size: r.size,
+        salesperson_name: r.salesperson_name,
+        qty: Number(r.qty),
+        net_amount: r.net_amount == null ? null : Number(r.net_amount),
+      }));
+      const net_total = items.reduce((s, i) => s + (i.net_amount ?? 0), 0);
+      return { items, net_total };
     }),
 });

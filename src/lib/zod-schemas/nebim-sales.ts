@@ -14,3 +14,16 @@ export const nebimSalesFilterSchema = z.object({
 });
 
 export type NebimSalesFilter = z.infer<typeof nebimSalesFilterSchema>;
+
+/** Satış analizi (personel/müşteri/mağaza özeti) — sayfalama yok, tüm filtre. */
+export const nebimAnalizSchema = z.object({
+  store_id: z.string().uuid().optional(),
+  date_from: dateOnly.optional(),
+  date_to: dateOnly.optional(),
+  only_returns: z.boolean().optional(),
+});
+
+/** Bir müşterinin aldığı ürünler (drill-down). */
+export const nebimCustomerProductsSchema = nebimAnalizSchema.extend({
+  customer_name: z.string().min(1),
+});
