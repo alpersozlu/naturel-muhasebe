@@ -108,6 +108,8 @@ export const nebimSalesRouter = router({
         size: r.size,
         salesperson_name: r.salesperson_name,
         customer_name: r.customer_name,
+        payment_type: r.payment_type,
+        card_type: r.card_type,
         qty: Number(r.qty),
         net_amount: r.net_amount == null ? null : Number(r.net_amount),
       }));

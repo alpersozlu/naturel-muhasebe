@@ -30,6 +30,9 @@ export const nebimSaleLineSchema = z.object({
   customer_code: z.string().nullish(), // CurrAccCode
   customer_name: z.string().nullish(), // cdCurrAcc.FullName (isimli müşteri)
 
+  payment_type: z.string().nullish(), // "Nakit" / "Kredi Kartı" / "Nakit + Kredi Kartı"
+  card_type: z.string().nullish(), // kart markası (Maksimum, Garanti Bonus…)
+
   qty: z.number(),
   price: z.number().nullish(),
   vat_rate: z.number().nullish(),

@@ -2,7 +2,16 @@
 
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
-import { ShoppingCart, Loader2, ChevronDown, RotateCcw, User, UserCircle2 } from "lucide-react";
+import {
+  ShoppingCart,
+  Loader2,
+  ChevronDown,
+  RotateCcw,
+  User,
+  UserCircle2,
+  CreditCard,
+  Banknote,
+} from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -123,6 +132,7 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
                         <RotateCcw className="h-3 w-3" /> İade
                       </span>
                     ) : null}
+                    <PaymentBadge paymentType={r.payment_type} cardType={r.card_type} />
                   </div>
                   <div className="text-xs text-muted-foreground truncate flex items-center gap-1.5 mt-1">
                     <span className="font-medium text-foreground/80">
@@ -219,5 +229,34 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** Ödeme tipi rozeti — Nakit (yeşil) / Kredi Kartı (mavi, + marka). */
+function PaymentBadge({
+  paymentType,
+  cardType,
+}: {
+  paymentType: string | null;
+  cardType: string | null;
+}) {
+  if (!paymentType) return null;
+  const isCard = paymentType.includes("Kredi");
+  const isCash = paymentType.includes("Nakit");
+  const Icon = isCard ? CreditCard : Banknote;
+  const cls = isCard
+    ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+    : isCash
+      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+      : "bg-slate-100 text-slate-600 border-slate-200";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border ${cls}`}
+      title={cardType ? `Kart: ${cardType}` : undefined}
+    >
+      <Icon className="h-3 w-3" />
+      {paymentType}
+      {isCard && cardType ? ` · ${cardType}` : ""}
+    </span>
   );
 }

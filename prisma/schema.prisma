@@ -766,6 +766,12 @@ model NebimSaleLine {
   customer_code String?
   customer_name String?
 
+  // Ödeme tipi — trPaymentHeader(DocumentNumber=InvoiceNumber) → trPaymentLine.PaymentTypeCode
+  // payment_type: "Nakit" / "Kredi Kartı" / "Nakit + Kredi Kartı" (fatura geneli)
+  // card_type: kart markası (Maksimum, Garanti Bonus…) — kredi kartı ödemelerinde
+  payment_type String?
+  card_type    String?
+
   // Tutarlar (D = yerel para / TRY)
   qty        Decimal  @db.Decimal(14, 3)
   price      Decimal? @db.Decimal(14, 2)
