@@ -27,6 +27,9 @@ export const nebimSaleLineSchema = z.object({
   salesperson_code: z.string().nullish(),
   salesperson_name: z.string().nullish(),
 
+  customer_code: z.string().nullish(), // CurrAccCode
+  customer_name: z.string().nullish(), // cdCurrAcc.FullName (isimli müşteri)
+
   qty: z.number(),
   price: z.number().nullish(),
   vat_rate: z.number().nullish(),

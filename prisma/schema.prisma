@@ -761,6 +761,11 @@ model NebimSaleLine {
   salesperson_code String?
   salesperson_name String?
 
+  // Müşteri — trInvoiceHeader.CurrAccCode → cdCurrAcc (isimli/sadık müşteride dolu;
+  // anonim perakendede boş)
+  customer_code String?
+  customer_name String?
+
   // Tutarlar (D = yerel para / TRY)
   qty        Decimal  @db.Decimal(14, 3)
   price      Decimal? @db.Decimal(14, 2)

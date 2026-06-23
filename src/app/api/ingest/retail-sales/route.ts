@@ -84,6 +84,8 @@ export async function POST(req: Request) {
           size: l.size ?? null,
           salesperson_code: l.salesperson_code ?? null,
           salesperson_name: l.salesperson_name ?? null,
+          customer_code: l.customer_code ?? null,
+          customer_name: l.customer_name ?? null,
           qty: l.qty,
           price: l.price ?? null,
           vat_rate: l.vat_rate ?? null,

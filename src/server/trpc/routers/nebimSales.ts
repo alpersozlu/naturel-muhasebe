@@ -76,6 +76,7 @@ export const nebimSalesRouter = router({
         color_desc: r.color_desc,
         size: r.size,
         salesperson_name: r.salesperson_name,
+        customer_name: r.customer_name,
         qty: Number(r.qty),
         net_amount: r.net_amount == null ? null : Number(r.net_amount),
       }));
