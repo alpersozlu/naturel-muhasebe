@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Label } from "@/components/ui/label";
@@ -43,6 +43,22 @@ export function NebimFilters({
 
   const hasAny =
     !!value.storeId || !!value.dateFrom || !!value.dateTo || value.onlyReturns;
+
+  // Tarih modu: "single" (tek gün, from=to) | "range" (başlangıç+bitiş).
+  // Başlangıç modu: from≠to ise aralık, değilse tek gün.
+  const [mode, setMode] = useState<"single" | "range">(
+    value.dateFrom && value.dateTo && value.dateFrom !== value.dateTo
+      ? "range"
+      : "single"
+  );
+  const switchMode = (m: "single" | "range") => {
+    if (m === "single") {
+      // Aralıktan tek güne geçerken tek bir güne indir (başlangıcı baz al).
+      const d = value.dateFrom || value.dateTo;
+      onChange({ ...value, dateFrom: d, dateTo: d });
+    }
+    setMode(m);
+  };
 
   return (
     <div className="rounded-xl border border-border/70 bg-card p-4 mb-6">
@@ -88,34 +104,78 @@ export function NebimFilters({
           </Select>
         </div>
 
-        <div className="space-y-1.5">
-          <Label
-            htmlFor="nb-from"
-            className="text-[10px] uppercase tracking-wider text-muted-foreground"
-          >
-            Başlangıç
-          </Label>
-          <Input
-            id="nb-from"
-            type="date"
-            value={value.dateFrom}
-            onChange={(e) => onChange({ ...value, dateFrom: e.target.value })}
-          />
-        </div>
+        <div className="space-y-1.5 lg:col-span-2">
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Tarih
+            </Label>
+            {/* Mod seçici: Tek Gün | Aralık (SAP "şunlar arasında" mantığı) */}
+            <div className="inline-flex rounded-lg border border-border bg-muted/40 p-0.5">
+              {(
+                [
+                  ["single", "Tek Gün"],
+                  ["range", "Aralık"],
+                ] as const
+              ).map(([m, label]) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => switchMode(m)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                    mode === m
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
 
-        <div className="space-y-1.5">
-          <Label
-            htmlFor="nb-to"
-            className="text-[10px] uppercase tracking-wider text-muted-foreground"
-          >
-            Bitiş
-          </Label>
-          <Input
-            id="nb-to"
-            type="date"
-            value={value.dateTo}
-            onChange={(e) => onChange({ ...value, dateTo: e.target.value })}
-          />
+          {mode === "single" ? (
+            <Input
+              id="nb-from"
+              type="date"
+              value={value.dateFrom}
+              onChange={(e) =>
+                onChange({
+                  ...value,
+                  dateFrom: e.target.value,
+                  dateTo: e.target.value,
+                })
+              }
+            />
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <span className="block text-[9px] uppercase tracking-wider text-muted-foreground">
+                  Başlangıç
+                </span>
+                <Input
+                  id="nb-from"
+                  type="date"
+                  value={value.dateFrom}
+                  onChange={(e) =>
+                    onChange({ ...value, dateFrom: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-1">
+                <span className="block text-[9px] uppercase tracking-wider text-muted-foreground">
+                  Bitiş
+                </span>
+                <Input
+                  id="nb-to"
+                  type="date"
+                  value={value.dateTo}
+                  onChange={(e) =>
+                    onChange({ ...value, dateTo: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="space-y-1.5">
