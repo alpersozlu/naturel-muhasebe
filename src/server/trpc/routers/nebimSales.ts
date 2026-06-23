@@ -199,16 +199,16 @@ export const nebimSalesRouter = router({
         ctx.prisma.store.findMany({ select: { id: true, name: true } }),
       ]);
 
-      const countFis = (rows: Array<{ [k: string]: unknown }>, key: string) => {
-        const m = new Map<string, number>();
-        for (const g of rows) {
-          const k = (g[key] as string | null) ?? "—";
-          m.set(k, (m.get(k) ?? 0) + 1);
-        }
-        return m;
-      };
-      const salesFis = countFis(salesInv, "salesperson_name");
-      const custFis = countFis(custInv, "customer_name");
+      const salesFis = new Map<string, number>();
+      for (const g of salesInv) {
+        const k = g.salesperson_name ?? "—";
+        salesFis.set(k, (salesFis.get(k) ?? 0) + 1);
+      }
+      const custFis = new Map<string, number>();
+      for (const g of custInv) {
+        const k = g.customer_name ?? "—";
+        custFis.set(k, (custFis.get(k) ?? 0) + 1);
+      }
 
       const by_salesperson = bySales
         .map((g) => ({
