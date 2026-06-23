@@ -173,6 +173,7 @@ export const nebimSalesRouter = router({
         by_salesperson: [] as Array<{ name: string; net: number; lines: number; invoices: number }>,
         by_customer: [] as Array<{ name: string; net: number; lines: number; invoices: number }>,
         by_store: [] as Array<{ store_name: string | null; net: number; lines: number }>,
+        by_payment: [] as Array<{ label: string; net: number; lines: number; invoices: number }>,
       };
       if (!where) return empty;
 
@@ -188,6 +189,8 @@ export const nebimSalesRouter = router({
         byCust,
         custInv,
         byStoreRaw,
+        byPayRaw,
+        payInv,
         invoiceGroups,
         stores,
       ] = await Promise.all([
@@ -197,6 +200,8 @@ export const nebimSalesRouter = router({
         ctx.prisma.nebimSaleLine.groupBy({ by: ["customer_name"], where: custWhere, _count: { _all: true }, _sum: { net_amount: true } }),
         ctx.prisma.nebimSaleLine.groupBy({ by: ["customer_name", "invoice_ref"], where: custWhere }),
         ctx.prisma.nebimSaleLine.groupBy({ by: ["store_id"], where, _count: { _all: true }, _sum: { net_amount: true } }),
+        ctx.prisma.nebimSaleLine.groupBy({ by: ["payment_type"], where, _count: { _all: true }, _sum: { net_amount: true } }),
+        ctx.prisma.nebimSaleLine.groupBy({ by: ["payment_type", "invoice_ref"], where }),
         ctx.prisma.nebimSaleLine.groupBy({ by: ["company_code", "invoice_ref"], where }),
         ctx.prisma.store.findMany({ select: { id: true, name: true } }),
       ]);
@@ -240,6 +245,25 @@ export const nebimSalesRouter = router({
         }))
         .sort((a, b) => b.net - a.net);
 
+      // Ödeme tipi — boş/null genelde iade satırı (ödeme satırı yok)
+      const UNSET_PAY = "(İade/Tanımsız)";
+      const payFis = new Map<string, number>();
+      for (const g of payInv) {
+        const k = g.payment_type ?? UNSET_PAY;
+        payFis.set(k, (payFis.get(k) ?? 0) + 1);
+      }
+      const by_payment = byPayRaw
+        .map((g) => {
+          const label = g.payment_type ?? UNSET_PAY;
+          return {
+            label,
+            net: Number(g._sum.net_amount ?? 0),
+            lines: g._count._all,
+            invoices: payFis.get(label) ?? 0,
+          };
+        })
+        .sort((a, b) => b.net - a.net);
+
       return {
         kpi: {
           net_total: Number(agg._sum.net_amount ?? 0),
@@ -249,6 +273,7 @@ export const nebimSalesRouter = router({
         by_salesperson,
         by_customer,
         by_store,
+        by_payment,
       };
     }),
 

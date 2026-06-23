@@ -9,6 +9,8 @@ import {
   ChevronRight,
   RotateCcw,
   TrendingUp,
+  CreditCard,
+  Banknote,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -65,6 +67,17 @@ export function NebimAnaliz({ filters }: { filters: NebimSalesSelection }) {
               sub={`${s.lines} satır`}
               value={fmt(s.net)}
             />
+          ))
+        )}
+      </Section>
+
+      {/* Ödeme Tipi */}
+      <Section icon={CreditCard} title="Ödeme Tipi Dağılımı">
+        {data.by_payment.length === 0 ? (
+          <Empty />
+        ) : (
+          data.by_payment.map((p) => (
+            <PaymentRow key={p.label} pay={p} total={data.kpi.net_total} />
           ))
         )}
       </Section>
@@ -180,6 +193,43 @@ function CustomerRow({
           )}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function PaymentRow({
+  pay,
+  total,
+}: {
+  pay: { label: string; net: number; lines: number; invoices: number };
+  total: number;
+}) {
+  // Aynı renk mantığı: Kredi=indigo, Nakit=emerald, diğer=slate (PaymentBadge ile tutarlı)
+  const isCard = pay.label.includes("Kredi");
+  const isCash = pay.label.includes("Nakit");
+  const Icon = isCard ? CreditCard : isCash ? Banknote : RotateCcw;
+  const color = isCard
+    ? "text-indigo-600"
+    : isCash
+      ? "text-emerald-600"
+      : "text-slate-400";
+  const barColor = isCard ? "bg-indigo-500" : isCash ? "bg-emerald-500" : "bg-slate-300";
+  const pct = total > 0 ? (pay.net / total) * 100 : 0;
+  const width = Math.max(0, Math.min(100, pct));
+
+  return (
+    <div className="px-4 py-2.5 flex items-center gap-3">
+      <Icon className={`h-4 w-4 shrink-0 ${color}`} />
+      <div className="flex-1 min-w-0">
+        <span className="font-medium">{pay.label}</span>
+        <div className="text-[11px] text-muted-foreground">
+          {pay.invoices} fiş · {pay.lines} satır · %{TRY.format(pct)}
+        </div>
+        <div className="mt-1 h-1 w-full rounded-full bg-muted overflow-hidden">
+          <div className={`h-full rounded-full ${barColor}`} style={{ width: `${width}%` }} />
+        </div>
+      </div>
+      <span className="text-sm font-bold tabular-nums shrink-0">{fmt(pay.net)}</span>
     </div>
   );
 }
