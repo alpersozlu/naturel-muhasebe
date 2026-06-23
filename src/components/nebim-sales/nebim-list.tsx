@@ -2,7 +2,7 @@
 
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
-import { ShoppingCart, Loader2, ChevronDown, RotateCcw } from "lucide-react";
+import { ShoppingCart, Loader2, ChevronDown, RotateCcw, User } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -138,6 +138,15 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
                       <>
                         <span className="text-muted-foreground/50">·</span>
                         <span>{[r.color_desc, r.size].filter(Boolean).join(" / ")}</span>
+                      </>
+                    ) : null}
+                    {r.salesperson_name ? (
+                      <>
+                        <span className="text-muted-foreground/50">·</span>
+                        <span className="inline-flex items-center gap-1" title="Satıcı">
+                          <User className="h-3 w-3 text-muted-foreground/70" />
+                          {r.salesperson_name}
+                        </span>
                       </>
                     ) : null}
                   </div>
