@@ -1,11 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
 import {
   ShoppingCart,
   Loader2,
   ChevronDown,
+  ChevronRight,
   RotateCcw,
   User,
   UserCircle2,
@@ -15,6 +17,7 @@ import {
   ShieldCheck,
   StickyNote,
   KeyRound,
+  Receipt,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,6 +29,46 @@ const TRY2 = new Intl.NumberFormat("tr-TR", {
   maximumFractionDigits: 2,
 });
 const fmt = (n: number | null | undefined) => (n == null ? "—" : TRY2.format(n));
+
+type Item = {
+  id: string;
+  invoice_ref: string;
+  sort_order: number;
+  invoice_date: string | Date;
+  store_name: string | null;
+  is_return: boolean;
+  item_code: string | null;
+  item_desc: string | null;
+  color_desc: string | null;
+  size: string | null;
+  salesperson_name: string | null;
+  customer_name: string | null;
+  payment_type: string | null;
+  card_type: string | null;
+  qty: number;
+  amount_vi: number | null;
+  net_amount: number | null;
+  invoice_note: string | null;
+  mgmt_note: string | null;
+  discount_reason: string | null;
+  campaign: string | null;
+};
+
+/** İndirim oranı (iade/indirimsizde null). */
+function discountPct(r: Item): number | null {
+  if (r.is_return || r.amount_vi == null || r.net_amount == null || r.amount_vi <= 0) {
+    return null;
+  }
+  const pct = ((r.amount_vi - r.net_amount) / r.amount_vi) * 100;
+  return pct >= 0.5 ? pct : null;
+}
+
+/** İndirim oranına göre renk skalası (yüksek = daha sıcak). */
+function discountClass(pct: number): string {
+  if (pct >= 40) return "bg-rose-50 text-rose-700 border-rose-200";
+  if (pct >= 20) return "bg-orange-50 text-orange-700 border-orange-200";
+  return "bg-amber-50 text-amber-700 border-amber-200";
+}
 
 export function NebimList({ filters }: { filters: NebimSalesSelection }) {
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
@@ -59,7 +102,7 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
   }
 
   const summary = data?.pages[0]?.summary;
-  const items = data?.pages.flatMap((p) => p.items) ?? [];
+  const items = (data?.pages.flatMap((p) => p.items) ?? []) as Item[];
 
   return (
     <>
@@ -84,28 +127,21 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
       ) : null}
 
       {summary && summary.by_store.length > 0 ? (
-        <Card className="mb-5">
-          <CardContent className="p-0 divide-y">
-            {summary.by_store.map((s) => (
-              <div
-                key={s.store_id ?? "none"}
-                className="px-5 py-3 flex items-center justify-between"
-              >
-                <span className="text-sm font-medium">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
+          {summary.by_store.map((s) => (
+            <Card key={s.store_id ?? "none"}>
+              <CardContent className="p-3.5 flex items-center justify-between">
+                <span className="text-sm font-medium truncate">
                   {s.store_name ?? "(eşleşmeyen mağaza)"}
                 </span>
-                <div className="text-right">
-                  <div className="text-sm font-semibold tabular-nums">
-                    ₺{fmt(s.net)}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {s.lines} satır
-                  </div>
+                <div className="text-right shrink-0 ml-2">
+                  <div className="text-sm font-semibold tabular-nums">₺{fmt(s.net)}</div>
+                  <div className="text-[11px] text-muted-foreground">{s.lines} satır</div>
                 </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       ) : null}
 
       {items.length === 0 ? (
@@ -119,113 +155,29 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
           </CardContent>
         </Card>
       ) : (
-        <Card>
-          <CardContent className="p-0 divide-y">
-            {items.map((r) => (
-              <div
-                key={r.id}
-                className="px-5 py-3 flex items-center gap-4 hover:bg-muted/20 transition-colors"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-semibold truncate">
-                      {r.item_desc ?? r.item_code ?? "—"}
-                    </span>
-                    {r.is_return ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-medium px-2 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-200">
-                        <RotateCcw className="h-3 w-3" /> İade
-                      </span>
-                    ) : null}
-                    <PaymentBadge paymentType={r.payment_type} cardType={r.card_type} />
-                    {r.campaign ? (
-                      <span
-                        className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border bg-orange-50 text-orange-700 border-orange-200 max-w-[240px] truncate"
-                        title={r.campaign}
-                      >
-                        <Megaphone className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{r.campaign}</span>
-                      </span>
-                    ) : null}
-                    {r.discount_reason ? (
-                      <span
-                        className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-200"
-                        title="İskonto nedeni"
-                      >
-                        <ShieldCheck className="h-3 w-3" />
-                        {r.discount_reason}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="text-xs text-muted-foreground truncate flex items-center gap-1.5 mt-1">
-                    <span className="font-medium text-foreground/80">
-                      {r.store_name ?? "—"}
-                    </span>
-                    <span className="text-muted-foreground/50">·</span>
-                    <span>
-                      {format(new Date(r.invoice_date), "d MMM yyyy", { locale: tr })}
-                    </span>
-                    <span className="text-muted-foreground/50">·</span>
-                    <span>Fiş {r.invoice_ref}</span>
-                    {r.color_desc || r.size ? (
-                      <>
-                        <span className="text-muted-foreground/50">·</span>
-                        <span>{[r.color_desc, r.size].filter(Boolean).join(" / ")}</span>
-                      </>
-                    ) : null}
-                    {r.salesperson_name ? (
-                      <>
-                        <span className="text-muted-foreground/50">·</span>
-                        <span className="inline-flex items-center gap-1" title="Satıcı">
-                          <User className="h-3 w-3 text-muted-foreground/70" />
-                          {r.salesperson_name}
-                        </span>
-                      </>
-                    ) : null}
-                    {r.customer_name ? (
-                      <>
-                        <span className="text-muted-foreground/50">·</span>
-                        <span
-                          className="inline-flex items-center gap-1 text-indigo-600 font-medium"
-                          title="Müşteri"
-                        >
-                          <UserCircle2 className="h-3 w-3" />
-                          {r.customer_name}
-                        </span>
-                      </>
-                    ) : null}
-                  </div>
-                  {r.mgmt_note ? (
-                    <div className="mt-1.5 text-[11px] text-rose-800 bg-rose-50/80 border-l-2 border-rose-400 pl-2 pr-1 py-0.5 rounded-r flex items-start gap-1">
-                      <KeyRound className="h-3 w-3 mt-0.5 shrink-0 text-rose-500" />
-                      <span className="whitespace-pre-line line-clamp-2">
-                        <span className="font-semibold">Yönetim açıklaması:</span> {r.mgmt_note}
-                      </span>
-                    </div>
-                  ) : null}
-                  {r.invoice_note ? (
-                    <div className="mt-1 text-[11px] text-amber-800/90 bg-amber-50/70 border-l-2 border-amber-300 pl-2 pr-1 py-0.5 rounded-r flex items-start gap-1">
-                      <StickyNote className="h-3 w-3 mt-0.5 shrink-0 text-amber-500" />
-                      <span className="whitespace-pre-line line-clamp-2">
-                        <span className="font-medium text-amber-700/80">Fiş notu:</span> {r.invoice_note}
-                      </span>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="text-right shrink-0">
-                  <div className="text-base font-bold tabular-nums tracking-tight">
-                    ₺{fmt(r.net_amount)}
-                  </div>
-                  <DiscountTag
-                    amount={r.amount_vi}
-                    net={r.net_amount}
-                    isReturn={r.is_return}
-                  />
-                  <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                    {r.qty} adet
-                  </div>
-                </div>
-              </div>
-            ))}
+        <Card className="overflow-hidden">
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[920px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <th className="w-8" />
+                    <th className="text-left font-semibold px-3 py-2.5">Ürün</th>
+                    <th className="text-left font-semibold px-3 py-2.5">Mağaza · Fiş</th>
+                    <th className="text-left font-semibold px-3 py-2.5">Satıcı · Müşteri</th>
+                    <th className="text-left font-semibold px-3 py-2.5">Ödeme</th>
+                    <th className="text-right font-semibold px-3 py-2.5">Orijinal</th>
+                    <th className="text-right font-semibold px-3 py-2.5">İndirim</th>
+                    <th className="text-right font-semibold px-3 py-2.5 pr-4">Net</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((r) => (
+                    <NebimRow key={r.id} r={r} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -260,44 +212,218 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
   );
 }
 
+function NebimRow({ r }: { r: Item }) {
+  const [open, setOpen] = useState(false);
+  const pct = discountPct(r);
+  const hasDetail = !!(r.campaign || r.discount_reason || r.mgmt_note || r.invoice_note);
+
+  return (
+    <>
+      <tr
+        className={`border-b border-border/50 transition-colors ${
+          hasDetail ? "cursor-pointer hover:bg-muted/40" : "hover:bg-muted/20"
+        } ${r.is_return ? "bg-rose-50/30" : ""}`}
+        onClick={() => hasDetail && setOpen((v) => !v)}
+      >
+        {/* expand + not göstergesi */}
+        <td className="align-top pl-2 pr-0 py-3">
+          {hasDetail ? (
+            <ChevronRight
+              className={`h-4 w-4 transition-transform ${open ? "rotate-90" : ""} ${
+                r.mgmt_note ? "text-rose-500" : "text-muted-foreground"
+              }`}
+            />
+          ) : null}
+        </td>
+
+        {/* Ürün */}
+        <td className="align-top px-3 py-3 max-w-[280px]">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="font-semibold truncate">{r.item_desc ?? r.item_code ?? "—"}</span>
+            {r.is_return ? (
+              <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-200">
+                <RotateCcw className="h-2.5 w-2.5" /> İade
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            {r.item_code ? <span className="font-mono">{r.item_code}</span> : null}
+            {r.color_desc || r.size ? (
+              <span>· {[r.color_desc, r.size].filter(Boolean).join(" / ")}</span>
+            ) : null}
+            {/* detay göstergeleri */}
+            {r.campaign ? <Megaphone className="h-3 w-3 text-orange-400" /> : null}
+            {r.discount_reason ? <ShieldCheck className="h-3 w-3 text-rose-400" /> : null}
+            {r.mgmt_note ? <KeyRound className="h-3 w-3 text-rose-500" /> : null}
+            {r.invoice_note ? <StickyNote className="h-3 w-3 text-amber-400" /> : null}
+          </div>
+        </td>
+
+        {/* Mağaza · Fiş */}
+        <td className="align-top px-3 py-3 whitespace-nowrap">
+          <div className="font-medium text-foreground/90">{r.store_name ?? "—"}</div>
+          <div className="mt-0.5 text-[11px] text-muted-foreground">
+            {format(new Date(r.invoice_date), "d MMM yyyy", { locale: tr })} · {r.invoice_ref}
+          </div>
+        </td>
+
+        {/* Satıcı · Müşteri */}
+        <td className="align-top px-3 py-3 max-w-[200px]">
+          {r.salesperson_name ? (
+            <div className="flex items-center gap-1.5">
+              <User className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+              <span className="truncate">{r.salesperson_name}</span>
+            </div>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+          {r.customer_name ? (
+            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-indigo-600 font-medium">
+              <UserCircle2 className="h-3 w-3 shrink-0" />
+              <span className="truncate">{r.customer_name}</span>
+            </div>
+          ) : null}
+        </td>
+
+        {/* Ödeme */}
+        <td className="align-top px-3 py-3">
+          <PaymentBadge paymentType={r.payment_type} cardType={r.card_type} />
+        </td>
+
+        {/* Orijinal */}
+        <td className="align-top px-3 py-3 text-right whitespace-nowrap">
+          {r.amount_vi != null ? (
+            <span
+              className={`tabular-nums ${
+                pct != null ? "text-muted-foreground line-through" : "text-foreground/80"
+              }`}
+            >
+              ₺{fmt(r.amount_vi)}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </td>
+
+        {/* İndirim */}
+        <td className="align-top px-3 py-3 text-right whitespace-nowrap">
+          {pct != null ? (
+            <span
+              className={`inline-block text-[11px] font-semibold tabular-nums px-1.5 py-0.5 rounded-md border ${discountClass(
+                pct
+              )}`}
+            >
+              −%{Math.round(pct)}
+            </span>
+          ) : (
+            <span className="text-muted-foreground text-xs">—</span>
+          )}
+        </td>
+
+        {/* Net */}
+        <td className="align-top px-3 py-3 pr-4 text-right whitespace-nowrap">
+          <span
+            className={`text-[15px] font-bold tabular-nums tracking-tight ${
+              r.is_return ? "text-rose-600" : ""
+            }`}
+          >
+            ₺{fmt(r.net_amount)}
+          </span>
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            {r.qty} adet
+          </div>
+        </td>
+      </tr>
+
+      {open && hasDetail ? (
+        <tr className="border-b border-border/50 bg-muted/20">
+          <td />
+          <td colSpan={7} className="px-3 pb-4 pt-1">
+            <DetailPanel r={r} pct={pct} />
+          </td>
+        </tr>
+      ) : null}
+    </>
+  );
+}
+
+function DetailPanel({ r, pct }: { r: Item; pct: number | null }) {
+  const indirimTutar =
+    r.amount_vi != null && r.net_amount != null ? r.amount_vi - r.net_amount : null;
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-card p-3 space-y-3">
+      {/* Fiyat kırılımı */}
+      {r.amount_vi != null ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          <span className="text-muted-foreground">Orijinal</span>
+          <span className="font-semibold tabular-nums">₺{fmt(r.amount_vi)}</span>
+          {indirimTutar != null && indirimTutar > 0 ? (
+            <>
+              <span className="text-muted-foreground">−</span>
+              <span className="font-semibold tabular-nums text-rose-600">
+                ₺{fmt(indirimTutar)} {pct != null ? `(−%${Math.round(pct)})` : ""}
+              </span>
+            </>
+          ) : null}
+          <span className="text-muted-foreground">=</span>
+          <span className="font-bold tabular-nums">Net ₺{fmt(r.net_amount)}</span>
+          <span className="ml-1 text-muted-foreground">· {r.qty} adet</span>
+        </div>
+      ) : null}
+
+      {/* Kampanya / Neden rozetleri */}
+      {r.campaign || r.discount_reason ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {r.campaign
+            ? r.campaign.split(" | ").map((c, i) => (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full border bg-orange-50 text-orange-700 border-orange-200"
+                >
+                  <Megaphone className="h-3 w-3" /> {c}
+                </span>
+              ))
+            : null}
+          {r.discount_reason ? (
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-200">
+              <ShieldCheck className="h-3 w-3" /> {r.discount_reason}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Yönetim açıklaması (öne çıkan) */}
+      {r.mgmt_note ? (
+        <div className="rounded-md border border-rose-200 bg-rose-50/70 px-3 py-2">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-rose-600 mb-0.5">
+            <KeyRound className="h-3 w-3" /> Yönetim Açıklaması
+          </div>
+          <div className="text-xs text-rose-900 whitespace-pre-line">{r.mgmt_note}</div>
+        </div>
+      ) : null}
+
+      {/* Fiş notu (ikincil) */}
+      {r.invoice_note ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-amber-600 mb-0.5">
+            <Receipt className="h-3 w-3" /> Fiş Notu
+          </div>
+          <div className="text-xs text-amber-900 whitespace-pre-line">{r.invoice_note}</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
     <Card>
       <CardContent className="p-4">
-        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-          {label}
-        </div>
-        <div className="text-lg font-bold tabular-nums tracking-tight mt-1">
-          {value}
-        </div>
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+        <div className="text-lg font-bold tabular-nums tracking-tight mt-1">{value}</div>
       </CardContent>
     </Card>
-  );
-}
-
-/** İndirim göstergesi — orijinal (üstü çizili) + indirim % rozeti. İade/indirimsizde gizli. */
-function DiscountTag({
-  amount,
-  net,
-  isReturn,
-}: {
-  amount: number | null;
-  net: number | null;
-  isReturn: boolean;
-}) {
-  if (isReturn || amount == null || net == null || amount <= 0) return null;
-  const diff = amount - net;
-  const pct = (diff / amount) * 100;
-  if (pct < 1) return null; // indirimsiz / yuvarlama gürültüsü
-  return (
-    <div className="flex items-center justify-end gap-1.5 mt-0.5">
-      <span className="text-[11px] tabular-nums text-muted-foreground line-through">
-        ₺{fmt(amount)}
-      </span>
-      <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full tabular-nums">
-        −%{Math.round(pct)}
-      </span>
-    </div>
   );
 }
 
@@ -309,7 +435,7 @@ function PaymentBadge({
   paymentType: string | null;
   cardType: string | null;
 }) {
-  if (!paymentType) return null;
+  if (!paymentType) return <span className="text-muted-foreground text-xs">—</span>;
   const isCard = paymentType.includes("Kredi");
   const isCash = paymentType.includes("Nakit");
   const Icon = isCard ? CreditCard : Banknote;
@@ -323,9 +449,9 @@ function PaymentBadge({
       className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border ${cls}`}
       title={cardType ? `Kart: ${cardType}` : undefined}
     >
-      <Icon className="h-3 w-3" />
-      {paymentType}
-      {isCard && cardType ? ` · ${cardType}` : ""}
+      <Icon className="h-3 w-3 shrink-0" />
+      <span className="truncate max-w-[120px]">{paymentType}</span>
+      {isCard && cardType ? <span className="text-indigo-400">· {cardType}</span> : null}
     </span>
   );
 }

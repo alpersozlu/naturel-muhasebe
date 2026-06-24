@@ -242,9 +242,17 @@ export const nebimSalesRouter = router({
         by_payment: [] as Array<{ label: string; net: number; lines: number; invoices: number }>,
         by_campaign: [] as Array<{ label: string; net: number; lines: number; invoices: number }>,
         by_reason: [] as Array<{ label: string; net: number; lines: number; invoices: number }>,
+        manuel: {
+          lines: 0,
+          invoices: 0,
+          net: 0,
+          top: [] as Array<{ note: string; net: number; lines: number }>,
+        },
         indirim: EMPTY_INDIRIM,
       };
       if (!where) return empty;
+
+      const manuelWhere: Prisma.NebimSaleLineWhereInput = { ...where, mgmt_note: { not: null } };
 
       // İndirim = sadece satış satırları (iade hariç, orijinal tutar > 0)
       const discWhere: Prisma.NebimSaleLineWhereInput = {
@@ -276,6 +284,9 @@ export const nebimSalesRouter = router({
         campInv,
         byReasonRaw,
         reasonInv,
+        manuelAgg,
+        manuelInv,
+        byMgmtRaw,
       ] = await Promise.all([
         ctx.prisma.nebimSaleLine.aggregate({ where, _count: { _all: true }, _sum: { net_amount: true } }),
         ctx.prisma.nebimSaleLine.groupBy({ by: ["salesperson_name"], where, _count: { _all: true }, _sum: { net_amount: true } }),
@@ -292,6 +303,9 @@ export const nebimSalesRouter = router({
         ctx.prisma.nebimSaleLine.groupBy({ by: ["campaign", "invoice_ref"], where: campWhere }),
         ctx.prisma.nebimSaleLine.groupBy({ by: ["discount_reason"], where: reasonWhere, _count: { _all: true }, _sum: { net_amount: true } }),
         ctx.prisma.nebimSaleLine.groupBy({ by: ["discount_reason", "invoice_ref"], where: reasonWhere }),
+        ctx.prisma.nebimSaleLine.aggregate({ where: manuelWhere, _count: { _all: true }, _sum: { net_amount: true } }),
+        ctx.prisma.nebimSaleLine.groupBy({ by: ["invoice_ref"], where: manuelWhere }),
+        ctx.prisma.nebimSaleLine.groupBy({ by: ["mgmt_note"], where: manuelWhere, _count: { _all: true }, _sum: { net_amount: true } }),
       ]);
 
       const salesFis = new Map<string, number>();
@@ -387,6 +401,22 @@ export const nebimSalesRouter = router({
         }))
         .sort((a, b) => b.net - a.net);
 
+      // Manuel iskonto (yönetim açıklamalı) özeti + en sık açıklamalar
+      const manuel = {
+        lines: manuelAgg._count._all,
+        invoices: manuelInv.length,
+        net: Number(manuelAgg._sum.net_amount ?? 0),
+        top: byMgmtRaw
+          .filter((g) => g.mgmt_note != null)
+          .map((g) => ({
+            note: g.mgmt_note as string,
+            net: Number(g._sum.net_amount ?? 0),
+            lines: g._count._all,
+          }))
+          .sort((a, b) => b.net - a.net)
+          .slice(0, 100),
+      };
+
       return {
         kpi: {
           net_total: Number(agg._sum.net_amount ?? 0),
@@ -399,6 +429,7 @@ export const nebimSalesRouter = router({
         by_payment,
         by_campaign,
         by_reason,
+        manuel,
         indirim: computeIndirim(discRows),
       };
     }),

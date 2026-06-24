@@ -15,6 +15,7 @@ import {
   Tag,
   Megaphone,
   ShieldCheck,
+  KeyRound,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -70,12 +71,14 @@ export function NebimAnaliz({ filters }: { filters: NebimSalesSelection }) {
               key={c.label}
               left={
                 <span className="flex items-center gap-2">
-                  <Megaphone className="h-3.5 w-3.5 text-orange-500" />
+                  <Megaphone className="h-3.5 w-3.5 text-orange-500 shrink-0" />
                   <span className="font-medium">{c.label}</span>
                 </span>
               }
               sub={`${c.invoices} fiş · ${c.lines} satır`}
               value={fmt(c.net)}
+              share={maxNet(data.by_campaign) ? (c.net / maxNet(data.by_campaign)) * 100 : 0}
+              barColor="bg-orange-400"
             />
           ))}
         </Section>
@@ -100,6 +103,9 @@ export function NebimAnaliz({ filters }: { filters: NebimSalesSelection }) {
         </Section>
       ) : null}
 
+      {/* Manuel İskonto (Yönetim açıklamalı) */}
+      {data.manuel.invoices > 0 ? <ManuelIskonto manuel={data.manuel} /> : null}
+
       {/* Mağaza */}
       <Section icon={StoreIcon} title="Mağaza Bazında">
         {data.by_store.length === 0 ? (
@@ -111,6 +117,7 @@ export function NebimAnaliz({ filters }: { filters: NebimSalesSelection }) {
               left={<span className="font-medium">{s.store_name ?? "(eşleşmeyen)"}</span>}
               sub={`${s.lines} satır`}
               value={fmt(s.net)}
+              share={maxNet(data.by_store) ? (s.net / maxNet(data.by_store)) * 100 : 0}
             />
           ))
         )}
@@ -138,12 +145,14 @@ export function NebimAnaliz({ filters }: { filters: NebimSalesSelection }) {
               left={
                 <span className="flex items-center gap-2">
                   <span className="text-[11px] tabular-nums text-muted-foreground w-5">{i + 1}.</span>
-                  <User className="h-3.5 w-3.5 text-muted-foreground/70" />
+                  <User className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
                   <span className="font-medium">{p.name}</span>
                 </span>
               }
               sub={`${p.invoices} fiş · ${p.lines} satır`}
               value={fmt(p.net)}
+              share={maxNet(data.by_salesperson) ? (p.net / maxNet(data.by_salesperson)) * 100 : 0}
+              barColor="bg-primary/50"
             />
           ))
         )}
@@ -433,19 +442,92 @@ function Row({
   left,
   sub,
   value,
+  share,
+  barColor = "bg-primary/40",
 }: {
   left: React.ReactNode;
   sub: string;
   value: string;
+  share?: number;
+  barColor?: string;
 }) {
   return (
-    <div className="px-4 py-2.5 flex items-center gap-3">
-      <div className="flex-1 min-w-0">
-        <div>{left}</div>
-        <div className="text-[11px] text-muted-foreground">{sub}</div>
+    <div className="px-4 py-2.5">
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="truncate">{left}</div>
+          <div className="text-[11px] text-muted-foreground">{sub}</div>
+        </div>
+        <span className="text-sm font-bold tabular-nums shrink-0">{value}</span>
       </div>
-      <span className="text-sm font-bold tabular-nums shrink-0">{value}</span>
+      {share != null ? (
+        <div className="mt-1.5 h-1 w-full rounded-full bg-muted overflow-hidden">
+          <div
+            className={`h-full rounded-full ${barColor}`}
+            style={{ width: `${Math.max(0, Math.min(100, share))}%` }}
+          />
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+/** Bir net kümesindeki en yüksek pozitif net (oran çubuğu ölçeği için). */
+function maxNet(rows: Array<{ net: number }>): number {
+  return rows.reduce((m, r) => (r.net > m ? r.net : m), 0);
+}
+
+function ManuelIskonto({
+  manuel,
+}: {
+  manuel: {
+    lines: number;
+    invoices: number;
+    net: number;
+    top: Array<{ note: string; net: number; lines: number }>;
+  };
+}) {
+  const max = maxNet(manuel.top);
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <div className="px-4 py-3 border-b border-border/50 flex items-center gap-2">
+          <div className="h-7 w-7 rounded-lg bg-rose-500/10 text-rose-600 flex items-center justify-center">
+            <KeyRound className="h-4 w-4" />
+          </div>
+          <span className="font-semibold text-sm">Manuel İskonto (Yönetim)</span>
+          <span className="ml-auto text-[11px] text-muted-foreground">şifreli yönetim onayı</span>
+        </div>
+
+        <div className="grid grid-cols-3 divide-x divide-border/40 border-b border-border/40">
+          <Stat label="Net Tutar" value={fmt(manuel.net)} sub="yönetim açıklamalı" accent />
+          <Stat label="Fiş" value={String(manuel.invoices)} />
+          <Stat label="Satır" value={String(manuel.lines)} />
+        </div>
+
+        <div className="divide-y divide-border/40 max-h-[420px] overflow-auto">
+          {manuel.top.length === 0 ? (
+            <Empty />
+          ) : (
+            manuel.top.map((m, i) => (
+              <Row
+                key={m.note + i}
+                left={
+                  <span className="flex items-center gap-2">
+                    <KeyRound className="h-3.5 w-3.5 text-rose-500 shrink-0" />
+                    <span className="font-medium text-rose-900">{m.note}</span>
+                  </span>
+                }
+                sub={`${m.lines} satır`}
+                value={fmt(m.net)}
+                share={max ? (m.net / max) * 100 : 0}
+                barColor="bg-rose-400"
+              />
+            ))
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
