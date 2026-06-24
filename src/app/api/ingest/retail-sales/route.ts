@@ -88,6 +88,8 @@ export async function POST(req: Request) {
           customer_name: l.customer_name ?? null,
           payment_type: l.payment_type ?? null,
           card_type: l.card_type ?? null,
+          pay_cash: l.pay_cash ?? null,
+          pay_card: l.pay_card ?? null,
           qty: l.qty,
           price: l.price ?? null,
           vat_rate: l.vat_rate ?? null,

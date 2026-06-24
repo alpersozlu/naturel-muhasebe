@@ -14,6 +14,8 @@ import {
   Radio,
   ShieldCheck,
   ShieldAlert,
+  Banknote,
+  CreditCard,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -487,6 +489,7 @@ function ComparisonPanel({
       invoice_count: number;
       summary_sales: number;
       difference: number;
+      payment?: NebimPayment | null;
     } | null;
   };
 }) {
@@ -590,6 +593,15 @@ function ComparisonPanel({
  * difference = Nebim net − Mağaza Özeti:
  *  > 0 → server > özet → ÖZET AZ (kritik) · < 0 → server < özet → ÖZET FAZLA (anomali)
  */
+type NebimPayment = {
+  nebim_cash: number;
+  nebim_card: number;
+  summary_cash: number;
+  summary_card: number;
+  cash_diff: number;
+  card_diff: number;
+};
+
 function NebimBlock({
   n,
 }: {
@@ -601,6 +613,7 @@ function NebimBlock({
     invoice_count: number;
     summary_sales: number;
     difference: number;
+    payment?: NebimPayment | null;
   };
 }) {
   const matches = Math.abs(n.difference) <= 1;
@@ -679,7 +692,83 @@ function NebimBlock({
             {n.invoice_count} fiş · {n.line_count} satır
             {n.returns < 0 ? ` · iade düşülü ${fmt(Math.abs(n.returns))} ₺` : ""}
           </div>
+
+          {/* Ödeme tipi kıyası — Nebim nakit/kart ↔ Mağaza Özeti (brüt satış) */}
+          {n.payment ? (
+            <div className="mt-3 rounded-xl border border-border/60 bg-white/70 overflow-hidden">
+              <div className="grid grid-cols-12 gap-2 px-3 py-1.5 bg-slate-900/[0.04] text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+                <div className="col-span-4">Ödeme Tipi (brüt)</div>
+                <div className="col-span-3 text-right">Nebim</div>
+                <div className="col-span-3 text-right">Mağaza Özeti</div>
+                <div className="col-span-2 text-right">Fark</div>
+              </div>
+              <PayCompareRow
+                label="Nakit"
+                Icon={Banknote}
+                iconClass="text-emerald-600"
+                nebim={n.payment.nebim_cash}
+                summary={n.payment.summary_cash}
+                diff={n.payment.cash_diff}
+              />
+              <PayCompareRow
+                label="Kredi Kartı"
+                Icon={CreditCard}
+                iconClass="text-indigo-600"
+                nebim={n.payment.nebim_card}
+                summary={n.payment.summary_card}
+                diff={n.payment.card_diff}
+                border
+              />
+            </div>
+          ) : null}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function PayCompareRow({
+  label,
+  Icon,
+  iconClass,
+  nebim,
+  summary,
+  diff,
+  border,
+}: {
+  label: string;
+  Icon: typeof Banknote;
+  iconClass: string;
+  nebim: number;
+  summary: number;
+  diff: number;
+  border?: boolean;
+}) {
+  const matches = Math.abs(diff) <= 1;
+  return (
+    <div
+      className={`grid grid-cols-12 gap-2 px-3 py-2 items-center text-sm ${
+        border ? "border-t border-border/40" : ""
+      }`}
+    >
+      <div className="col-span-4 flex items-center gap-1.5">
+        <Icon className={`h-3.5 w-3.5 shrink-0 ${iconClass}`} />
+        <span className="font-medium">{label}</span>
+      </div>
+      <div className="col-span-3 text-right tabular-nums">{fmt(nebim)} ₺</div>
+      <div className="col-span-3 text-right tabular-nums text-muted-foreground">
+        {fmt(summary)} ₺
+      </div>
+      <div className="col-span-2 text-right tabular-nums flex items-center justify-end gap-1">
+        <span className={matches ? "text-emerald-600" : "text-rose-600 font-medium"}>
+          {diff >= 0 ? "+" : ""}
+          {fmt(diff)}
+        </span>
+        {matches ? (
+          <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+        ) : (
+          <AlertTriangle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
+        )}
       </div>
     </div>
   );

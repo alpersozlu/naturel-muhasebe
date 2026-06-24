@@ -32,6 +32,8 @@ export const nebimSaleLineSchema = z.object({
 
   payment_type: z.string().nullish(), // "Nakit" / "Kredi Kartı" / "Nakit + Kredi Kartı"
   card_type: z.string().nullish(), // kart markası (Maksimum, Garanti Bonus…)
+  pay_cash: z.number().nullish(), // fatura nakit tutarı (PaymentTypeCode=1)
+  pay_card: z.number().nullish(), // fatura kart tutarı (PaymentTypeCode=2)
 
   qty: z.number(),
   price: z.number().nullish(),

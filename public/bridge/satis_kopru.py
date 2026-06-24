@@ -222,7 +222,19 @@ SELECT
            JOIN trCreditCardPaymentLine ccl ON ccl.CreditCardPaymentLineID = pl.CreditCardPaymentLineID
            LEFT JOIN cdCreditCardTypeDesc ccd ON ccd.CreditCardTypeCode = ccl.CreditCardTypeCode AND ccd.LangCode = 'TR'
            WHERE ph.DocumentNumber = h.InvoiceNumber AND ph.CompanyCode = h.CompanyCode
-           FOR XML PATH('')), 1, 2, '')                AS credit_card_types
+           FOR XML PATH('')), 1, 2, '')                AS credit_card_types,
+    (SELECT COALESCE(SUM(cl.CurrAccAmount), 0)
+       FROM trPaymentHeader ph
+       JOIN trPaymentLine pl ON pl.PaymentHeaderID = ph.PaymentHeaderID
+       JOIN trCashLine cl ON cl.CashLineID = pl.CashLineID
+       WHERE ph.DocumentNumber = h.InvoiceNumber AND ph.CompanyCode = h.CompanyCode
+         AND pl.PaymentTypeCode = 1)                   AS pay_cash,
+    (SELECT COALESCE(SUM(ccl.CurrAccAmount), 0)
+       FROM trPaymentHeader ph
+       JOIN trPaymentLine pl ON pl.PaymentHeaderID = ph.PaymentHeaderID
+       JOIN trCreditCardPaymentLine ccl ON ccl.CreditCardPaymentLineID = pl.CreditCardPaymentLineID
+       WHERE ph.DocumentNumber = h.InvoiceNumber AND ph.CompanyCode = h.CompanyCode
+         AND pl.PaymentTypeCode = 2)                   AS pay_card
 FROM trInvoiceHeader h
 JOIN trInvoiceLine l
     ON  l.InvoiceHeaderID = h.InvoiceHeaderID
@@ -372,6 +384,8 @@ def build_lines(rows: list[dict], cfg: dict) -> list[dict]:
             "campaign": (str(r["campaign"]).strip() if r.get("campaign") not in (None, "") else None),
             "payment_type": _payment_label(r.get("payment_type_codes")),
             "card_type": (str(r["credit_card_types"]).strip() if r.get("credit_card_types") not in (None, "") else None),
+            "pay_cash": _num(r.get("pay_cash")),
+            "pay_card": _num(r.get("pay_card")),
             "qty": _num(r.get("qty")),
             "price": _num(r.get("price")),
             "vat_rate": _num(r.get("vat_rate")),

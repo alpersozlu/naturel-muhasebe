@@ -772,6 +772,12 @@ model NebimSaleLine {
   payment_type String?
   card_type    String?
 
+  // Fatura-bazlı ödeme tutarları (her satırda tekrar — fatura geneli; gün
+  // kıyası için invoice_ref ile tekilleştir). trPaymentLine → trCashLine /
+  // trCreditCardPaymentLine .CurrAccAmount.
+  pay_cash Decimal? @db.Decimal(14, 2) // Nakit ödenen (PaymentTypeCode=1)
+  pay_card Decimal? @db.Decimal(14, 2) // Kredi kartı ödenen (PaymentTypeCode=2)
+
   // Tutarlar (D = yerel para / TRY)
   qty        Decimal  @db.Decimal(14, 3)
   price      Decimal? @db.Decimal(14, 2)
