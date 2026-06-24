@@ -17,29 +17,48 @@ import type { PrismaClient } from "@prisma/client";
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const num = (d: { toNumber(): number } | null | undefined) => d?.toNumber() ?? 0;
 
-/** Nebim kart tipi (kart markası) → kanonik banka adı. */
+// Cardplus = çok-bankalı ortak kart ağı. POS slibi bu üye bankalardan biriyse
+// Nebim'deki "Cardplus" tutarıyla kıyaslanmalı. (Optimum = Koopbank ≠ Limasol
+// Türk Kooperatif Bankası; Limasol Cardplus üyesidir — ayrı tutuluyor.)
+const CARDPLUS_SLIP_KEYS = [
+  "iktisat", // Kıbrıs İktisat Bankası
+  "creditwest",
+  "limasol", // Limasol Türk Kooperatif Bankası
+  "asbank",
+  "vakıf", // Kıbrıs Vakıflar Bankası
+  "vakif",
+  "yakın doğu", // Yakın Doğu Bank
+  "yakin dogu",
+  "near east",
+  "akfinans",
+  "nova", // Novabank
+  "cardplus",
+];
+
+/** Nebim kart tipi (kart markası) → kanonik banka/ağ adı. */
 function bankFromNebimCard(cardType: string): string {
   if (cardType.includes(",")) return "Karma kart";
   const t = cardType.toLocaleLowerCase("tr");
   if (t.includes("maksimum") || t.includes("maximum")) return "İş Bankası";
   if (t.includes("optimum")) return "Koopbank";
+  if (t.includes("cardplus")) return "Cardplus";
   if (t.includes("garanti")) return "Garanti";
   if (t.includes("teb")) return "TEB";
   if (t.includes("ziraat")) return "Ziraat";
-  if (t.includes("cardplus")) return "Cardplus";
   return cardType;
 }
 
-/** POS slip banka adı (OCR, varyantlı) → kanonik banka adı. */
+/** POS slip banka adı (OCR, varyantlı) → kanonik banka/ağ adı. */
 function bankFromSlip(name: string): string {
   const t = name.toLocaleLowerCase("tr");
+  // Cardplus üye bankaları → tek "Cardplus" grubu (Limasol dahil; önce yakala)
+  if (CARDPLUS_SLIP_KEYS.some((k) => t.includes(k))) return "Cardplus";
   if (t.includes("iş bank") || t.includes("is bank") || t.includes("isbank")) return "İş Bankası";
-  if (t.includes("koop")) return "Koopbank";
+  // Koopbank (Optimum) — Limasol yukarıda Cardplus'a gitti
+  if (t.includes("koop") || t.includes("kooperatif")) return "Koopbank";
   if (t.includes("garanti")) return "Garanti";
   if (t.includes("teb")) return "TEB";
   if (t.includes("ziraat")) return "Ziraat";
-  if (t.includes("nova")) return "Nova Bank";
-  if (t.includes("cardplus") || t.includes("creditwest")) return "Cardplus";
   return name;
 }
 
