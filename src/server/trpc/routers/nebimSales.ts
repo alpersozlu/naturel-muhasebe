@@ -34,6 +34,67 @@ async function buildWhere(
   };
 }
 
+/** İndirim yüzdesi bantları — orijinal (amount_vi) → net (net_amount) farkına göre. */
+const DISCOUNT_BUCKETS: Array<{ key: string; label: string; min: number; max: number }> = [
+  { key: "b0", label: "İndirimsiz", min: -Infinity, max: 0.5 },
+  { key: "b1", label: "%0–10", min: 0.5, max: 10 },
+  { key: "b2", label: "%10–25", min: 10, max: 25 },
+  { key: "b3", label: "%25–40", min: 25, max: 40 },
+  { key: "b4", label: "%40–60", min: 40, max: 60 },
+  { key: "b5", label: "%60+", min: 60, max: Infinity },
+];
+
+type IndirimOzet = {
+  orijinal_total: number;
+  net_total: number;
+  indirim_total: number;
+  avg_pct: number;
+  lines: number;
+  discounted_lines: number;
+  buckets: Array<{ key: string; label: string; lines: number; orijinal: number }>;
+};
+
+const EMPTY_INDIRIM: IndirimOzet = {
+  orijinal_total: 0,
+  net_total: 0,
+  indirim_total: 0,
+  avg_pct: 0,
+  lines: 0,
+  discounted_lines: 0,
+  buckets: DISCOUNT_BUCKETS.map((b) => ({ key: b.key, label: b.label, lines: 0, orijinal: 0 })),
+};
+
+/** Satış (iade-olmayan, orijinal>0) satırlarından indirim özeti çıkarır. */
+function computeIndirim(rows: Array<{ amount_vi: unknown; net_amount: unknown }>): IndirimOzet {
+  const buckets = DISCOUNT_BUCKETS.map((b) => ({ key: b.key, label: b.label, lines: 0, orijinal: 0 }));
+  let orijinal_total = 0;
+  let net_total = 0;
+  let discounted_lines = 0;
+  for (const r of rows) {
+    const a = Number(r.amount_vi ?? 0);
+    if (!(a > 0)) continue;
+    const n = Number(r.net_amount ?? 0);
+    orijinal_total += a;
+    net_total += n;
+    const pct = ((a - n) / a) * 100;
+    if (pct >= 0.5) discounted_lines += 1;
+    const bi = DISCOUNT_BUCKETS.findIndex((b) => pct >= b.min && pct < b.max);
+    const slot = buckets[bi >= 0 ? bi : 0]!;
+    slot.lines += 1;
+    slot.orijinal += a;
+  }
+  const indirim_total = orijinal_total - net_total;
+  return {
+    orijinal_total,
+    net_total,
+    indirim_total,
+    avg_pct: orijinal_total > 0 ? (indirim_total / orijinal_total) * 100 : 0,
+    lines: rows.length,
+    discounted_lines,
+    buckets,
+  };
+}
+
 const EMPTY_SUMMARY = {
   lines: 0,
   invoices: 0,
@@ -111,6 +172,7 @@ export const nebimSalesRouter = router({
         payment_type: r.payment_type,
         card_type: r.card_type,
         qty: Number(r.qty),
+        amount_vi: r.amount_vi == null ? null : Number(r.amount_vi),
         net_amount: r.net_amount == null ? null : Number(r.net_amount),
       }));
 
@@ -174,8 +236,16 @@ export const nebimSalesRouter = router({
         by_customer: [] as Array<{ name: string; net: number; lines: number; invoices: number }>,
         by_store: [] as Array<{ store_name: string | null; net: number; lines: number }>,
         by_payment: [] as Array<{ label: string; net: number; lines: number; invoices: number }>,
+        indirim: EMPTY_INDIRIM,
       };
       if (!where) return empty;
+
+      // İndirim = sadece satış satırları (iade hariç, orijinal tutar > 0)
+      const discWhere: Prisma.NebimSaleLineWhereInput = {
+        ...where,
+        is_return: false,
+        amount_vi: { gt: 0 },
+      };
 
       const custWhere: Prisma.NebimSaleLineWhereInput = {
         ...where,
@@ -193,6 +263,7 @@ export const nebimSalesRouter = router({
         payInv,
         invoiceGroups,
         stores,
+        discRows,
       ] = await Promise.all([
         ctx.prisma.nebimSaleLine.aggregate({ where, _count: { _all: true }, _sum: { net_amount: true } }),
         ctx.prisma.nebimSaleLine.groupBy({ by: ["salesperson_name"], where, _count: { _all: true }, _sum: { net_amount: true } }),
@@ -204,6 +275,7 @@ export const nebimSalesRouter = router({
         ctx.prisma.nebimSaleLine.groupBy({ by: ["payment_type", "invoice_ref"], where }),
         ctx.prisma.nebimSaleLine.groupBy({ by: ["company_code", "invoice_ref"], where }),
         ctx.prisma.store.findMany({ select: { id: true, name: true } }),
+        ctx.prisma.nebimSaleLine.findMany({ where: discWhere, select: { amount_vi: true, net_amount: true } }),
       ]);
 
       const salesFis = new Map<string, number>();
@@ -274,6 +346,7 @@ export const nebimSalesRouter = router({
         by_customer,
         by_store,
         by_payment,
+        indirim: computeIndirim(discRows),
       };
     }),
 

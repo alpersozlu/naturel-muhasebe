@@ -177,6 +177,11 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
                   <div className="text-base font-bold tabular-nums tracking-tight">
                     ₺{fmt(r.net_amount)}
                   </div>
+                  <DiscountTag
+                    amount={r.amount_vi}
+                    net={r.net_amount}
+                    isReturn={r.is_return}
+                  />
                   <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                     {r.qty} adet
                   </div>
@@ -229,6 +234,32 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** İndirim göstergesi — orijinal (üstü çizili) + indirim % rozeti. İade/indirimsizde gizli. */
+function DiscountTag({
+  amount,
+  net,
+  isReturn,
+}: {
+  amount: number | null;
+  net: number | null;
+  isReturn: boolean;
+}) {
+  if (isReturn || amount == null || net == null || amount <= 0) return null;
+  const diff = amount - net;
+  const pct = (diff / amount) * 100;
+  if (pct < 1) return null; // indirimsiz / yuvarlama gürültüsü
+  return (
+    <div className="flex items-center justify-end gap-1.5 mt-0.5">
+      <span className="text-[11px] tabular-nums text-muted-foreground line-through">
+        ₺{fmt(amount)}
+      </span>
+      <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full tabular-nums">
+        −%{Math.round(pct)}
+      </span>
+    </div>
   );
 }
 
