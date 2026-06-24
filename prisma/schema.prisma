@@ -784,7 +784,8 @@ model NebimSaleLine {
   net_amount Decimal? @db.Decimal(14, 2) // Net tutar (KDV dahil)
 
   // İndirim/kampanya metası (Phase 2 — fatura/satır seviyesi)
-  invoice_note    String? // trInvoiceHeader.Description — elle girilen serbest not ("2250 mavı çeki…")
+  invoice_note    String? // trInvoiceHeader.Description — FİŞ açıklaması (kasiyer notu)
+  mgmt_note       String? // tpInvoiceHeaderExtension.DiscountReasonDescription — YÖNETİM açıklaması (şifreli manuel iskonto notu)
   discount_reason String? // cdDiscountReasonDesc — iskonto nedeni ("Yönetim Özel talebi")
   campaign        String? // tpInvoiceDiscountOffer → cdDiscountOfferDesc — satıra uygulanan kampanya adı/adları
 

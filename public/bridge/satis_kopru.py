@@ -191,6 +191,9 @@ SELECT
     ca.FirstLastName       AS customer_name,
     h.Description           AS invoice_note,
     drd.DiscountReasonDescription AS discount_reason,
+    (SELECT TOP 1 ext.DiscountReasonDescription
+       FROM tpInvoiceHeaderExtension ext
+       WHERE ext.InvoiceHeaderID = h.InvoiceHeaderID)  AS mgmt_note,
     STUFF((SELECT DISTINCT ' | ' + COALESCE(od.DiscountOfferDescription,
                                             CAST(o.DiscountOfferCode AS varchar(40)))
            FROM tpInvoiceDiscountOffer o
@@ -364,6 +367,7 @@ def build_lines(rows: list[dict], cfg: dict) -> list[dict]:
             "customer_code": (str(r["customer_code"]).strip() if r.get("customer_code") is not None else None),
             "customer_name": (str(r["customer_name"]).strip() if r.get("customer_name") not in (None, "") else None),
             "invoice_note": (str(r["invoice_note"]).strip() if r.get("invoice_note") not in (None, "") and str(r["invoice_note"]).strip() else None),
+            "mgmt_note": (str(r["mgmt_note"]).strip() if r.get("mgmt_note") not in (None, "") and str(r["mgmt_note"]).strip() else None),
             "discount_reason": (str(r["discount_reason"]).strip() if r.get("discount_reason") not in (None, "") else None),
             "campaign": (str(r["campaign"]).strip() if r.get("campaign") not in (None, "") else None),
             "payment_type": _payment_label(r.get("payment_type_codes")),
@@ -443,26 +447,30 @@ def post_ingest(cfg: dict, lines: list[dict]) -> None:
 def _discount_meta_preview(lines: list[dict]) -> None:
     """Yeni alanlarin (not/neden/kampanya) gerçekten geldigini dogrula."""
     n_note = sum(1 for l in lines if l.get("invoice_note"))
+    n_mgmt = sum(1 for l in lines if l.get("mgmt_note"))
     n_reason = sum(1 for l in lines if l.get("discount_reason"))
     n_camp = sum(1 for l in lines if l.get("campaign"))
     print("\n=== INDIRIM META (yeni alanlar) ===")
-    print(f"  not (invoice_note) dolu : {n_note}")
-    print(f"  iskonto nedeni dolu     : {n_reason}")
-    print(f"  kampanya dolu           : {n_camp}")
-    if n_note == 0 and n_camp == 0 and n_reason == 0:
+    print(f"  fis notu (invoice_note) dolu : {n_note}")
+    print(f"  YONETIM aciklamasi dolu      : {n_mgmt}")
+    print(f"  iskonto nedeni dolu          : {n_reason}")
+    print(f"  kampanya dolu                : {n_camp}")
+    if n_note == 0 and n_camp == 0 and n_reason == 0 and n_mgmt == 0:
         print("  !!! UYARI: hicbiri gelmedi -> ESKI satis_kopru.py calisiyor olabilir.")
         return
-    print("  --- ornek (ilk 8 dolu satir) ---")
+    print("  --- YONETIM aciklamali ornekler (ilk 8) ---")
     shown = 0
     for l in lines:
         if shown >= 8:
             break
-        if not (l.get("invoice_note") or l.get("campaign") or l.get("discount_reason")):
+        if not l.get("mgmt_note"):
             continue
-        note = (l.get("invoice_note") or "").replace("\n", " ").replace("\r", " ")[:45]
-        print(f"  {l.get('invoice_ref')}: kamp='{(l.get('campaign') or '')[:30]}'"
-              f" neden='{l.get('discount_reason') or ''}' not='{note}'")
+        mgmt = (l.get("mgmt_note") or "").replace("\n", " ").replace("\r", " ")[:50]
+        print(f"  {l.get('invoice_ref')}: YONETIM='{mgmt}'"
+              f" neden='{l.get('discount_reason') or ''}'")
         shown += 1
+    if shown == 0:
+        print("  (bu aralikta yonetim aciklamali fatura yok; gecmiste var)")
 
 
 def _store_summary(lines: list[dict], cfg: dict) -> None:

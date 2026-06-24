@@ -43,7 +43,8 @@ export const nebimSaleLineSchema = z.object({
   vat: z.number().nullish(), // KDV
   net_amount: z.number().nullish(), // Net tutar (KDV dahil)
 
-  invoice_note: z.string().nullish(), // trInvoiceHeader.Description — elle girilen not
+  invoice_note: z.string().nullish(), // trInvoiceHeader.Description — fiş açıklaması
+  mgmt_note: z.string().nullish(), // tpInvoiceHeaderExtension — yönetim açıklaması (manuel iskonto)
   discount_reason: z.string().nullish(), // cdDiscountReasonDesc — iskonto nedeni
   campaign: z.string().nullish(), // tpInvoiceDiscountOffer → kampanya adı/adları
 });

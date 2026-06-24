@@ -14,6 +14,7 @@ import {
   Megaphone,
   ShieldCheck,
   StickyNote,
+  KeyRound,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -193,10 +194,20 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
                       </>
                     ) : null}
                   </div>
+                  {r.mgmt_note ? (
+                    <div className="mt-1.5 text-[11px] text-rose-800 bg-rose-50/80 border-l-2 border-rose-400 pl-2 pr-1 py-0.5 rounded-r flex items-start gap-1">
+                      <KeyRound className="h-3 w-3 mt-0.5 shrink-0 text-rose-500" />
+                      <span className="whitespace-pre-line line-clamp-2">
+                        <span className="font-semibold">Yönetim açıklaması:</span> {r.mgmt_note}
+                      </span>
+                    </div>
+                  ) : null}
                   {r.invoice_note ? (
-                    <div className="mt-1.5 text-[11px] text-amber-800/90 bg-amber-50/70 border-l-2 border-amber-300 pl-2 pr-1 py-0.5 rounded-r flex items-start gap-1">
+                    <div className="mt-1 text-[11px] text-amber-800/90 bg-amber-50/70 border-l-2 border-amber-300 pl-2 pr-1 py-0.5 rounded-r flex items-start gap-1">
                       <StickyNote className="h-3 w-3 mt-0.5 shrink-0 text-amber-500" />
-                      <span className="whitespace-pre-line line-clamp-2">{r.invoice_note}</span>
+                      <span className="whitespace-pre-line line-clamp-2">
+                        <span className="font-medium text-amber-700/80">Fiş notu:</span> {r.invoice_note}
+                      </span>
                     </div>
                   ) : null}
                 </div>

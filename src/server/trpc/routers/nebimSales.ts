@@ -175,6 +175,7 @@ export const nebimSalesRouter = router({
         amount_vi: r.amount_vi == null ? null : Number(r.amount_vi),
         net_amount: r.net_amount == null ? null : Number(r.net_amount),
         invoice_note: r.invoice_note,
+        mgmt_note: r.mgmt_note,
         discount_reason: r.discount_reason,
         campaign: r.campaign,
       }));
