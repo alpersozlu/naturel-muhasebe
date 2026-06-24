@@ -490,6 +490,7 @@ function ComparisonPanel({
       summary_sales: number;
       difference: number;
       payment?: NebimPayment | null;
+      card_by_bank?: NebimBankCompare[] | null;
     } | null;
   };
 }) {
@@ -602,6 +603,14 @@ type NebimPayment = {
   card_diff: number;
 };
 
+type NebimBankCompare = {
+  bank: string;
+  nebim: number;
+  slip: number;
+  slip_count: number;
+  diff: number;
+};
+
 function NebimBlock({
   n,
 }: {
@@ -614,6 +623,7 @@ function NebimBlock({
     summary_sales: number;
     difference: number;
     payment?: NebimPayment | null;
+    card_by_bank?: NebimBankCompare[] | null;
   };
 }) {
   const matches = Math.abs(n.difference) <= 1;
@@ -721,7 +731,71 @@ function NebimBlock({
               />
             </div>
           ) : null}
+
+          {/* Kart — Banka bazında ↔ POS slipleri (çalışan doğru girdi mi?) */}
+          {n.card_by_bank && n.card_by_bank.length > 0 ? (
+            <div className="mt-3 rounded-xl border border-border/60 bg-white/70 overflow-hidden">
+              <div className="px-3 py-1.5 bg-slate-900/[0.04] flex items-center gap-1.5">
+                <CreditCard className="h-3.5 w-3.5 text-indigo-600" />
+                <span className="text-[11px] font-semibold text-foreground/80">
+                  Kart — Banka Bazında ↔ POS Slipleri
+                </span>
+                <span className="ml-auto text-[10px] text-muted-foreground">
+                  Nebim&apos;e doğru banka girilmiş mi?
+                </span>
+              </div>
+              <div className="grid grid-cols-12 gap-2 px-3 py-1 text-[10px] uppercase tracking-wide text-muted-foreground font-medium border-b border-border/40">
+                <div className="col-span-4">Banka (Nebim kartı)</div>
+                <div className="col-span-3 text-right">Nebim</div>
+                <div className="col-span-3 text-right">POS Slip</div>
+                <div className="col-span-2 text-right">Fark</div>
+              </div>
+              {n.card_by_bank.map((b, i) => (
+                <BankSlipRow key={b.bank} b={b} border={i > 0} />
+              ))}
+            </div>
+          ) : null}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function BankSlipRow({ b, border }: { b: NebimBankCompare; border?: boolean }) {
+  const noSlip = b.slip_count === 0 && b.slip === 0;
+  const matches = Math.abs(b.diff) <= 1;
+  return (
+    <div
+      className={`grid grid-cols-12 gap-2 px-3 py-2 items-center text-sm ${
+        border ? "border-t border-border/40" : ""
+      }`}
+    >
+      <div className="col-span-4 font-medium truncate">{b.bank}</div>
+      <div className="col-span-3 text-right tabular-nums">{fmt(b.nebim)} ₺</div>
+      <div className="col-span-3 text-right tabular-nums text-muted-foreground">
+        {noSlip ? "—" : `${fmt(b.slip)} ₺`}
+        {b.slip_count > 0 ? (
+          <span className="text-[10px] text-muted-foreground/70"> ({b.slip_count})</span>
+        ) : null}
+      </div>
+      <div className="col-span-2 text-right tabular-nums flex items-center justify-end gap-1">
+        {noSlip ? (
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600">
+            <AlertCircle className="h-3.5 w-3.5" /> slip yok
+          </span>
+        ) : (
+          <>
+            <span className={matches ? "text-emerald-600" : "text-rose-600 font-medium"}>
+              {b.diff >= 0 ? "+" : ""}
+              {fmt(b.diff)}
+            </span>
+            {matches ? (
+              <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertTriangle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
+            )}
+          </>
+        )}
       </div>
     </div>
   );
