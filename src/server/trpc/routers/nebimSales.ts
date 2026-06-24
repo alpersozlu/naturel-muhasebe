@@ -34,6 +34,30 @@ async function buildWhere(
   };
 }
 
+/** İndirim bandı filtresi → discount_pct where parçası. */
+function discountBandWhere(
+  band: string | undefined
+): Prisma.NebimSaleLineWhereInput {
+  switch (band) {
+    case "discounted":
+      return { discount_pct: { gte: 0.5 } };
+    case "none":
+      return { discount_pct: { lt: 0.5 } };
+    case "b1":
+      return { discount_pct: { gte: 0.5, lt: 10 } };
+    case "b2":
+      return { discount_pct: { gte: 10, lt: 25 } };
+    case "b3":
+      return { discount_pct: { gte: 25, lt: 40 } };
+    case "b4":
+      return { discount_pct: { gte: 40, lt: 60 } };
+    case "b5":
+      return { discount_pct: { gte: 60 } };
+    default:
+      return {};
+  }
+}
+
 /** İndirim yüzdesi bantları — orijinal (amount_vi) → net (net_amount) farkına göre. */
 const DISCOUNT_BUCKETS: Array<{ key: string; label: string; min: number; max: number }> = [
   { key: "b0", label: "İndirimsiz", min: -Infinity, max: 0.5 },
@@ -138,6 +162,7 @@ export const nebimSalesRouter = router({
         ...(storeFilter ? { store_id: { in: storeFilter } } : {}),
         ...(Object.keys(dateFilter).length > 0 ? { invoice_date: dateFilter } : {}),
         ...(input.only_returns ? { is_return: true } : {}),
+        ...discountBandWhere(input.discount_band),
       };
 
       const rows = await ctx.prisma.nebimSaleLine.findMany({

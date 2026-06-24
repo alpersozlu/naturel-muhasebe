@@ -21,7 +21,19 @@ export type NebimSalesSelection = {
   dateFrom: string;
   dateTo: string;
   onlyReturns: boolean;
+  discountBand: string; // "" = tümü; discounted/none/b1..b5
 };
+
+const DISCOUNT_OPTIONS: Array<[string, string]> = [
+  ["all", "Tümü"],
+  ["discounted", "İndirimli (hepsi)"],
+  ["none", "İndirimsiz"],
+  ["b1", "%0–10"],
+  ["b2", "%10–25"],
+  ["b3", "%25–40"],
+  ["b4", "%40–60"],
+  ["b5", "%60+"],
+];
 
 export function NebimFilters({
   value,
@@ -42,7 +54,11 @@ export function NebimFilters({
   );
 
   const hasAny =
-    !!value.storeId || !!value.dateFrom || !!value.dateTo || value.onlyReturns;
+    !!value.storeId ||
+    !!value.dateFrom ||
+    !!value.dateTo ||
+    value.onlyReturns ||
+    (!!value.discountBand && value.discountBand !== "all");
 
   // Tarih modu: "single" (tek gün, from=to) | "range" (başlangıç+bitiş).
   // Başlangıç modu: from≠to ise aralık, değilse tek gün.
@@ -70,7 +86,13 @@ export function NebimFilters({
             size="sm"
             className="h-7 text-xs text-muted-foreground"
             onClick={() =>
-              onChange({ storeId: "", dateFrom: "", dateTo: "", onlyReturns: false })
+              onChange({
+                storeId: "",
+                dateFrom: "",
+                dateTo: "",
+                onlyReturns: false,
+                discountBand: "",
+              })
             }
           >
             <X className="h-3 w-3 mr-1" />
@@ -79,7 +101,7 @@ export function NebimFilters({
         ) : null}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <div className="space-y-1.5">
           <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
             Mağaza
@@ -194,6 +216,29 @@ export function NebimFilters({
             <SelectContent>
               <SelectItem value="all">Tümü</SelectItem>
               <SelectItem value="returns">Sadece İadeler</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            İndirim
+          </Label>
+          <Select
+            value={value.discountBand || "all"}
+            onValueChange={(v) =>
+              onChange({ ...value, discountBand: v === "all" ? "" : v })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DISCOUNT_OPTIONS.map(([v, label]) => (
+                <SelectItem key={v} value={v}>
+                  {label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>

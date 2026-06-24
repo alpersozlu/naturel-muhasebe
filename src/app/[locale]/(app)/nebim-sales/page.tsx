@@ -16,7 +16,13 @@ function defaultSelection(): NebimSalesSelection {
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
   // Varsayılan: içinde bulunulan ayın başından bugüne.
-  return { storeId: "", dateFrom: `${y}-${m}-01`, dateTo: `${y}-${m}-${d}`, onlyReturns: false };
+  return {
+    storeId: "",
+    dateFrom: `${y}-${m}-01`,
+    dateTo: `${y}-${m}-${d}`,
+    onlyReturns: false,
+    discountBand: "",
+  };
 }
 
 type Tab = "list" | "analiz";

@@ -22,6 +22,7 @@ import {
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import type { DiscountBand } from "@/lib/zod-schemas/nebim-sales";
 import type { NebimSalesSelection } from "./nebim-filters";
 
 const TRY2 = new Intl.NumberFormat("tr-TR", {
@@ -78,6 +79,7 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
         date_from: filters.dateFrom || undefined,
         date_to: filters.dateTo || undefined,
         only_returns: filters.onlyReturns || undefined,
+        discount_band: (filters.discountBand || undefined) as DiscountBand | undefined,
         limit: 50,
       },
       { getNextPageParam: (last) => last.nextCursor ?? undefined }
@@ -158,13 +160,14 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
         <Card className="overflow-hidden">
           <CardContent className="p-0">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[920px] border-collapse text-sm">
+              <table className="w-full min-w-[1040px] border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">
                     <th className="w-8" />
                     <th className="text-left font-semibold px-3 py-2.5">Ürün</th>
                     <th className="text-left font-semibold px-3 py-2.5">Mağaza · Fiş</th>
-                    <th className="text-left font-semibold px-3 py-2.5">Satıcı · Müşteri</th>
+                    <th className="text-left font-semibold px-3 py-2.5">Satıcı</th>
+                    <th className="text-left font-semibold px-3 py-2.5">Müşteri</th>
                     <th className="text-left font-semibold px-3 py-2.5">Ödeme</th>
                     <th className="text-right font-semibold px-3 py-2.5">Orijinal</th>
                     <th className="text-right font-semibold px-3 py-2.5">İndirim</th>
@@ -267,8 +270,8 @@ function NebimRow({ r }: { r: Item }) {
           </div>
         </td>
 
-        {/* Satıcı · Müşteri */}
-        <td className="align-top px-3 py-3 max-w-[200px]">
+        {/* Satıcı */}
+        <td className="align-top px-3 py-3 max-w-[170px]">
           {r.salesperson_name ? (
             <div className="flex items-center gap-1.5">
               <User className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
@@ -277,12 +280,18 @@ function NebimRow({ r }: { r: Item }) {
           ) : (
             <span className="text-muted-foreground">—</span>
           )}
+        </td>
+
+        {/* Müşteri */}
+        <td className="align-top px-3 py-3 max-w-[170px]">
           {r.customer_name ? (
-            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-indigo-600 font-medium">
-              <UserCircle2 className="h-3 w-3 shrink-0" />
-              <span className="truncate">{r.customer_name}</span>
+            <div className="flex items-center gap-1.5">
+              <UserCircle2 className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+              <span className="truncate text-foreground/90">{r.customer_name}</span>
             </div>
-          ) : null}
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
         </td>
 
         {/* Ödeme */}
@@ -338,7 +347,7 @@ function NebimRow({ r }: { r: Item }) {
       {open && hasDetail ? (
         <tr className="border-b border-border/50 bg-muted/20">
           <td />
-          <td colSpan={7} className="px-3 pb-4 pt-1">
+          <td colSpan={8} className="px-3 pb-4 pt-1">
             <DetailPanel r={r} pct={pct} />
           </td>
         </tr>

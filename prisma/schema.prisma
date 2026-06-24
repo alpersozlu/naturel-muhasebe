@@ -789,6 +789,10 @@ model NebimSaleLine {
   vat        Decimal? @db.Decimal(14, 2) // KDV
   net_amount Decimal? @db.Decimal(14, 2) // Net tutar (KDV dahil)
 
+  // İndirim oranı (%), ingest'te hesaplanır: (amount_vi - net_amount)/amount_vi*100.
+  // Sadece satış (iade hariç, amount_vi>0) için; aksi null. Filtre/sıralama için.
+  discount_pct Decimal? @db.Decimal(6, 2)
+
   // İndirim/kampanya metası (Phase 2 — fatura/satır seviyesi)
   invoice_note    String? // trInvoiceHeader.Description — FİŞ açıklaması (kasiyer notu)
   mgmt_note       String? // tpInvoiceHeaderExtension.DiscountReasonDescription — YÖNETİM açıklaması (şifreli manuel iskonto notu)

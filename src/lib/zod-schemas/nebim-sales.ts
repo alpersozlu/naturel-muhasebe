@@ -4,11 +4,25 @@ const dateOnly = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Tarih YYYY-MM-DD formatında olmalı");
 
+/** İndirim oranı bantları (Analiz dağılımıyla aynı). */
+export const discountBandSchema = z.enum([
+  "all",
+  "discounted",
+  "none",
+  "b1",
+  "b2",
+  "b3",
+  "b4",
+  "b5",
+]);
+export type DiscountBand = z.infer<typeof discountBandSchema>;
+
 export const nebimSalesFilterSchema = z.object({
   store_id: z.string().uuid().optional(),
   date_from: dateOnly.optional(),
   date_to: dateOnly.optional(),
   only_returns: z.boolean().optional(),
+  discount_band: discountBandSchema.optional(),
   limit: z.number().int().min(1).max(200).default(50),
   cursor: z.string().uuid().optional(),
 });

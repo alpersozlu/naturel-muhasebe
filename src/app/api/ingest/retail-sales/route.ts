@@ -66,6 +66,14 @@ export async function POST(req: Request) {
         if (store_id) matched++;
         else if (l.store_name) unmatchedNames.add(l.store_name);
 
+        // İndirim oranı — yalnız satış (iade hariç, orijinal > 0)
+        const amt = l.amount_vi;
+        const net = l.net_amount;
+        const discount_pct =
+          !l.is_return && amt != null && amt > 0 && net != null
+            ? Math.round(((amt - net) / amt) * 10000) / 100
+            : null;
+
         const data = {
           company_code,
           invoice_ref: l.invoice_ref,
@@ -99,6 +107,7 @@ export async function POST(req: Request) {
           tax_base: l.tax_base ?? null,
           vat: l.vat ?? null,
           net_amount: l.net_amount ?? null,
+          discount_pct,
           invoice_note: l.invoice_note ?? null,
           mgmt_note: l.mgmt_note ?? null,
           discount_reason: l.discount_reason ?? null,
