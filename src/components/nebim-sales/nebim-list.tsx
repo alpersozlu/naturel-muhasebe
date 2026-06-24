@@ -11,6 +11,9 @@ import {
   UserCircle2,
   CreditCard,
   Banknote,
+  Megaphone,
+  ShieldCheck,
+  StickyNote,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -133,6 +136,24 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
                       </span>
                     ) : null}
                     <PaymentBadge paymentType={r.payment_type} cardType={r.card_type} />
+                    {r.campaign ? (
+                      <span
+                        className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border bg-orange-50 text-orange-700 border-orange-200 max-w-[240px] truncate"
+                        title={r.campaign}
+                      >
+                        <Megaphone className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{r.campaign}</span>
+                      </span>
+                    ) : null}
+                    {r.discount_reason ? (
+                      <span
+                        className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-200"
+                        title="İskonto nedeni"
+                      >
+                        <ShieldCheck className="h-3 w-3" />
+                        {r.discount_reason}
+                      </span>
+                    ) : null}
                   </div>
                   <div className="text-xs text-muted-foreground truncate flex items-center gap-1.5 mt-1">
                     <span className="font-medium text-foreground/80">
@@ -172,6 +193,12 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
                       </>
                     ) : null}
                   </div>
+                  {r.invoice_note ? (
+                    <div className="mt-1.5 text-[11px] text-amber-800/90 bg-amber-50/70 border-l-2 border-amber-300 pl-2 pr-1 py-0.5 rounded-r flex items-start gap-1">
+                      <StickyNote className="h-3 w-3 mt-0.5 shrink-0 text-amber-500" />
+                      <span className="whitespace-pre-line line-clamp-2">{r.invoice_note}</span>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="text-right shrink-0">
                   <div className="text-base font-bold tabular-nums tracking-tight">

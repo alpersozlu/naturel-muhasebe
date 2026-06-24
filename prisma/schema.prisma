@@ -782,7 +782,13 @@ model NebimSaleLine {
   tax_base   Decimal? @db.Decimal(14, 2) // Vergi hariç tutar (KDV matrahı)
   vat        Decimal? @db.Decimal(14, 2) // KDV
   net_amount Decimal? @db.Decimal(14, 2) // Net tutar (KDV dahil)
-  currency   Currency @default(TRY)
+
+  // İndirim/kampanya metası (Phase 2 — fatura/satır seviyesi)
+  invoice_note    String? // trInvoiceHeader.Description — elle girilen serbest not ("2250 mavı çeki…")
+  discount_reason String? // cdDiscountReasonDesc — iskonto nedeni ("Yönetim Özel talebi")
+  campaign        String? // tpInvoiceDiscountOffer → cdDiscountOfferDesc — satıra uygulanan kampanya adı/adları
+
+  currency Currency @default(TRY)
 
   source     String   @default("nebim")
   created_at DateTime @default(now())

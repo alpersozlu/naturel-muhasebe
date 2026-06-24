@@ -174,6 +174,9 @@ export const nebimSalesRouter = router({
         qty: Number(r.qty),
         amount_vi: r.amount_vi == null ? null : Number(r.amount_vi),
         net_amount: r.net_amount == null ? null : Number(r.net_amount),
+        invoice_note: r.invoice_note,
+        discount_reason: r.discount_reason,
+        campaign: r.campaign,
       }));
 
       // Özet — sayfa değil, TÜM filtre için
@@ -236,6 +239,8 @@ export const nebimSalesRouter = router({
         by_customer: [] as Array<{ name: string; net: number; lines: number; invoices: number }>,
         by_store: [] as Array<{ store_name: string | null; net: number; lines: number }>,
         by_payment: [] as Array<{ label: string; net: number; lines: number; invoices: number }>,
+        by_campaign: [] as Array<{ label: string; net: number; lines: number; invoices: number }>,
+        by_reason: [] as Array<{ label: string; net: number; lines: number; invoices: number }>,
         indirim: EMPTY_INDIRIM,
       };
       if (!where) return empty;
@@ -246,6 +251,8 @@ export const nebimSalesRouter = router({
         is_return: false,
         amount_vi: { gt: 0 },
       };
+      const campWhere: Prisma.NebimSaleLineWhereInput = { ...where, campaign: { not: null } };
+      const reasonWhere: Prisma.NebimSaleLineWhereInput = { ...where, discount_reason: { not: null } };
 
       const custWhere: Prisma.NebimSaleLineWhereInput = {
         ...where,
@@ -264,6 +271,10 @@ export const nebimSalesRouter = router({
         invoiceGroups,
         stores,
         discRows,
+        byCampRaw,
+        campInv,
+        byReasonRaw,
+        reasonInv,
       ] = await Promise.all([
         ctx.prisma.nebimSaleLine.aggregate({ where, _count: { _all: true }, _sum: { net_amount: true } }),
         ctx.prisma.nebimSaleLine.groupBy({ by: ["salesperson_name"], where, _count: { _all: true }, _sum: { net_amount: true } }),
@@ -276,6 +287,10 @@ export const nebimSalesRouter = router({
         ctx.prisma.nebimSaleLine.groupBy({ by: ["company_code", "invoice_ref"], where }),
         ctx.prisma.store.findMany({ select: { id: true, name: true } }),
         ctx.prisma.nebimSaleLine.findMany({ where: discWhere, select: { amount_vi: true, net_amount: true } }),
+        ctx.prisma.nebimSaleLine.groupBy({ by: ["campaign"], where: campWhere, _count: { _all: true }, _sum: { net_amount: true } }),
+        ctx.prisma.nebimSaleLine.groupBy({ by: ["campaign", "invoice_ref"], where: campWhere }),
+        ctx.prisma.nebimSaleLine.groupBy({ by: ["discount_reason"], where: reasonWhere, _count: { _all: true }, _sum: { net_amount: true } }),
+        ctx.prisma.nebimSaleLine.groupBy({ by: ["discount_reason", "invoice_ref"], where: reasonWhere }),
       ]);
 
       const salesFis = new Map<string, number>();
@@ -336,6 +351,41 @@ export const nebimSalesRouter = router({
         })
         .sort((a, b) => b.net - a.net);
 
+      // Kampanya ve İskonto nedeni kırılımları (aynı "etiket bazında net+satır+fiş" deseni)
+      const fisCountBy = <K extends string>(
+        groups: Array<Record<K, string | null> & { invoice_ref: string }>,
+        key: K
+      ) => {
+        const m = new Map<string, number>();
+        for (const g of groups) {
+          const k = g[key];
+          if (k == null) continue;
+          m.set(k, (m.get(k) ?? 0) + 1);
+        }
+        return m;
+      };
+      const campFis = fisCountBy(campInv, "campaign");
+      const by_campaign = byCampRaw
+        .filter((g) => g.campaign != null)
+        .map((g) => ({
+          label: g.campaign as string,
+          net: Number(g._sum.net_amount ?? 0),
+          lines: g._count._all,
+          invoices: campFis.get(g.campaign as string) ?? 0,
+        }))
+        .sort((a, b) => b.net - a.net);
+
+      const reasonFis = fisCountBy(reasonInv, "discount_reason");
+      const by_reason = byReasonRaw
+        .filter((g) => g.discount_reason != null)
+        .map((g) => ({
+          label: g.discount_reason as string,
+          net: Number(g._sum.net_amount ?? 0),
+          lines: g._count._all,
+          invoices: reasonFis.get(g.discount_reason as string) ?? 0,
+        }))
+        .sort((a, b) => b.net - a.net);
+
       return {
         kpi: {
           net_total: Number(agg._sum.net_amount ?? 0),
@@ -346,6 +396,8 @@ export const nebimSalesRouter = router({
         by_customer,
         by_store,
         by_payment,
+        by_campaign,
+        by_reason,
         indirim: computeIndirim(discRows),
       };
     }),

@@ -13,6 +13,8 @@ import {
   Banknote,
   Percent,
   Tag,
+  Megaphone,
+  ShieldCheck,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -59,6 +61,44 @@ export function NebimAnaliz({ filters }: { filters: NebimSalesSelection }) {
 
       {/* İndirim Analizi — orijinal fiyat → satılan fiyat → indirim % */}
       <IndirimAnaliz indirim={data.indirim} />
+
+      {/* Kampanya — Nebim Discount Offer (backfill sonrası dolar) */}
+      {data.by_campaign.length > 0 ? (
+        <Section icon={Megaphone} title={`Kampanya (${data.by_campaign.length})`}>
+          {data.by_campaign.map((c) => (
+            <Row
+              key={c.label}
+              left={
+                <span className="flex items-center gap-2">
+                  <Megaphone className="h-3.5 w-3.5 text-orange-500" />
+                  <span className="font-medium">{c.label}</span>
+                </span>
+              }
+              sub={`${c.invoices} fiş · ${c.lines} satır`}
+              value={fmt(c.net)}
+            />
+          ))}
+        </Section>
+      ) : null}
+
+      {/* İskonto Nedeni — DiscountReasonCode (örn. "Yönetim Özel talebi") */}
+      {data.by_reason.length > 0 ? (
+        <Section icon={ShieldCheck} title="İskonto Nedeni">
+          {data.by_reason.map((r) => (
+            <Row
+              key={r.label}
+              left={
+                <span className="flex items-center gap-2">
+                  <ShieldCheck className="h-3.5 w-3.5 text-rose-500" />
+                  <span className="font-medium">{r.label}</span>
+                </span>
+              }
+              sub={`${r.invoices} fiş · ${r.lines} satır`}
+              value={fmt(r.net)}
+            />
+          ))}
+        </Section>
+      ) : null}
 
       {/* Mağaza */}
       <Section icon={StoreIcon} title="Mağaza Bazında">

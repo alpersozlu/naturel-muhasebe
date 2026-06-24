@@ -97,6 +97,9 @@ export async function POST(req: Request) {
           tax_base: l.tax_base ?? null,
           vat: l.vat ?? null,
           net_amount: l.net_amount ?? null,
+          invoice_note: l.invoice_note ?? null,
+          discount_reason: l.discount_reason ?? null,
+          campaign: l.campaign ?? null,
           currency,
           source: "nebim",
         };
