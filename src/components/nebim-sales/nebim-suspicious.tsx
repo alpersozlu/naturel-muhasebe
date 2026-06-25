@@ -80,19 +80,21 @@ export function NebimSuspicious({ filters }: { filters: NebimSalesSelection }) {
                 Şüpheli Satışlar — kontrol et
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Yönetim onayı (özel talep/açıklama) <b>olmayan</b> satışlardan, kampanya
-                kuralına uymayanlar: indirim %20/%40/%50 dışı; hiç indirim yok ama fiyat
-                outlet (1.499,99 / 1.999,99 / 2.499,99 / 2.999,99) değil; <b>ya da Haziran
-                ayında %40</b> (o ay kampanyada %40 yok).
+                Yönetim onayı (özel talep/açıklama) <b>olmayan</b> satışlardan kampanya
+                kuralına uymayanlar: indirim %20/%40/%50 dışı; <b>ceket %40 değil</b> (ceket
+                hep %40); Haziran ayında %40; ya da hiç indirim yok ama fiyat outlet
+                (1.499,99 / 1.999,99 / 2.499,99 / 2.999,99) değil. (BLİNK bakım ürünleri
+                tam fiyat normaldir, hariç.)
               </p>
             </div>
           </div>
 
           {summary ? (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-3">
               <Stat label="Toplam Şüpheli" value={String(summary.total)} accent />
               <Stat label="Kural Dışı İndirim" value={String(summary.weird)} />
               <Stat label="Haziran %40" value={String(summary.june40)} />
+              <Stat label="Ceket (≠%40)" value={String(summary.jacket)} />
               <Stat label="Tam Fiyat (outlet değil)" value={String(summary.fullprice)} />
             </div>
           ) : null}
@@ -192,13 +194,17 @@ function SuspiciousRow({ r }: { r: Item }) {
       ? "bg-amber-50 text-amber-700 border-amber-200"
       : r.reason === "june40"
         ? "bg-violet-50 text-violet-700 border-violet-200"
-        : "bg-rose-50 text-rose-700 border-rose-200";
+        : r.reason === "jacket"
+          ? "bg-sky-50 text-sky-700 border-sky-200"
+          : "bg-rose-50 text-rose-700 border-rose-200";
   const reasonText =
     r.reason === "fullprice"
       ? "Tam fiyat — indirim yok"
       : r.reason === "june40"
         ? `Haziran'da %${pct == null ? "40" : Math.round(pct)} (olmamalı)`
-        : `İndirim %${pct == null ? "?" : Math.round(pct)} (kural dışı)`;
+        : r.reason === "jacket"
+          ? `Ceket %${pct == null || pct < 0.5 ? "0" : Math.round(pct)} — %40 olmalı`
+          : `İndirim %${pct == null ? "?" : Math.round(pct)} (kural dışı)`;
   return (
     <tr className="border-b border-border/50 hover:bg-rose-50/30 transition-colors">
       {/* Sebep */}

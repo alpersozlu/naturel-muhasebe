@@ -310,7 +310,7 @@ export const nebimSalesRouter = router({
       const empty = {
         items: [] as unknown[],
         nextCursor: null as string | null,
-        summary: { total: 0, weird: 0, fullprice: 0, june40: 0 },
+        summary: { total: 0, weird: 0, fullprice: 0, june40: 0, jacket: 0 },
         by_salesperson: [] as Array<{ name: string; count: number }>,
       };
       let allowedStoreIds: string[] | null = null;
@@ -335,30 +335,48 @@ export const nebimSalesRouter = router({
         discount_reason: null,
       };
 
-      // A) indirimli ama kabul edilen kampanya oranları (~%20, ~%40, ~%50; ±1.5)
-      // dışında. Bu bantların dışındaki her indirim şüpheli.
+      // Ürün tipi belirleyiciler (açıklamadan)
+      const jacketDesc: Prisma.NebimSaleLineWhereInput = {
+        item_desc: { contains: "CEKET", mode: "insensitive" },
+      };
+      const blinkDesc: Prisma.NebimSaleLineWhereInput = {
+        item_desc: { contains: "BLİNK", mode: "insensitive" }, // bakım ürünleri — hep tam fiyat
+      };
+
+      // İndirim ~%20/%40/%50 bandı dışı aralıklar (boşluklar)
       const weirdOr: Prisma.NebimSaleLineWhereInput[] = [
         { discount_pct: { gte: 0.5, lt: 18.5 } }, // %20 altı
         { discount_pct: { gt: 21.5, lt: 38.5 } }, // %20–%40 arası
         { discount_pct: { gt: 41.5, lt: 48.5 } }, // %40–%50 arası
         { discount_pct: { gt: 51.5 } }, // %50 üstü
       ];
-      // B) tam fiyat (indirim yok) ama birim fiyat outlet değil
+
+      // A) Ceket ama indirim ~%40 değil (ceket gördü gördü %40 olmalı; %20 kuralı geçmez)
+      const jacketCond: Prisma.NebimSaleLineWhereInput = {
+        ...jacketDesc,
+        NOT: { discount_pct: FORTY_BAND },
+      };
+      // B) İndirimli ama 20/40/50 dışı (ceket hariç — ceket A'da)
+      const weirdCond: Prisma.NebimSaleLineWhereInput = { NOT: jacketDesc, OR: weirdOr };
+      // C) Tam fiyat ama outlet değil, BLİNK değil, ceket değil
       const fullpriceCond: Prisma.NebimSaleLineWhereInput = {
+        NOT: [jacketDesc, blinkDesc],
         discount_pct: { lt: 0.5 },
         price: { notIn: OUTLET_PRICES },
       };
-      // C) %40 kampanyasının olmadığı dönemde (Haziran) ~%40 indirim
+      // D) %40 kampanyasının olmadığı dönemde (Haziran) ~%40 indirim (ceket hariç — ceket %40 normaldir)
       const june40Conds: Prisma.NebimSaleLineWhereInput[] = NO_40_PERIODS.map((p) => ({
+        NOT: jacketDesc,
         discount_pct: FORTY_BAND,
         invoice_date: p,
       }));
+
       const where: Prisma.NebimSaleLineWhereInput = {
         ...base,
-        OR: [...weirdOr, fullpriceCond, ...june40Conds],
+        OR: [jacketCond, weirdCond, fullpriceCond, ...june40Conds],
       };
 
-      const [rows, weird, fullprice, june40, bySalesRaw] = await Promise.all([
+      const [rows, weird, fullprice, june40, jacket, bySalesRaw] = await Promise.all([
         ctx.prisma.nebimSaleLine.findMany({
           where,
           orderBy: [
@@ -370,9 +388,10 @@ export const nebimSalesRouter = router({
           ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
           include: { store: { select: { name: true } } },
         }),
-        ctx.prisma.nebimSaleLine.count({ where: { ...base, OR: weirdOr } }),
+        ctx.prisma.nebimSaleLine.count({ where: { ...base, ...weirdCond } }),
         ctx.prisma.nebimSaleLine.count({ where: { ...base, ...fullpriceCond } }),
         ctx.prisma.nebimSaleLine.count({ where: { ...base, OR: june40Conds } }),
+        ctx.prisma.nebimSaleLine.count({ where: { ...base, ...jacketCond } }),
         ctx.prisma.nebimSaleLine.groupBy({
           by: ["salesperson_name"],
           where,
@@ -402,11 +421,12 @@ export const nebimSalesRouter = router({
           amount_vi: r.amount_vi == null ? null : Number(r.amount_vi),
           net_amount: r.net_amount == null ? null : Number(r.net_amount),
           discount_pct: pct,
-          reason:
-            pct == null || pct < 0.5
-              ? "fullprice"
-              : pct >= 38.5 && pct <= 41.5
-                ? "june40"
+          reason: (r.item_desc ?? "").toLocaleUpperCase("tr").includes("CEKET")
+            ? "jacket"
+            : pct != null && pct >= 38.5 && pct <= 41.5
+              ? "june40"
+              : pct == null || pct < 0.5
+                ? "fullprice"
                 : "weird",
         };
       });
@@ -418,7 +438,13 @@ export const nebimSalesRouter = router({
       return {
         items,
         nextCursor,
-        summary: { total: weird + fullprice + june40, weird, fullprice, june40 },
+        summary: {
+          total: weird + fullprice + june40 + jacket,
+          weird,
+          fullprice,
+          june40,
+          jacket,
+        },
         by_salesperson,
       };
     }),
