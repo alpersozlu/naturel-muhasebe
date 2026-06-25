@@ -66,11 +66,12 @@ export async function POST(req: Request) {
         if (store_id) matched++;
         else if (l.store_name) unmatchedNames.add(l.store_name);
 
-        // İndirim oranı — yalnız satış (iade hariç, orijinal > 0)
+        // İndirim oranı — satış ve İADE için (iadede orijinal/net negatif;
+        // (amount_vi - net_amount)/amount_vi oranı yine pozitif/doğru çıkar).
         const amt = l.amount_vi;
         const net = l.net_amount;
         const discount_pct =
-          !l.is_return && amt != null && amt > 0 && net != null
+          amt != null && amt !== 0 && net != null
             ? Math.round(((amt - net) / amt) * 10000) / 100
             : null;
 

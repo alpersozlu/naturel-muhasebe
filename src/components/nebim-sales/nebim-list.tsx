@@ -58,9 +58,9 @@ type Item = {
   campaign: string | null;
 };
 
-/** İndirim oranı (iade/indirimsizde null). */
+/** İndirim oranı — satış ve İADE için (iadede orijinal/net negatif; oran pozitif). */
 function discountPct(r: Item): number | null {
-  if (r.is_return || r.amount_vi == null || r.net_amount == null || r.amount_vi <= 0) {
+  if (r.amount_vi == null || r.amount_vi === 0 || r.net_amount == null) {
     return null;
   }
   const pct = ((r.amount_vi - r.net_amount) / r.amount_vi) * 100;
@@ -422,11 +422,11 @@ function DetailPanel({ r, pct }: { r: Item; pct: number | null }) {
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
           <span className="text-muted-foreground">Orijinal</span>
           <span className="font-semibold tabular-nums">₺{fmt(r.amount_vi)}</span>
-          {indirimTutar != null && indirimTutar > 0 ? (
+          {pct != null && indirimTutar != null ? (
             <>
               <span className="text-muted-foreground">−</span>
               <span className="font-semibold tabular-nums text-rose-600">
-                ₺{fmt(indirimTutar)} {pct != null ? `(−%${Math.round(pct)})` : ""}
+                ₺{fmt(Math.abs(indirimTutar))} (−%{Math.round(pct)})
               </span>
             </>
           ) : null}
