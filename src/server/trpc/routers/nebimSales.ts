@@ -72,6 +72,29 @@ function discountBandWhere(
   }
 }
 
+/** Liste sıralaması → Prisma orderBy. Cursor için her zaman tekil bir bağ-bozucu içerir. */
+function buildOrderBy(
+  sortBy: string | undefined,
+  sortDir: string | undefined
+): Prisma.NebimSaleLineOrderByWithRelationInput[] {
+  const dir: Prisma.SortOrder = sortDir === "asc" ? "asc" : "desc";
+  switch (sortBy) {
+    case "amount":
+      return [{ amount_vi: { sort: dir, nulls: "last" } }, { id: "desc" }];
+    case "discount":
+      return [{ discount_pct: { sort: dir, nulls: "last" } }, { id: "desc" }];
+    case "net":
+      return [{ net_amount: { sort: dir, nulls: "last" } }, { id: "desc" }];
+    case "date":
+      // Tarih sıralarken fişi/satırı bir arada tut (tekil sıra).
+      return dir === "asc"
+        ? [{ invoice_date: "asc" }, { invoice_ref: "asc" }, { sort_order: "asc" }]
+        : [{ invoice_date: "desc" }, { invoice_ref: "desc" }, { sort_order: "asc" }];
+    default:
+      return [{ invoice_date: "desc" }, { invoice_ref: "desc" }, { sort_order: "asc" }];
+  }
+}
+
 /** İndirim yüzdesi bantları — orijinal (amount_vi) → net (net_amount) farkına göre. */
 const DISCOUNT_BUCKETS: Array<{ key: string; label: string; min: number; max: number }> = [
   { key: "b0", label: "İndirimsiz", min: -Infinity, max: 0.5 },
@@ -181,11 +204,7 @@ export const nebimSalesRouter = router({
 
       const rows = await ctx.prisma.nebimSaleLine.findMany({
         where,
-        orderBy: [
-          { invoice_date: "desc" },
-          { invoice_ref: "desc" },
-          { sort_order: "asc" },
-        ],
+        orderBy: buildOrderBy(input.sort_by, input.sort_dir),
         take: input.limit + 1,
         ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
         include: { store: { select: { name: true } } },

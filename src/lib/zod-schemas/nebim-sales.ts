@@ -17,12 +17,18 @@ export const discountBandSchema = z.enum([
 ]);
 export type DiscountBand = z.infer<typeof discountBandSchema>;
 
+/** Sıralanabilir sütunlar. */
+export const sortBySchema = z.enum(["date", "amount", "discount", "net"]);
+export type SortBy = z.infer<typeof sortBySchema>;
+
 export const nebimSalesFilterSchema = z.object({
   store_id: z.string().uuid().optional(),
   date_from: dateOnly.optional(),
   date_to: dateOnly.optional(),
   only_returns: z.boolean().optional(),
   discount_band: discountBandSchema.optional(),
+  sort_by: sortBySchema.optional(),
+  sort_dir: z.enum(["asc", "desc"]).optional(),
   limit: z.number().int().min(1).max(200).default(50),
   cursor: z.string().uuid().optional(),
 });

@@ -18,11 +18,14 @@ import {
   StickyNote,
   KeyRound,
   Receipt,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import type { DiscountBand } from "@/lib/zod-schemas/nebim-sales";
+import type { DiscountBand, SortBy } from "@/lib/zod-schemas/nebim-sales";
 import type { NebimSalesSelection } from "./nebim-filters";
 
 const TRY2 = new Intl.NumberFormat("tr-TR", {
@@ -72,6 +75,15 @@ function discountClass(pct: number): string {
 }
 
 export function NebimList({ filters }: { filters: NebimSalesSelection }) {
+  const [sort, setSort] = useState<{ by: SortBy; dir: "asc" | "desc" }>({
+    by: "date",
+    dir: "desc",
+  });
+  const toggleSort = (by: SortBy) =>
+    setSort((s) =>
+      s.by === by ? { by, dir: s.dir === "desc" ? "asc" : "desc" } : { by, dir: "desc" }
+    );
+
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     trpc.nebimSales.list.useInfiniteQuery(
       {
@@ -80,6 +92,8 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
         date_to: filters.dateTo || undefined,
         only_returns: filters.onlyReturns || undefined,
         discount_band: (filters.discountBand || undefined) as DiscountBand | undefined,
+        sort_by: sort.by,
+        sort_dir: sort.dir,
         limit: 50,
       },
       { getNextPageParam: (last) => last.nextCursor ?? undefined }
@@ -206,13 +220,13 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
                   <tr className="border-b border-border bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">
                     <th className="w-8" />
                     <th className="text-left font-semibold px-3 py-2.5">Ürün</th>
-                    <th className="text-left font-semibold px-3 py-2.5">Mağaza · Fiş</th>
+                    <SortTh label="Mağaza · Fiş" field="date" sort={sort} onSort={toggleSort} />
                     <th className="text-left font-semibold px-3 py-2.5">Satıcı</th>
                     <th className="text-left font-semibold px-3 py-2.5">Müşteri</th>
                     <th className="text-left font-semibold px-3 py-2.5">Ödeme</th>
-                    <th className="text-right font-semibold px-3 py-2.5">Orijinal</th>
-                    <th className="text-right font-semibold px-3 py-2.5">İndirim</th>
-                    <th className="text-right font-semibold px-3 py-2.5 pr-4">Net</th>
+                    <SortTh label="Orijinal" field="amount" sort={sort} onSort={toggleSort} align="right" />
+                    <SortTh label="İndirim" field="discount" sort={sort} onSort={toggleSort} align="right" />
+                    <SortTh label="Net" field="net" sort={sort} onSort={toggleSort} align="right" className="pr-4" />
                   </tr>
                 </thead>
                 <tbody>
@@ -463,6 +477,40 @@ function DetailPanel({ r, pct }: { r: Item; pct: number | null }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function SortTh({
+  label,
+  field,
+  sort,
+  onSort,
+  align = "left",
+  className = "",
+}: {
+  label: string;
+  field: SortBy;
+  sort: { by: SortBy; dir: "asc" | "desc" };
+  onSort: (by: SortBy) => void;
+  align?: "left" | "right";
+  className?: string;
+}) {
+  const active = sort.by === field;
+  const Icon = !active ? ArrowUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <th className={`font-semibold px-3 py-2.5 ${align === "right" ? "text-right" : "text-left"} ${className}`}>
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        className={`inline-flex items-center gap-1 transition-colors hover:text-foreground ${
+          align === "right" ? "flex-row-reverse" : ""
+        } ${active ? "text-foreground" : ""}`}
+        title="Sırala"
+      >
+        <Icon className={`h-3 w-3 ${active ? "opacity-100" : "opacity-40"}`} />
+        <span>{label}</span>
+      </button>
+    </th>
   );
 }
 
