@@ -33,11 +33,29 @@ const CATEGORY_WORDS = [
   "ELDİVEN", "SÜNGER", "SPREY", "BOT",
 ];
 
-/** item_desc kategori kelimesi içeriyor mu? (içermiyorsa = ceket) */
-function isJacketDesc(desc: string | null | undefined): boolean {
+/**
+ * Deri giysi (ceket) ürün-kodu deseni: sezon harfi (W/S) + giysi tipi (GD/GE).
+ * Örn. 20WGE5886NC, 22SGD5986U4. (FD/FT = ayakkabı.)
+ */
+const GARMENT_CODE_PREFIXES = ["WGD", "SGD", "WGE", "SGE"];
+
+/** item_code deri-giysi (ceket) kodu mu? */
+function isGarmentCode(code: string | null | undefined): boolean {
+  if (!code) return false;
+  const u = code.toLocaleUpperCase("tr");
+  return GARMENT_CODE_PREFIXES.some((p) => u.includes(p));
+}
+
+/** item_desc kategori kelimesi içermiyor mu? (içermiyorsa isim-only = ceket adayı) */
+function isNameOnly(desc: string | null | undefined): boolean {
   if (!desc || !desc.trim()) return false;
   const u = desc.toLocaleUpperCase("tr");
   return !CATEGORY_WORDS.some((w) => u.includes(w));
+}
+
+/** Satır ceket (deri giysi) mi? isim-only VEYA GD/GE kodu. */
+function isJacketRow(desc: string | null | undefined, code: string | null | undefined): boolean {
+  return isNameOnly(desc) || isGarmentCode(code);
 }
 /**
  * %40 kampanyasının OLMADIĞI dönemler → bu dönemlerdeki ~%40 indirim şüpheli.
@@ -376,15 +394,28 @@ export const nebimSalesRouter = router({
         { discount_pct: { gt: 51.5 } }, // %50 üstü
       ];
 
-      // A) CEKET (isim-only, ≥1000₺ — ucuz bakım/aksesuar değil) ama indirim
-      // %40–%50 aralığı dışı (1.ceket %40, 2.ceket %50)
-      const jacketCond: Prisma.NebimSaleLineWhereInput = {
-        AND: [
-          { item_desc: { not: null } },
-          { NOT: categoryWhere },
-          { price: { gte: JACKET_MIN_PRICE } },
-          { NOT: { discount_pct: JACKET_OK_RANGE } },
+      // CEKET (deri giysi) kimliği: isim-only (≥1000₺, ucuz bakım/aksesuar değil)
+      // VEYA GD/GE ürün kodu.
+      const garmentCodeWhere: Prisma.NebimSaleLineWhereInput = {
+        OR: GARMENT_CODE_PREFIXES.map((p) => ({
+          item_code: { contains: p, mode: "insensitive" },
+        })),
+      };
+      const jacketIdentity: Prisma.NebimSaleLineWhereInput = {
+        OR: [
+          {
+            AND: [
+              { item_desc: { not: null } },
+              { NOT: categoryWhere },
+              { price: { gte: JACKET_MIN_PRICE } },
+            ],
+          },
+          garmentCodeWhere,
         ],
+      };
+      // A) CEKET ama indirim %40–%50 aralığı dışı (1.ceket %40, 2.ceket %50)
+      const jacketCond: Prisma.NebimSaleLineWhereInput = {
+        AND: [jacketIdentity, { NOT: { discount_pct: JACKET_OK_RANGE } }],
       };
       // B) Kategori ürün, indirimli ama 20/40/50 dışı
       const weirdCond: Prisma.NebimSaleLineWhereInput = {
@@ -454,7 +485,7 @@ export const nebimSalesRouter = router({
           amount_vi: r.amount_vi == null ? null : Number(r.amount_vi),
           net_amount: r.net_amount == null ? null : Number(r.net_amount),
           discount_pct: pct,
-          reason: isJacketDesc(r.item_desc)
+          reason: isJacketRow(r.item_desc, r.item_code)
             ? "jacket"
             : pct != null && pct >= 38.5 && pct <= 41.5
               ? "june40"
