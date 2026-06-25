@@ -81,10 +81,10 @@ export function NebimSuspicious({ filters }: { filters: NebimSalesSelection }) {
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Yönetim onayı (özel talep/açıklama) <b>olmayan</b> satışlardan kampanya
-                kuralına uymayanlar: indirim %20/%40/%50 dışı; <b>ceket %40 değil</b> (ceket
-                hep %40); Haziran ayında %40; ya da hiç indirim yok ama fiyat outlet
-                (1.499,99 / 1.999,99 / 2.499,99 / 2.999,99) değil. (BLİNK bakım ürünleri
-                tam fiyat normaldir, hariç.)
+                kuralına uymayanlar: indirim %20/%40/%50 dışı; <b>ceket %40–%50 dışı</b>
+                (1. ceket %40, 2. ceket %50); Haziran ayında %40; ya da hiç indirim yok ama
+                fiyat outlet (1.499,99 / 1.999,99 / 2.499,99 / 2.999,99) değil. (Ceket =
+                kategorisiz sadece model adı; BLİNK bakım ürünleri tam fiyat normaldir.)
               </p>
             </div>
           </div>
@@ -94,7 +94,7 @@ export function NebimSuspicious({ filters }: { filters: NebimSalesSelection }) {
               <Stat label="Toplam Şüpheli" value={String(summary.total)} accent />
               <Stat label="Kural Dışı İndirim" value={String(summary.weird)} />
               <Stat label="Haziran %40" value={String(summary.june40)} />
-              <Stat label="Ceket (≠%40)" value={String(summary.jacket)} />
+              <Stat label="Ceket (40/50 dışı)" value={String(summary.jacket)} />
               <Stat label="Tam Fiyat (outlet değil)" value={String(summary.fullprice)} />
             </div>
           ) : null}
@@ -203,7 +203,7 @@ function SuspiciousRow({ r }: { r: Item }) {
       : r.reason === "june40"
         ? `Haziran'da %${pct == null ? "40" : Math.round(pct)} (olmamalı)`
         : r.reason === "jacket"
-          ? `Ceket %${pct == null || pct < 0.5 ? "0" : Math.round(pct)} — %40 olmalı`
+          ? `Ceket %${pct == null || pct < 0.5 ? "0" : Math.round(pct)} — %40/%50 olmalı`
           : `İndirim %${pct == null ? "?" : Math.round(pct)} (kural dışı)`;
   return (
     <tr className="border-b border-border/50 hover:bg-rose-50/30 transition-colors">

@@ -16,6 +16,29 @@ const OUTLET_PRICES = [1499.99, 1999.99, 2499.99, 2999.99];
 
 /** ~%40 bandı (±1.5). Genelde kabul edilir AMA aşağıdaki dönemlerde şüpheli. */
 const FORTY_BAND = { gte: 38.5, lte: 41.5 } as const;
+
+/** Ceket için kabul edilen indirim aralığı: ~%40 (1. ceket) – ~%50 (2. ceket), dip iskonto payı dahil. */
+const JACKET_OK_RANGE = { gte: 38.5, lte: 51.5 } as const;
+/** Ceket alt fiyat eşiği — ucuz isim-only bakım ürünü/çorap ceket sayılmasın. */
+const JACKET_MIN_PRICE = 1000;
+
+/**
+ * Kategori kelimeleri — bunlardan birini içeren açıklama "kategori ürünü"dür.
+ * HİÇBİRİNİ içermeyen (sadece model adı: NITA/KYLIE/LYDIA…) = CEKET.
+ */
+const CATEGORY_WORDS = [
+  "KADIN", "ERKEK", "ÇOCUK", "UNISEX", "BLİNK", "BLINK", "AYAKKABI",
+  "SANDALET", "ÇANTA", "TERLİK", "CÜZDAN", "KEMER", "KARTLIK", "ÇİZME",
+  "LOAFER", "BABET", "MOKASEN", "SNEAKER", "ANAHTAR", "ŞAL", "ATKI",
+  "ELDİVEN", "SÜNGER", "SPREY", "BOT",
+];
+
+/** item_desc kategori kelimesi içeriyor mu? (içermiyorsa = ceket) */
+function isJacketDesc(desc: string | null | undefined): boolean {
+  if (!desc || !desc.trim()) return false;
+  const u = desc.toLocaleUpperCase("tr");
+  return !CATEGORY_WORDS.some((w) => u.includes(w));
+}
 /**
  * %40 kampanyasının OLMADIĞI dönemler → bu dönemlerdeki ~%40 indirim şüpheli.
  * Haziran 2026: kampanya 20/50, %40 yok. Yeni dönem gerekirse buraya ekle.
@@ -335,9 +358,11 @@ export const nebimSalesRouter = router({
         discount_reason: null,
       };
 
-      // Ürün tipi belirleyiciler (açıklamadan)
-      const jacketDesc: Prisma.NebimSaleLineWhereInput = {
-        item_desc: { contains: "CEKET", mode: "insensitive" },
+      // Kategori ürünü mü? (kategori kelimesi içerir). İçermeyen = ceket (isim-only).
+      const categoryWhere: Prisma.NebimSaleLineWhereInput = {
+        OR: CATEGORY_WORDS.map((w) => ({
+          item_desc: { contains: w, mode: "insensitive" },
+        })),
       };
       const blinkDesc: Prisma.NebimSaleLineWhereInput = {
         item_desc: { contains: "BLİNK", mode: "insensitive" }, // bakım ürünleri — hep tam fiyat
@@ -351,24 +376,32 @@ export const nebimSalesRouter = router({
         { discount_pct: { gt: 51.5 } }, // %50 üstü
       ];
 
-      // A) Ceket ama indirim ~%40 değil (ceket gördü gördü %40 olmalı; %20 kuralı geçmez)
+      // A) CEKET (isim-only, ≥1000₺ — ucuz bakım/aksesuar değil) ama indirim
+      // %40–%50 aralığı dışı (1.ceket %40, 2.ceket %50)
       const jacketCond: Prisma.NebimSaleLineWhereInput = {
-        ...jacketDesc,
-        NOT: { discount_pct: FORTY_BAND },
+        AND: [
+          { item_desc: { not: null } },
+          { NOT: categoryWhere },
+          { price: { gte: JACKET_MIN_PRICE } },
+          { NOT: { discount_pct: JACKET_OK_RANGE } },
+        ],
       };
-      // B) İndirimli ama 20/40/50 dışı (ceket hariç — ceket A'da)
-      const weirdCond: Prisma.NebimSaleLineWhereInput = { NOT: jacketDesc, OR: weirdOr };
-      // C) Tam fiyat ama outlet değil, BLİNK değil, ceket değil
+      // B) Kategori ürün, indirimli ama 20/40/50 dışı
+      const weirdCond: Prisma.NebimSaleLineWhereInput = {
+        AND: [categoryWhere, { OR: weirdOr }],
+      };
+      // C) Kategori ürün, tam fiyat ama outlet değil, BLİNK değil
       const fullpriceCond: Prisma.NebimSaleLineWhereInput = {
-        NOT: [jacketDesc, blinkDesc],
-        discount_pct: { lt: 0.5 },
-        price: { notIn: OUTLET_PRICES },
+        AND: [
+          categoryWhere,
+          { NOT: blinkDesc },
+          { discount_pct: { lt: 0.5 } },
+          { price: { notIn: OUTLET_PRICES } },
+        ],
       };
-      // D) %40 kampanyasının olmadığı dönemde (Haziran) ~%40 indirim (ceket hariç — ceket %40 normaldir)
+      // D) Kategori ürün, %40 kampanyasının olmadığı dönemde (Haziran) ~%40 indirim
       const june40Conds: Prisma.NebimSaleLineWhereInput[] = NO_40_PERIODS.map((p) => ({
-        NOT: jacketDesc,
-        discount_pct: FORTY_BAND,
-        invoice_date: p,
+        AND: [categoryWhere, { discount_pct: FORTY_BAND }, { invoice_date: p }],
       }));
 
       const where: Prisma.NebimSaleLineWhereInput = {
@@ -421,7 +454,7 @@ export const nebimSalesRouter = router({
           amount_vi: r.amount_vi == null ? null : Number(r.amount_vi),
           net_amount: r.net_amount == null ? null : Number(r.net_amount),
           discount_pct: pct,
-          reason: (r.item_desc ?? "").toLocaleUpperCase("tr").includes("CEKET")
+          reason: isJacketDesc(r.item_desc)
             ? "jacket"
             : pct != null && pct >= 38.5 && pct <= 41.5
               ? "june40"
