@@ -14,6 +14,16 @@ import {
 /** Outlet ürün birim fiyatları — bu fiyatlarda indirim yapılmaması normaldir. */
 const OUTLET_PRICES = [1499.99, 1999.99, 2499.99, 2999.99];
 
+/** ~%40 bandı (±1.5). Genelde kabul edilir AMA aşağıdaki dönemlerde şüpheli. */
+const FORTY_BAND = { gte: 38.5, lte: 41.5 } as const;
+/**
+ * %40 kampanyasının OLMADIĞI dönemler → bu dönemlerdeki ~%40 indirim şüpheli.
+ * Haziran 2026: kampanya 20/50, %40 yok. Yeni dönem gerekirse buraya ekle.
+ */
+const NO_40_PERIODS: Array<{ gte: Date; lt: Date }> = [
+  { gte: new Date("2026-06-01T00:00:00.000Z"), lt: new Date("2026-07-01T00:00:00.000Z") },
+];
+
 const DISCOUNT_BAND_LABEL: Record<string, string> = {
   discounted: "İndirimli (hepsi)",
   none: "İndirimsiz",
@@ -300,7 +310,7 @@ export const nebimSalesRouter = router({
       const empty = {
         items: [] as unknown[],
         nextCursor: null as string | null,
-        summary: { total: 0, weird: 0, fullprice: 0 },
+        summary: { total: 0, weird: 0, fullprice: 0, june40: 0 },
         by_salesperson: [] as Array<{ name: string; count: number }>,
       };
       let allowedStoreIds: string[] | null = null;
@@ -338,12 +348,17 @@ export const nebimSalesRouter = router({
         discount_pct: { lt: 0.5 },
         price: { notIn: OUTLET_PRICES },
       };
+      // C) %40 kampanyasının olmadığı dönemde (Haziran) ~%40 indirim
+      const june40Conds: Prisma.NebimSaleLineWhereInput[] = NO_40_PERIODS.map((p) => ({
+        discount_pct: FORTY_BAND,
+        invoice_date: p,
+      }));
       const where: Prisma.NebimSaleLineWhereInput = {
         ...base,
-        OR: [...weirdOr, fullpriceCond],
+        OR: [...weirdOr, fullpriceCond, ...june40Conds],
       };
 
-      const [rows, weird, fullprice, bySalesRaw] = await Promise.all([
+      const [rows, weird, fullprice, june40, bySalesRaw] = await Promise.all([
         ctx.prisma.nebimSaleLine.findMany({
           where,
           orderBy: [
@@ -357,6 +372,7 @@ export const nebimSalesRouter = router({
         }),
         ctx.prisma.nebimSaleLine.count({ where: { ...base, OR: weirdOr } }),
         ctx.prisma.nebimSaleLine.count({ where: { ...base, ...fullpriceCond } }),
+        ctx.prisma.nebimSaleLine.count({ where: { ...base, OR: june40Conds } }),
         ctx.prisma.nebimSaleLine.groupBy({
           by: ["salesperson_name"],
           where,
@@ -386,7 +402,12 @@ export const nebimSalesRouter = router({
           amount_vi: r.amount_vi == null ? null : Number(r.amount_vi),
           net_amount: r.net_amount == null ? null : Number(r.net_amount),
           discount_pct: pct,
-          reason: pct != null && pct < 0.5 ? "fullprice" : "weird",
+          reason:
+            pct == null || pct < 0.5
+              ? "fullprice"
+              : pct >= 38.5 && pct <= 41.5
+                ? "june40"
+                : "weird",
         };
       });
 
@@ -397,7 +418,7 @@ export const nebimSalesRouter = router({
       return {
         items,
         nextCursor,
-        summary: { total: weird + fullprice, weird, fullprice },
+        summary: { total: weird + fullprice + june40, weird, fullprice, june40 },
         by_salesperson,
       };
     }),
