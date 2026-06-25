@@ -6,6 +6,20 @@ import {
   nebimCustomerProductsSchema,
 } from "@/lib/zod-schemas/nebim-sales";
 import { getAccessibleStoreIds, isAdmin } from "@/lib/auth/permissions";
+import {
+  buildNebimSalesExcel,
+  type NebimSalesExcelRow,
+} from "@/server/services/exports/excel/nebim-sales";
+
+const DISCOUNT_BAND_LABEL: Record<string, string> = {
+  discounted: "İndirimli (hepsi)",
+  none: "İndirimsiz",
+  b1: "%0–10",
+  b2: "%10–25",
+  b3: "%25–40",
+  b4: "%40–60",
+  b5: "%60+",
+};
 
 /** Filtre (mağaza kapsamı + tarih + iade) → Prisma where. Erişim yoksa null. */
 async function buildWhere(
@@ -249,6 +263,83 @@ export const nebimSalesRouter = router({
           by_store,
         },
       };
+    }),
+
+  /** Filtreli satış listesinin Excel (.xlsx) export'u — tüm sütunlar. */
+  exportExcel: protectedProcedure
+    .input(nebimSalesFilterSchema)
+    .mutation(async ({ ctx, input }) => {
+      let allowedStoreIds: string[] | null = null;
+      if (!isAdmin(ctx.user)) {
+        allowedStoreIds = await getAccessibleStoreIds(ctx.user);
+        if (allowedStoreIds.length === 0) throw new Error("Erişebileceğin mağaza yok");
+      }
+      let storeFilter: string[] | undefined;
+      if (input.store_id) storeFilter = [input.store_id];
+      else if (allowedStoreIds) storeFilter = allowedStoreIds;
+
+      const dateFilter: { gte?: Date; lte?: Date } = {};
+      if (input.date_from) dateFilter.gte = new Date(`${input.date_from}T00:00:00.000Z`);
+      if (input.date_to) dateFilter.lte = new Date(`${input.date_to}T00:00:00.000Z`);
+
+      const where: Prisma.NebimSaleLineWhereInput = {
+        ...(storeFilter ? { store_id: { in: storeFilter } } : {}),
+        ...(Object.keys(dateFilter).length > 0 ? { invoice_date: dateFilter } : {}),
+        ...(input.only_returns ? { is_return: true } : {}),
+        ...discountBandWhere(input.discount_band),
+      };
+
+      const rows = await ctx.prisma.nebimSaleLine.findMany({
+        where,
+        orderBy: [
+          { invoice_date: "desc" },
+          { invoice_ref: "desc" },
+          { sort_order: "asc" },
+        ],
+        take: 20000,
+        include: { store: { select: { name: true } } },
+      });
+
+      const data: NebimSalesExcelRow[] = rows.map((r) => ({
+        tarih: r.invoice_date,
+        fis: r.invoice_ref,
+        magaza: r.store?.name ?? r.store_name_raw ?? "",
+        urun: r.item_desc ?? r.item_code ?? "",
+        kod: r.item_code ?? "",
+        renk_beden: [r.color_desc, r.size].filter(Boolean).join(" / "),
+        satici: r.salesperson_name ?? "",
+        musteri: r.customer_name ?? "",
+        odeme: r.payment_type ?? "",
+        kart: r.card_type ?? "",
+        adet: Number(r.qty),
+        orijinal: r.amount_vi == null ? null : Number(r.amount_vi),
+        indirim_pct: r.discount_pct == null ? null : Number(r.discount_pct),
+        net: r.net_amount == null ? null : Number(r.net_amount),
+        kampanya: r.campaign ?? "",
+        iskonto_nedeni: r.discount_reason ?? "",
+        yonetim_aciklamasi: r.mgmt_note ?? "",
+        fis_notu: r.invoice_note ?? "",
+        iade: r.is_return ? "İade" : "",
+      }));
+
+      const range =
+        input.date_from && input.date_to
+          ? input.date_from === input.date_to
+            ? input.date_from
+            : `${input.date_from} – ${input.date_to}`
+          : "tüm tarihler";
+      const parts = [`${data.length} satır`];
+      if (input.only_returns) parts.push("sadece iadeler");
+      if (input.discount_band && DISCOUNT_BAND_LABEL[input.discount_band]) {
+        parts.push(`indirim: ${DISCOUNT_BAND_LABEL[input.discount_band]}`);
+      }
+
+      return buildNebimSalesExcel({
+        rows: data,
+        subtitle: range,
+        filterSummary: parts.join(" · "),
+        fileTag: (input.date_from ?? "tum").replace(/-/g, ""),
+      });
     }),
 
   /**

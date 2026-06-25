@@ -87,17 +87,58 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
 
   if (isLoading) {
     return (
-      <Card>
-        <CardContent className="p-0 divide-y">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="px-5 py-4 flex items-center gap-4">
-              <div className="flex-1 space-y-2">
-                <div className="h-3.5 w-1/3 rounded animate-pulse bg-muted/60" />
-                <div className="h-2.5 w-1/2 rounded animate-pulse bg-muted/50" />
-              </div>
-              <div className="h-7 w-24 rounded animate-pulse bg-muted/60" />
-            </div>
-          ))}
+      <Card className="overflow-hidden">
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1040px] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <th className="w-8" />
+                  <th className="text-left font-semibold px-3 py-2.5">Ürün</th>
+                  <th className="text-left font-semibold px-3 py-2.5">Mağaza · Fiş</th>
+                  <th className="text-left font-semibold px-3 py-2.5">Satıcı</th>
+                  <th className="text-left font-semibold px-3 py-2.5">Müşteri</th>
+                  <th className="text-left font-semibold px-3 py-2.5">Ödeme</th>
+                  <th className="text-right font-semibold px-3 py-2.5">Orijinal</th>
+                  <th className="text-right font-semibold px-3 py-2.5">İndirim</th>
+                  <th className="text-right font-semibold px-3 py-2.5 pr-4">Net</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <tr key={i} className="border-b border-border/50">
+                    <td className="pl-2" />
+                    <td className="px-3 py-3">
+                      <div className="h-3.5 w-40 rounded animate-pulse bg-muted/60" />
+                      <div className="mt-1 h-2.5 w-24 rounded animate-pulse bg-muted/40" />
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="h-3.5 w-24 rounded animate-pulse bg-muted/60" />
+                      <div className="mt-1 h-2.5 w-28 rounded animate-pulse bg-muted/40" />
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="h-3.5 w-20 rounded animate-pulse bg-muted/50" />
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="h-3.5 w-20 rounded animate-pulse bg-muted/50" />
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="h-5 w-16 rounded-full animate-pulse bg-muted/50" />
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="h-3.5 w-14 ml-auto rounded animate-pulse bg-muted/50" />
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="h-5 w-12 ml-auto rounded-md animate-pulse bg-muted/50" />
+                    </td>
+                    <td className="px-3 py-3 pr-4">
+                      <div className="h-4 w-20 ml-auto rounded animate-pulse bg-muted/60" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
     );
