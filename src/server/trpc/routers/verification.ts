@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure } from "../trpc";
+import { router, adminProcedure } from "../trpc";
 import { verifyMonthSchema, verifyDaySchema } from "@/lib/zod-schemas/verification";
 import { assertCanAccessStore } from "@/lib/auth/permissions";
 import {
@@ -13,7 +13,7 @@ export const verificationRouter = router({
    * List all daily records for a (store, year, month) along with their
    * computed verification status. Days without records are not returned.
    */
-  listForMonth: protectedProcedure
+  listForMonth: adminProcedure
     .input(verifyMonthSchema)
     .query(async ({ ctx, input }) => {
       await assertCanAccessStore(ctx.user, input.store_id);
@@ -47,7 +47,7 @@ export const verificationRouter = router({
    * Compute (or re-compute) verification for one day and return the
    * full comparison breakdown. Persists Verification row.
    */
-  compute: protectedProcedure
+  compute: adminProcedure
     .input(verifyDaySchema)
     .mutation(async ({ ctx, input }) => {
       const dr = await ctx.prisma.dailyRecord.findUnique({
@@ -62,7 +62,7 @@ export const verificationRouter = router({
     }),
 
   /** Read-only compute without persisting (for live preview). */
-  preview: protectedProcedure
+  preview: adminProcedure
     .input(verifyDaySchema)
     .query(async ({ ctx, input }) => {
       const dr = await ctx.prisma.dailyRecord.findUnique({

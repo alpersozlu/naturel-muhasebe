@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { router, protectedProcedure } from "../trpc";
+import { router, adminProcedure } from "../trpc";
 import { historyFilterSchema } from "@/lib/zod-schemas/history";
 import { getAccessibleStoreIds, isAdmin } from "@/lib/auth/permissions";
 
@@ -10,7 +10,7 @@ export const historyRouter = router({
    * Non-admins see only uploads for stores they're assigned to.
    * Cursor-based pagination (uses Upload.id, ordered by uploaded_at desc).
    */
-  list: protectedProcedure
+  list: adminProcedure
     .input(historyFilterSchema)
     .query(async ({ ctx, input }) => {
       // Resolve store scope

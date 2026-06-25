@@ -1,4 +1,4 @@
-import { router, protectedProcedure } from "../trpc";
+import { router, adminProcedure } from "../trpc";
 import {
   analyticsFilterSchema,
   expenseFilterSchema,
@@ -54,7 +54,7 @@ async function resolveFilterLabels(
 }
 
 export const analyticsRouter = router({
-  revenue: protectedProcedure
+  revenue: adminProcedure
     .input(analyticsFilterSchema)
     .query(async ({ ctx, input }) => {
       const filter = { ...input };
@@ -84,7 +84,7 @@ export const analyticsRouter = router({
       return revenueSummary(ctx.prisma, filter);
     }),
 
-  expense: protectedProcedure
+  expense: adminProcedure
     .input(expenseFilterSchema)
     .query(async ({ ctx, input }) => {
       const filter = { ...input };
@@ -110,7 +110,7 @@ export const analyticsRouter = router({
       return expenseSummary(ctx.prisma, filter);
     }),
 
-  maviGiftVoucher: protectedProcedure
+  maviGiftVoucher: adminProcedure
     .input(analyticsFilterSchema)
     .query(async ({ ctx, input }): Promise<MaviGiftVoucherSummary> => {
       const filter = { ...input };
@@ -121,7 +121,7 @@ export const analyticsRouter = router({
       return maviGiftVoucherSummary(ctx.prisma, filter);
     }),
 
-  advances: protectedProcedure
+  advances: adminProcedure
     .input(analyticsFilterSchema)
     .query(async ({ ctx, input }): Promise<AdvancesSummary> => {
       const filter = { ...input };
@@ -132,7 +132,7 @@ export const analyticsRouter = router({
       return advancesSummary(ctx.prisma, filter);
     }),
 
-  corporate: protectedProcedure
+  corporate: adminProcedure
     .input(analyticsFilterSchema)
     .query(async ({ ctx, input }): Promise<CorporateSummary> => {
       const filter = { ...input };
@@ -143,7 +143,7 @@ export const analyticsRouter = router({
       return corporateSummary(ctx.prisma, filter);
     }),
 
-  bankCommission: protectedProcedure
+  bankCommission: adminProcedure
     .input(analyticsFilterSchema)
     .query(async ({ ctx, input }): Promise<BankCommissionSummary> => {
       const filter = { ...input };
@@ -167,7 +167,7 @@ export const analyticsRouter = router({
       return bankCommissionSummary(ctx.prisma, filter);
     }),
 
-  cashVariance: protectedProcedure
+  cashVariance: adminProcedure
     .input(analyticsFilterSchema)
     .query(async ({ ctx, input }): Promise<CashVarianceSummary> => {
       const filter = { ...input };
@@ -189,7 +189,7 @@ export const analyticsRouter = router({
       return cashVarianceSummary(ctx.prisma, filter);
     }),
 
-  zAnalysis: protectedProcedure
+  zAnalysis: adminProcedure
     .input(analyticsFilterSchema)
     .query(async ({ ctx, input }): Promise<ZAnalysisSummary> => {
       const filter = { ...input };
@@ -219,7 +219,7 @@ export const analyticsRouter = router({
       return zAnalysisSummary(ctx.prisma, filter);
     }),
 
-  profitLoss: protectedProcedure
+  profitLoss: adminProcedure
     .input(analyticsFilterSchema)
     .query(async ({ ctx, input }): Promise<ProfitLossSummary> => {
       const filter = { ...input };
@@ -234,7 +234,7 @@ export const analyticsRouter = router({
       return profitLossSummary(ctx.prisma, filter);
     }),
 
-  exportRevenue: protectedProcedure
+  exportRevenue: adminProcedure
     .input(analyticsFilterSchema)
     .mutation(async ({ ctx, input }) => {
       const filter = { ...input };
@@ -258,7 +258,7 @@ export const analyticsRouter = router({
       });
     }),
 
-  exportExpense: protectedProcedure
+  exportExpense: adminProcedure
     .input(expenseFilterSchema)
     .mutation(async ({ ctx, input }) => {
       const filter = { ...input };
@@ -282,7 +282,7 @@ export const analyticsRouter = router({
       });
     }),
 
-  exportAdvances: protectedProcedure
+  exportAdvances: adminProcedure
     .input(analyticsFilterSchema)
     .mutation(async ({ ctx, input }) => {
       const filter = { ...input };

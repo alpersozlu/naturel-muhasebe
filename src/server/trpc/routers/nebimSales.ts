@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { router, protectedProcedure } from "../trpc";
+import { router, adminProcedure } from "../trpc";
 import {
   nebimSalesFilterSchema,
   nebimAnalizSchema,
@@ -235,7 +235,7 @@ export const nebimSalesRouter = router({
    * Filtreli, sayfalı (cursor) NEBIM perakende satış listesi + filtre-geneli özet.
    * Admin tüm mağazaları görür; diğer kullanıcılar yalnız erişimli mağazaları.
    */
-  list: protectedProcedure
+  list: adminProcedure
     .input(nebimSalesFilterSchema)
     .query(async ({ ctx, input }) => {
       // Mağaza kapsamı
@@ -351,7 +351,7 @@ export const nebimSalesRouter = router({
    *   B) hiç indirim yok ve birim fiyat outlet fiyatı değil.
    * Manuel kontrol/sorgulama içindir (yanlış fiyat, fazla para, yetkisiz indirim).
    */
-  suspicious: protectedProcedure
+  suspicious: adminProcedure
     .input(nebimSalesFilterSchema)
     .query(async ({ ctx, input }) => {
       const empty = {
@@ -520,7 +520,7 @@ export const nebimSalesRouter = router({
     }),
 
   /** Filtreli satış listesinin Excel (.xlsx) export'u — tüm sütunlar. */
-  exportExcel: protectedProcedure
+  exportExcel: adminProcedure
     .input(nebimSalesFilterSchema)
     .mutation(async ({ ctx, input }) => {
       let allowedStoreIds: string[] | null = null;
@@ -600,7 +600,7 @@ export const nebimSalesRouter = router({
    * Satış analizi — personel / müşteri / mağaza kırılımı (tarih aralığına göre).
    * Net = sum(net_amount) (iadeler negatif → kendiliğinden düşer).
    */
-  analiz: protectedProcedure
+  analiz: adminProcedure
     .input(nebimAnalizSchema)
     .query(async ({ ctx, input }) => {
       const where = await buildWhere(ctx, input);
@@ -809,7 +809,7 @@ export const nebimSalesRouter = router({
    * UPT = adet/işlem, SEPET = net/işlem, TEKİL = tek-ürünlü (qty=1) işlem %.
    * (REEL UPT hesaplanmaz — dış sistemde.)
    */
-  staffKpi: protectedProcedure
+  staffKpi: adminProcedure
     .input(nebimAnalizSchema)
     .query(async ({ ctx, input }) => {
       const empty = {
@@ -890,7 +890,7 @@ export const nebimSalesRouter = router({
     }),
 
   /** Bir müşterinin aldığı ürünler (drill-down) — filtre + customer_name. */
-  customerProducts: protectedProcedure
+  customerProducts: adminProcedure
     .input(nebimCustomerProductsSchema)
     .query(async ({ ctx, input }) => {
       const base = await buildWhere(ctx, input);
