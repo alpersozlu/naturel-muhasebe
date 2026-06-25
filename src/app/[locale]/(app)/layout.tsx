@@ -5,22 +5,12 @@ import { LanguageSwitcher } from "@/components/layout/language-switcher";
 import { UserMenu } from "@/components/layout/user-menu";
 import { getSession } from "@/lib/auth/session";
 
-// Sadece admin'in erişebileceği rotalar (locale prefix'siz, başlangıçlı eşleşme).
-// "/" da admin-only çünkü "Bugün" dashboard'u global özet sayfası.
-const ADMIN_ONLY_PREFIXES = [
-  "/", // sadece tam eşleşme
-  "/admin",
-  "/verification",
-  "/cash-variance",
-  "/z-analysis",
-  "/revenues",
-  "/expenses",
-  "/advances",
-  "/invoiced-expense",
-  "/corporate",
-  "/history",
-  "/stores",
-];
+// ALLOWLIST (varsayılan-yasak): admin DIŞI kullanıcılar SADECE bu yollara
+// erişebilir; diğer her şey kapalıdır. Yeni eklenen herhangi bir sayfa
+// otomatik olarak admin-dışına KAPALI kalır (blocklist'te unutma riski yok).
+// - /upload: kendi mağazasına belge/gün kaydı yükleme (Yükle ve Analiz Et)
+// - /contact: iletişim (iş verisi içermez; mağazasız müdür için fallback)
+const NON_ADMIN_ALLOWED = ["/upload", "/contact"];
 
 const LOCALE_RE = /^\/(tr|en)(\/|$)/;
 
@@ -35,11 +25,9 @@ function stripLocale(pathname: string): { locale: string; path: string } {
   return { locale: "tr", path: pathname || "/" };
 }
 
-function isAdminOnlyPath(noLocale: string): boolean {
-  if (noLocale === "/") return true;
-  return ADMIN_ONLY_PREFIXES.some(
-    (p) =>
-      p !== "/" && (noLocale === p || noLocale.startsWith(`${p}/`))
+function isAllowedForNonAdmin(noLocale: string): boolean {
+  return NON_ADMIN_ALLOWED.some(
+    (p) => noLocale === p || noLocale.startsWith(`${p}/`)
   );
 }
 
@@ -53,9 +41,9 @@ export default async function AppLayout({
   const pathname = hdrs.get("x-pathname") ?? "/";
   const { locale, path } = stripLocale(pathname);
 
-  // Admin-only rotaya non-admin erişirse → /upload'a yönlendir.
-  // Sidebar gizlemenin ötesinde URL'i direkt girene karşı koruma.
-  if (session && session.role !== "admin" && isAdminOnlyPath(path)) {
+  // Admin dışı kullanıcı izinli olmayan bir rotaya girerse → /upload'a yönlendir.
+  // Sidebar gizlemenin ötesinde URL'i direkt girene karşı koruma (default-deny).
+  if (session && session.role !== "admin" && !isAllowedForNonAdmin(path)) {
     redirect(`/${locale}/upload`);
   }
 
