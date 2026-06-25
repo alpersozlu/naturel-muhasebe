@@ -7,6 +7,8 @@ import {
   userCreateSchema,
   userUpdateRoleSchema,
   userIdSchema,
+  userSetPasswordSchema,
+  userSetActiveSchema,
 } from "@/lib/zod-schemas/user";
 
 const userAdmin = withAudit("User");
@@ -65,7 +67,7 @@ export const userRouter = router({
       });
     }
 
-    return ctx.prisma.user.create({
+    const user = await ctx.prisma.user.create({
       data: {
         id: data.user.id,
         email: input.email,
@@ -73,7 +75,75 @@ export const userRouter = router({
         role: input.role,
       },
     });
+
+    // Mağaza ataması (varsa) — yönetici/bölgesel tüm mağazaları görür, atama gerekmez
+    if (input.store_id && input.role !== "admin") {
+      await ctx.prisma.userStoreAccess.create({
+        data: { user_id: user.id, store_id: input.store_id, role: input.role },
+      });
+    }
+    return user;
   }),
+
+  /** Şifre değiştir (admin) — Supabase auth üzerinden. */
+  setPassword: userAdmin
+    .input(userSetPasswordSchema)
+    .mutation(async ({ input }) => {
+      const supabase = createAdminClient();
+      const { error } = await supabase.auth.admin.updateUserById(input.id, {
+        password: input.password,
+      });
+      if (error) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Supabase: ${error.message}`,
+        });
+      }
+      return { ok: true };
+    }),
+
+  /** Devre dışı bırak / aktifleştir (admin) — is_active + Supabase ban. */
+  setActive: userAdmin
+    .input(userSetActiveSchema)
+    .mutation(async ({ ctx, input }) => {
+      if (input.id === ctx.user.id) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Kendi hesabını devre dışı bırakamazsın",
+        });
+      }
+      const target = await ctx.prisma.user.findUnique({ where: { id: input.id } });
+      if (!target || target.deleted_at) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Kullanıcı bulunamadı" });
+      }
+      // Son admini devre dışı bırakma
+      if (!input.is_active && target.role === "admin") {
+        const activeAdmins = await ctx.prisma.user.count({
+          where: { role: "admin", deleted_at: null, is_active: true },
+        });
+        if (activeAdmins <= 1) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Sistemde en az 1 aktif admin kalmalı",
+          });
+        }
+      }
+
+      const supabase = createAdminClient();
+      const { error } = await supabase.auth.admin.updateUserById(input.id, {
+        ban_duration: input.is_active ? "none" : "876000h", // ~100 yıl
+      });
+      if (error && error.status !== 404) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Supabase: ${error.message}`,
+        });
+      }
+      return ctx.prisma.user.update({
+        where: { id: input.id },
+        data: { is_active: input.is_active },
+      });
+    }),
 
   updateRole: userAdmin
     .input(userUpdateRoleSchema)

@@ -12,6 +12,18 @@ export const userCreateSchema = z.object({
     .optional()
     .transform((v) => (v === "" ? undefined : v)),
   role: userRoleEnum,
+  // Mağaza müdürü için başlangıç mağaza ataması (opsiyonel)
+  store_id: z.string().uuid().optional(),
+});
+
+export const userSetPasswordSchema = z.object({
+  id: z.string().uuid(),
+  password: z.string().min(8, "En az 8 karakter"),
+});
+
+export const userSetActiveSchema = z.object({
+  id: z.string().uuid(),
+  is_active: z.boolean(),
 });
 
 export const userUpdateRoleSchema = z.object({

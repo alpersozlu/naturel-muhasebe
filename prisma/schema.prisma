@@ -101,6 +101,9 @@ model User {
   email      String    @unique
   full_name  String?
   role       UserRole  @default(cashier)
+  // Devre dışı bırakma (geri alınabilir): false = giriş kapalı, listede "Pasif"
+  // görünür ama silinmemiştir (deleted_at ile karıştırma).
+  is_active  Boolean   @default(true)
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
   // Soft delete: geçmiş kaydı (upload/masraf/onay) olan kullanıcı FK'lar yüzünden
