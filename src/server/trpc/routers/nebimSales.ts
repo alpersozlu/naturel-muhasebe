@@ -767,6 +767,91 @@ export const nebimSalesRouter = router({
       };
     }),
 
+  /**
+   * Çalışan Satış KPI — satıcı bazında performans (iade hariç / brüt).
+   * UPT = adet/işlem, SEPET = net/işlem, TEKİL = tek-ürünlü (qty=1) işlem %.
+   * (REEL UPT hesaplanmaz — dış sistemde.)
+   */
+  staffKpi: protectedProcedure
+    .input(nebimAnalizSchema)
+    .query(async ({ ctx, input }) => {
+      const empty = {
+        total: { net: 0, invoices: 0, units: 0, upt: 0, sepet: 0, tekil_pct: 0 },
+        rows: [] as Array<{
+          name: string;
+          net: number;
+          net_pct: number;
+          invoices: number;
+          units: number;
+          upt: number;
+          sepet: number;
+          tekil_pct: number;
+        }>,
+      };
+      const base = await buildWhere(ctx, input);
+      if (!base) return empty;
+
+      const rows = await ctx.prisma.nebimSaleLine.findMany({
+        where: { ...base, is_return: false },
+        select: { salesperson_name: true, invoice_ref: true, qty: true, net_amount: true },
+      });
+
+      // Satıcı → { net, units, fiş başına qty toplamı }
+      const m = new Map<string, { net: number; units: number; inv: Map<string, number> }>();
+      for (const r of rows) {
+        const s = r.salesperson_name ?? "—";
+        let o = m.get(s);
+        if (!o) {
+          o = { net: 0, units: 0, inv: new Map() };
+          m.set(s, o);
+        }
+        const q = Number(r.qty);
+        o.net += Number(r.net_amount ?? 0);
+        o.units += q;
+        o.inv.set(r.invoice_ref, (o.inv.get(r.invoice_ref) ?? 0) + q);
+      }
+
+      let tNet = 0;
+      let tUnits = 0;
+      let tInv = 0;
+      let tTekil = 0;
+      const out = Array.from(m.entries()).map(([name, o]) => {
+        const invoices = o.inv.size;
+        let tekil = 0;
+        for (const q of Array.from(o.inv.values())) if (Math.round(q) === 1) tekil += 1;
+        tNet += o.net;
+        tUnits += o.units;
+        tInv += invoices;
+        tTekil += tekil;
+        return {
+          name,
+          net: o.net,
+          invoices,
+          units: o.units,
+          upt: invoices ? o.units / invoices : 0,
+          sepet: invoices ? o.net / invoices : 0,
+          tekil_pct: invoices ? (tekil / invoices) * 100 : 0,
+        };
+      });
+
+      const totalNet = tNet || 1;
+      const rowsOut = out
+        .map((r) => ({ ...r, net_pct: (r.net / totalNet) * 100 }))
+        .sort((a, b) => b.net - a.net);
+
+      return {
+        total: {
+          net: tNet,
+          invoices: tInv,
+          units: tUnits,
+          upt: tInv ? tUnits / tInv : 0,
+          sepet: tInv ? tNet / tInv : 0,
+          tekil_pct: tInv ? (tTekil / tInv) * 100 : 0,
+        },
+        rows: rowsOut,
+      };
+    }),
+
   /** Bir müşterinin aldığı ürünler (drill-down) — filtre + customer_name. */
   customerProducts: protectedProcedure
     .input(nebimCustomerProductsSchema)
