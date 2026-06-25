@@ -11,6 +11,9 @@ import {
   type NebimSalesExcelRow,
 } from "@/server/services/exports/excel/nebim-sales";
 
+/** Outlet ürün birim fiyatları — bu fiyatlarda indirim yapılmaması normaldir. */
+const OUTLET_PRICES = [1499.99, 1999.99, 2499.99, 2999.99];
+
 const DISCOUNT_BAND_LABEL: Record<string, string> = {
   discounted: "İndirimli (hepsi)",
   none: "İndirimsiz",
@@ -281,6 +284,119 @@ export const nebimSalesRouter = router({
           date_max: agg._max.invoice_date,
           by_store,
         },
+      };
+    }),
+
+  /**
+   * Şüpheli satışlar — yönetim onayı OLMAYAN (mgmt_note + discount_reason yok),
+   * iade-olmayan satışlardan kampanya kuralına uymayanlar:
+   *   A) indirim var ama ~%20 ve ~%50 değil (20/50 dışı), veya
+   *   B) hiç indirim yok ve birim fiyat outlet fiyatı değil.
+   * Manuel kontrol/sorgulama içindir (yanlış fiyat, fazla para, yetkisiz indirim).
+   */
+  suspicious: protectedProcedure
+    .input(nebimSalesFilterSchema)
+    .query(async ({ ctx, input }) => {
+      const empty = {
+        items: [] as unknown[],
+        nextCursor: null as string | null,
+        summary: { total: 0, weird: 0, fullprice: 0 },
+        by_salesperson: [] as Array<{ name: string; count: number }>,
+      };
+      let allowedStoreIds: string[] | null = null;
+      if (!isAdmin(ctx.user)) {
+        allowedStoreIds = await getAccessibleStoreIds(ctx.user);
+        if (allowedStoreIds.length === 0) return empty;
+      }
+      let storeFilter: string[] | undefined;
+      if (input.store_id) storeFilter = [input.store_id];
+      else if (allowedStoreIds) storeFilter = allowedStoreIds;
+
+      const dateFilter: { gte?: Date; lte?: Date } = {};
+      if (input.date_from) dateFilter.gte = new Date(`${input.date_from}T00:00:00.000Z`);
+      if (input.date_to) dateFilter.lte = new Date(`${input.date_to}T00:00:00.000Z`);
+
+      // Yönetim onayı olmayan, iade-olmayan satış tabanı
+      const base: Prisma.NebimSaleLineWhereInput = {
+        ...(storeFilter ? { store_id: { in: storeFilter } } : {}),
+        ...(Object.keys(dateFilter).length > 0 ? { invoice_date: dateFilter } : {}),
+        is_return: false,
+        mgmt_note: null,
+        discount_reason: null,
+      };
+
+      // A) indirimli ama 20/50 bandı dışında (±1.5)
+      const weirdOr: Prisma.NebimSaleLineWhereInput[] = [
+        { discount_pct: { gte: 0.5, lt: 18.5 } },
+        { discount_pct: { gt: 21.5, lt: 48.5 } },
+        { discount_pct: { gt: 51.5 } },
+      ];
+      // B) tam fiyat (indirim yok) ama birim fiyat outlet değil
+      const fullpriceCond: Prisma.NebimSaleLineWhereInput = {
+        discount_pct: { lt: 0.5 },
+        price: { notIn: OUTLET_PRICES },
+      };
+      const where: Prisma.NebimSaleLineWhereInput = {
+        ...base,
+        OR: [...weirdOr, fullpriceCond],
+      };
+
+      const [rows, weird, fullprice, bySalesRaw] = await Promise.all([
+        ctx.prisma.nebimSaleLine.findMany({
+          where,
+          orderBy: [
+            { invoice_date: "desc" },
+            { invoice_ref: "desc" },
+            { sort_order: "asc" },
+          ],
+          take: input.limit + 1,
+          ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+          include: { store: { select: { name: true } } },
+        }),
+        ctx.prisma.nebimSaleLine.count({ where: { ...base, OR: weirdOr } }),
+        ctx.prisma.nebimSaleLine.count({ where: { ...base, ...fullpriceCond } }),
+        ctx.prisma.nebimSaleLine.groupBy({
+          by: ["salesperson_name"],
+          where,
+          _count: { _all: true },
+        }),
+      ]);
+
+      const hasMore = rows.length > input.limit;
+      const trimmed = hasMore ? rows.slice(0, input.limit) : rows;
+      const nextCursor = hasMore ? trimmed[trimmed.length - 1]!.id : null;
+
+      const items = trimmed.map((r) => {
+        const pct = r.discount_pct == null ? null : Number(r.discount_pct);
+        return {
+          id: r.id,
+          invoice_ref: r.invoice_ref,
+          invoice_date: r.invoice_date,
+          store_name: r.store?.name ?? r.store_name_raw,
+          item_code: r.item_code,
+          item_desc: r.item_desc,
+          color_desc: r.color_desc,
+          size: r.size,
+          salesperson_name: r.salesperson_name,
+          customer_name: r.customer_name,
+          campaign: r.campaign,
+          price: r.price == null ? null : Number(r.price),
+          amount_vi: r.amount_vi == null ? null : Number(r.amount_vi),
+          net_amount: r.net_amount == null ? null : Number(r.net_amount),
+          discount_pct: pct,
+          reason: pct != null && pct < 0.5 ? "fullprice" : "weird",
+        };
+      });
+
+      const by_salesperson = bySalesRaw
+        .map((g) => ({ name: g.salesperson_name ?? "—", count: g._count._all }))
+        .sort((a, b) => b.count - a.count);
+
+      return {
+        items,
+        nextCursor,
+        summary: { total: weird + fullprice, weird, fullprice },
+        by_salesperson,
       };
     }),
 
