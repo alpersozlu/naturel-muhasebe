@@ -23,6 +23,12 @@ const JACKET_OK_RANGE = { gte: 38.5, lte: 51.5 } as const;
 const JACKET_MIN_PRICE = 1000;
 
 /**
+ * Bakım/aksesuar ürünleri — tam fiyat satılması NORMALDİR (indirim beklenmez),
+ * "tam fiyat şüphelisi"nden hariç. BLİNK (temizlik/bakım), KOKU TOPU (koku) vb.
+ */
+const CARE_TERMS = ["BLİNK", "BLINK", "KOKU"];
+
+/**
  * Kategori kelimeleri — bunlardan birini içeren açıklama "kategori ürünü"dür.
  * HİÇBİRİNİ içermeyen (sadece model adı: NITA/KYLIE/LYDIA…) = CEKET.
  */
@@ -382,8 +388,8 @@ export const nebimSalesRouter = router({
           item_desc: { contains: w, mode: "insensitive" },
         })),
       };
-      const blinkDesc: Prisma.NebimSaleLineWhereInput = {
-        item_desc: { contains: "BLİNK", mode: "insensitive" }, // bakım ürünleri — hep tam fiyat
+      const careWhere: Prisma.NebimSaleLineWhereInput = {
+        OR: CARE_TERMS.map((t) => ({ item_desc: { contains: t, mode: "insensitive" } })),
       };
 
       // İndirim ~%20/%40/%50 bandı dışı aralıklar (boşluklar)
@@ -421,11 +427,11 @@ export const nebimSalesRouter = router({
       const weirdCond: Prisma.NebimSaleLineWhereInput = {
         AND: [categoryWhere, { OR: weirdOr }],
       };
-      // C) Kategori ürün, tam fiyat ama outlet değil, BLİNK değil
+      // C) Kategori ürün, tam fiyat ama outlet değil, bakım/aksesuar (BLİNK/KOKU) değil
       const fullpriceCond: Prisma.NebimSaleLineWhereInput = {
         AND: [
           categoryWhere,
-          { NOT: blinkDesc },
+          { NOT: careWhere },
           { discount_pct: { lt: 0.5 } },
           { price: { notIn: OUTLET_PRICES } },
         ],
