@@ -81,8 +81,8 @@ export function NebimSuspicious({ filters }: { filters: NebimSalesSelection }) {
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Yönetim onayı (özel talep/açıklama) <b>olmayan</b> satışlardan, kampanya
-                kuralına uymayanlar: indirim %20/%50 dışı, <b>ya da</b> hiç indirim yok ama
-                fiyat outlet (1.499,99 / 1.999,99 / 2.499,99 / 2.999,99) değil.
+                kuralına uymayanlar: indirim %20/%40/%50 dışı, <b>ya da</b> hiç indirim yok
+                ama fiyat outlet (1.499,99 / 1.999,99 / 2.499,99 / 2.999,99) değil.
               </p>
             </div>
           </div>
@@ -200,7 +200,7 @@ function SuspiciousRow({ r }: { r: Item }) {
           <ShieldAlert className="h-3 w-3 shrink-0" />
           {isFull
             ? "Tam fiyat — indirim yok"
-            : `İndirim %${pct == null ? "?" : Math.round(pct)} (20/50 dışı)`}
+            : `İndirim %${pct == null ? "?" : Math.round(pct)} (20/40/50 dışı)`}
         </span>
         {r.campaign ? (
           <div className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">

@@ -325,11 +325,13 @@ export const nebimSalesRouter = router({
         discount_reason: null,
       };
 
-      // A) indirimli ama 20/50 bandı dışında (±1.5)
+      // A) indirimli ama kabul edilen kampanya oranları (~%20, ~%40, ~%50; ±1.5)
+      // dışında. Bu bantların dışındaki her indirim şüpheli.
       const weirdOr: Prisma.NebimSaleLineWhereInput[] = [
-        { discount_pct: { gte: 0.5, lt: 18.5 } },
-        { discount_pct: { gt: 21.5, lt: 48.5 } },
-        { discount_pct: { gt: 51.5 } },
+        { discount_pct: { gte: 0.5, lt: 18.5 } }, // %20 altı
+        { discount_pct: { gt: 21.5, lt: 38.5 } }, // %20–%40 arası
+        { discount_pct: { gt: 41.5, lt: 48.5 } }, // %40–%50 arası
+        { discount_pct: { gt: 51.5 } }, // %50 üstü
       ];
       // B) tam fiyat (indirim yok) ama birim fiyat outlet değil
       const fullpriceCond: Prisma.NebimSaleLineWhereInput = {
