@@ -45,7 +45,7 @@ Eğer fatura/makbuz İSE:
   "amount": "ondalık sayı veya null (KDV DAHİL toplam ödenen tutar)",
   "vat_rate": "ondalık sayı veya null (KDV oranı, %18 ise 18, %20 ise 20)",
   "vat_included": true,
-  "category": "rent | electricity | water | internet | stationery | cleaning | maintenance | salary | bonus | supplies | marketing | other",
+  "category": "rent | electricity | water | internet | stationery | cleaning | maintenance | salary | bonus | supplies | food | marketing | other",
   "description": "string veya null (kısa açıklama, en fazla 100 karakter)",
   "currency": "TRY | USD | EUR | GBP (TRY varsayılan)"
 }
@@ -62,6 +62,7 @@ Kategori tahmin rehberi (vendor adına bakarak otomatik seç):
 - "Reklam", "Marketing", "İlan" → marketing
 - "İkramiye", "Prim" → bonus
 - "Sarf Malzeme", "Stok", "Tedarik" → supplies
+- "Yemek", "Restoran", "Lokanta", "Cafe", "Kafe", "Pastane", "Yemek Kartı", "Catering" → food
 - Eşleşme yoksa "other"
 
 Tutar eşleştirme:

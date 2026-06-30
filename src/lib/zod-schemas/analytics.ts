@@ -21,6 +21,7 @@ export const expenseFilterSchema = analyticsFilterSchema.extend({
       "salary",
       "bonus",
       "supplies",
+      "food",
       "marketing",
       "other",
     ])

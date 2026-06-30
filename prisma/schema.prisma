@@ -72,6 +72,7 @@ enum ExpenseCategory {
   salary // Maaş
   bonus // Prim/avans
   supplies // Sarf malzeme
+  food // Yemek
   marketing // Pazarlama
   other // Diğer
 }
