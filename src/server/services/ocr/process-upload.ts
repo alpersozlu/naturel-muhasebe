@@ -550,15 +550,13 @@ async function runDealerDailyReport(upload: Upload, buffer: Buffer): Promise<voi
     throw new Error("DailyRecord bulunamadı");
   }
 
-  // 1) Marka kontrolü — Mavi + Derimod (ikisi de aynı KKTC SAP bayi raporunu
-  // kullanır; mağaza kodu eşleştirmesi konum adına göre yapıldığından her iki
-  // markada da çalışır).
+  // 1) Marka kontrolü — sadece Mavi (Derimod NEBIM kullanır, SAP raporu yok).
+  // UI'da kart zaten Derimod'da gizli; bu backend kapısı güvenlik ağı.
   const brandLower = dr.store.brand.name.toLocaleLowerCase("tr");
-  const isSupportedBrand =
-    brandLower.includes("mavi") || brandLower.includes("derimod");
-  if (!isSupportedBrand) {
+  const isMavi = brandLower.includes("mavi");
+  if (!isMavi) {
     throw new Error(
-      `Bu özellik şu an sadece Mavi ve Derimod mağazaları için aktif. "${dr.store.brand.name}" markası destek listesinde değil.`
+      `Bu özellik şu an sadece Mavi mağazaları için aktif. "${dr.store.brand.name}" markası destek listesinde değil.`
     );
   }
 
@@ -580,7 +578,7 @@ async function runDealerDailyReport(upload: Upload, buffer: Buffer): Promise<voi
   const hintNorm = normalizeName(expectedHint);
   if (!storeNorm.includes(hintNorm)) {
     throw new Error(
-      `Bu dosya ${expectedHint} (kod ${report.store_code}) mağazasına ait — "${dr.store.name}" mağazasına yüklenemez.`
+      `Bu dosya Mavi ${expectedHint} (kod ${report.store_code}) mağazasına ait — "${dr.store.name}" mağazasına yüklenemez.`
     );
   }
 

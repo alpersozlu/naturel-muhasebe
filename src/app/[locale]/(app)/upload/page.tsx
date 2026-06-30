@@ -152,15 +152,18 @@ export default function UploadPage() {
           <MaviGiftVoucherCard storeId={sel.storeId} date={sel.date} />
         ) : null}
         <MasrafFaturaCard storeId={sel.storeId} date={sel.date} />
-        <UploadCard
-          type="dealer_daily_report"
-          label="Bayi Gün Sonu (SAP)"
-          icon={ShieldCheck}
-          iconBg="bg-indigo-50"
-          iconColor="text-indigo-600"
-          storeId={sel.storeId}
-          date={sel.date}
-        />
+        {/* Bayi Gün Sonu (SAP) — SADECE Mavi (Derimod NEBIM kullanır, SAP yok) */}
+        {isMavi ? (
+          <UploadCard
+            type="dealer_daily_report"
+            label="Bayi Gün Sonu (SAP)"
+            icon={ShieldCheck}
+            iconBg="bg-indigo-50"
+            iconColor="text-indigo-600"
+            storeId={sel.storeId}
+            date={sel.date}
+          />
+        ) : null}
         {/* Kümülatif kasa birleşmesi — SADECE Mavi */}
         {isMavi && sel.storeId ? (
           <CumulativeMergeCard storeId={sel.storeId} date={sel.date} />
