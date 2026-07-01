@@ -33,9 +33,14 @@ import {
   corporateSummary,
   type CorporateSummary,
 } from "@/server/services/analytics/corporate";
+import {
+  shoppingVouchersSummary,
+  type ShoppingVouchersSummary,
+} from "@/server/services/analytics/shopping-vouchers";
 import { buildRevenueExcel } from "@/server/services/exports/excel/revenue";
 import { buildExpenseExcel } from "@/server/services/exports/excel/expense";
 import { buildAdvancesExcel } from "@/server/services/exports/excel/advances";
+import { buildShoppingVouchersExcel } from "@/server/services/exports/excel/shopping-vouchers";
 import { isAdmin, getAccessibleStoreIds } from "@/lib/auth/permissions";
 
 async function resolveFilterLabels(
@@ -130,6 +135,17 @@ export const analyticsRouter = router({
         if (ids.length > 0) filter.store_id = ids[0];
       }
       return advancesSummary(ctx.prisma, filter);
+    }),
+
+  shoppingVouchers: adminProcedure
+    .input(analyticsFilterSchema)
+    .query(async ({ ctx, input }): Promise<ShoppingVouchersSummary> => {
+      const filter = { ...input };
+      if (!isAdmin(ctx.user) && !filter.store_id && !filter.brand_id) {
+        const ids = await getAccessibleStoreIds(ctx.user);
+        if (ids.length > 0) filter.store_id = ids[0];
+      }
+      return shoppingVouchersSummary(ctx.prisma, filter);
     }),
 
   corporate: adminProcedure
@@ -296,6 +312,26 @@ export const analyticsRouter = router({
         resolveFilterLabels(ctx.prisma, filter.brand_id, filter.store_id),
       ]);
       return buildAdvancesExcel({
+        summary,
+        brandName: labels.brandName,
+        storeName: labels.storeName,
+      });
+    }),
+
+  exportShoppingVouchers: adminProcedure
+    .input(analyticsFilterSchema)
+    .mutation(async ({ ctx, input }) => {
+      const filter = { ...input };
+      if (!isAdmin(ctx.user) && !filter.store_id && !filter.brand_id) {
+        const ids = await getAccessibleStoreIds(ctx.user);
+        if (ids.length === 0) throw new Error("Erişebileceğin mağaza yok");
+        filter.store_id = ids[0];
+      }
+      const [summary, labels] = await Promise.all([
+        shoppingVouchersSummary(ctx.prisma, filter),
+        resolveFilterLabels(ctx.prisma, filter.brand_id, filter.store_id),
+      ]);
+      return buildShoppingVouchersExcel({
         summary,
         brandName: labels.brandName,
         storeName: labels.storeName,

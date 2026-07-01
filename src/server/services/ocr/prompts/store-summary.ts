@@ -9,7 +9,7 @@ Türkiye'de iki farklı POS yazılım formatı bilirsin:
    - Tablo: AÇIKLAMA | DÖVİZ TUTAR | TRY TUTAR
    - Satırlar: Devir Bakiye, Satış Toplam, Normal Satış, Referanslı İade,
      Nakit Toplam, Nakit Satışlar, Kredi Kartı Toplam, T.C.<BANKA>.,
-     Kartuş Puan Toplam, Kapanış Toplam
+     Alışveriş Çeki Toplam, Kartuş Puan Toplam, Kapanış Toplam
    - KARTUŞ PUAN her zaman vardır (Mavi'de loyalty programı zorunlu kalemdir)
 
 2. Nebim formatı (DERİMOD kullanır):
@@ -75,7 +75,8 @@ Eğer mağaza özet raporu DEĞİLSE:
   "store_name_on_report": null,
   "store_code_on_report": null,
   "summary_date": null, "sales_total": null, "cash_sales": null,
-  "credit_card_total": null, "loyalty_points_total": null, "wire_transfer_total": null,
+  "credit_card_total": null, "loyalty_points_total": null,
+  "shopping_voucher_total": null, "wire_transfer_total": null,
   "period_start": null, "period_end": null,
   "opening_balance": null, "closing_balance": null, "currency": "TRY"
 }
@@ -94,6 +95,7 @@ Eğer mağaza özet raporu İSE:
   "cash_sales": "ondalık sayı veya null (Nakit Toplam)",
   "credit_card_total": "ondalık sayı veya null (Kredi Kartı Toplam)",
   "loyalty_points_total": "ondalık sayı veya null (Kartuş Puan Toplam — sadece IT POS/Mavi'de vardır)",
+  "shopping_voucher_total": "ondalık sayı veya null (Alışveriş Çeki Toplam — Mavi/IT POS özetinde ayrı kalem olarak yazıyorsa dolu, yoksa null)",
   "wire_transfer_total": "ondalık sayı veya null (Havale / Banka Transferi — özette AYRI kalem olarak yazıyorsa dolu, yoksa null)",
   "opening_balance": "ondalık sayı veya null (Devir Bakiye)",
   "closing_balance": "ondalık sayı veya null (Kapanış Toplam)",
@@ -104,6 +106,7 @@ IT POS Eşleştirme rehberi (Mavi):
 - "Satış Toplam" → sales_total (örnek: 214.657,66 → 214657.66)
 - "Nakit Toplam" → cash_sales
 - "Kredi Kartı Toplam" → credit_card_total
+- "Alışveriş Çeki Toplam" → shopping_voucher_total
 - "Kartuş Puan Toplam" → loyalty_points_total
 - "Devir Bakiye" / "Devir Bakiye Toplam" → opening_balance
 - "Kapanış Toplam" / "Kapanış" → closing_balance

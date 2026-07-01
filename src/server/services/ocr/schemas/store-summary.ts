@@ -34,6 +34,12 @@ export const storeSummaryOcrSchema = z.object({
   credit_card_total: z.number().nullable(),
   loyalty_points_total: z.number().nullable(),
   /**
+   * Alışveriş Çeki Toplam — Mavi (IT POS) özetinde ayrı bir ödeme kalemi.
+   * Mavi HQ (Türkiye) bu çekleri işletmeye iade eder; ayrı takip edilir.
+   * Yoksa null.
+   */
+  shopping_voucher_total: z.number().nullable(),
+  /**
    * Havale (Banka Transferi) — özette ayrı bir kalem olarak yazıyorsa dolu;
    * yoksa null/0 gönder. Sistem null/0 ise dekontları cash_sales içine
    * işlenmiş varsayar.

@@ -355,6 +355,9 @@ model StoreSummary {
   cash_sales           Decimal? @db.Decimal(14, 2)
   credit_card_total    Decimal? @db.Decimal(14, 2)
   loyalty_points_total Decimal? @db.Decimal(14, 2) // Kartuş Puan
+  // Alışveriş Çeki Toplam — Mavi HQ (Türkiye) tarafından iade edilen çekler.
+  // Satış toplamına dahil bir ödeme kalemi; iade takibi için ayrı saklanır.
+  shopping_voucher_total Decimal? @db.Decimal(14, 2)
   // Havale (Banka Transferi) — özette ayrı kalem varsa dolu. Yoksa null/0
   // sayılır ve nakit dekontu cash_sales içine işlenmiş varsayılır.
   wire_transfer_total  Decimal? @db.Decimal(14, 2)
@@ -373,6 +376,7 @@ model StoreSummary {
   cash_sales_try           Decimal? @db.Decimal(14, 2)
   credit_card_total_try    Decimal? @db.Decimal(14, 2)
   loyalty_points_total_try Decimal? @db.Decimal(14, 2)
+  shopping_voucher_total_try Decimal? @db.Decimal(14, 2)
   wire_transfer_total_try  Decimal? @db.Decimal(14, 2)
   fx_rate_used             Decimal? @db.Decimal(10, 4)
 
