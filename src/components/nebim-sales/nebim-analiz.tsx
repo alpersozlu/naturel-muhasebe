@@ -43,8 +43,18 @@ export function NebimAnaliz({ filters }: { filters: NebimSalesSelection }) {
   return (
     <div className="space-y-6">
       {/* KPI */}
-      <div className="grid grid-cols-3 gap-3">
-        <Kpi label="Net Toplam" value={fmt(data.kpi.net_total)} />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Kpi label="Net Toplam" value={fmt(data.kpi.net_total)} sub="iadeler dahil" />
+        <Kpi
+          label="İadeler"
+          value={
+            data.kpi.returns_total
+              ? `−₺${TRY.format(Math.abs(data.kpi.returns_total))}`
+              : "₺0,00"
+          }
+          sub={`${data.kpi.returns_count} iade satırı · net toplamdan düşülür`}
+          accent
+        />
         <Kpi label="Fiş Sayısı" value={String(data.kpi.invoices)} />
         <Kpi label="Satır Sayısı" value={String(data.kpi.lines)} />
       </div>
@@ -211,12 +221,25 @@ function Stat({
   );
 }
 
-function Kpi({ label, value }: { label: string; value: string }) {
+function Kpi({
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  accent?: boolean;
+}) {
   return (
     <Card>
       <CardContent className="p-4">
         <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-        <div className="text-xl font-bold tabular-nums mt-1">{value}</div>
+        <div className={`text-xl font-bold tabular-nums mt-1 ${accent ? "text-rose-600" : ""}`}>
+          {value}
+        </div>
+        {sub ? <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div> : null}
       </CardContent>
     </Card>
   );

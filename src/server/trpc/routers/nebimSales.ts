@@ -605,7 +605,7 @@ export const nebimSalesRouter = router({
     .query(async ({ ctx, input }) => {
       const where = await buildWhere(ctx, input);
       const empty = {
-        kpi: { net_total: 0, invoices: 0, lines: 0 },
+        kpi: { net_total: 0, invoices: 0, lines: 0, returns_total: 0, returns_count: 0 },
         by_salesperson: [] as Array<{ name: string; net: number; lines: number; invoices: number }>,
         by_customer: [] as Array<{ name: string; net: number; lines: number; invoices: number }>,
         by_store: [] as Array<{ store_name: string | null; net: number; lines: number }>,
@@ -657,6 +657,7 @@ export const nebimSalesRouter = router({
         manuelAgg,
         manuelInv,
         byMgmtRaw,
+        retAgg,
       ] = await Promise.all([
         ctx.prisma.nebimSaleLine.aggregate({ where, _count: { _all: true }, _sum: { net_amount: true } }),
         ctx.prisma.nebimSaleLine.groupBy({ by: ["salesperson_name"], where, _count: { _all: true }, _sum: { net_amount: true } }),
@@ -676,6 +677,8 @@ export const nebimSalesRouter = router({
         ctx.prisma.nebimSaleLine.aggregate({ where: manuelWhere, _count: { _all: true }, _sum: { net_amount: true } }),
         ctx.prisma.nebimSaleLine.groupBy({ by: ["invoice_ref"], where: manuelWhere }),
         ctx.prisma.nebimSaleLine.groupBy({ by: ["mgmt_note"], where: manuelWhere, _count: { _all: true }, _sum: { net_amount: true } }),
+        // İadeler — net_amount negatif; net toplamdan düşülür. Ayrı gösterilir.
+        ctx.prisma.nebimSaleLine.aggregate({ where: { ...where, is_return: true }, _count: { _all: true }, _sum: { net_amount: true } }),
       ]);
 
       const salesFis = new Map<string, number>();
@@ -792,6 +795,8 @@ export const nebimSalesRouter = router({
           net_total: Number(agg._sum.net_amount ?? 0),
           invoices: invoiceGroups.length,
           lines: agg._count._all,
+          returns_total: Number(retAgg._sum.net_amount ?? 0),
+          returns_count: retAgg._count._all,
         },
         by_salesperson,
         by_customer,
