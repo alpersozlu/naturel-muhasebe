@@ -151,9 +151,28 @@ model Store {
   budget_limits   BudgetLimit[]
   merge_groups    DayMergeGroup[]
   nebim_sale_lines NebimSaleLine[]
+  outlet_stock_items OutletStockItem[]
 
   @@index([brand_id])
   @@index([deleted_at])
+}
+
+// Outlet reyonu fiziksel stok sayımı (barkod bazlı). Kullanıcı reyonu el
+// terminaliyle okutur, barkod listesi buraya yüklenir. NebimSaleLine.barcode
+// (köprüye eklenecek) ile eşleşince outlet tespiti fiyat-tahmininden kesin
+// listeye döner. Aynı batch yeniden yüklenirse önce batch silinir (idempotent).
+model OutletStockItem {
+  id         String   @id @default(uuid())
+  store_id   String
+  store      Store    @relation(fields: [store_id], references: [id])
+  barcode    String
+  qty        Int      @default(1)
+  scanned_at DateTime @db.Date
+  batch      String // örn "lefkosa-sayim-2026-07-03"
+  created_at DateTime @default(now())
+
+  @@index([store_id, barcode])
+  @@index([batch])
 }
 
 // ─────────────────────────────────────────────────────────────
