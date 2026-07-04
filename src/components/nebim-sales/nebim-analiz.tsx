@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Percent, Users } from "lucide-react";
+import { Loader2, Percent, Users, Tag, ShieldAlert, CheckCircle2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import type { NebimSalesSelection } from "./nebim-filters";
@@ -28,6 +28,12 @@ export function NebimAnaliz({ filters }: { filters: NebimSalesSelection }) {
   const input = toInput(filters);
   const { data, isLoading } = trpc.nebimSales.analiz.useQuery(input);
   const staff = trpc.nebimSales.staffKpi.useQuery(input);
+  // only_returns outlet için anlamsız — gönderme (outlet kendi iade mantığını kurar)
+  const outlet = trpc.nebimSales.outlet.useQuery({
+    store_id: input.store_id,
+    date_from: input.date_from,
+    date_to: input.date_to,
+  });
 
   if (isLoading || !data) {
     return (
@@ -62,9 +68,286 @@ export function NebimAnaliz({ filters }: { filters: NebimSalesSelection }) {
       {/* İndirim Analizi — orijinal fiyat → satılan fiyat → indirim % */}
       <IndirimAnaliz indirim={data.indirim} />
 
+      {/* Outlet Geliri (ay × mağaza) + kural-dışı outlet satışları */}
+      {outlet.data && outlet.data.months.length > 0 ? (
+        <>
+          <OutletGelir data={outlet.data} />
+          <OutletBulgular data={outlet.data} />
+        </>
+      ) : null}
+
       {/* Çalışan Satış KPI */}
       {staff.data && staff.data.rows.length > 0 ? (
         <CalisanKpi data={staff.data} />
+      ) : null}
+    </div>
+  );
+}
+
+type OutletData = {
+  summary: {
+    net_total: number; tx_count: number; discount_total: number;
+    returns_total: number; returns_count: number; leak_loss: number;
+  };
+  stores: string[];
+  months: Array<{
+    month: string; label: string;
+    cells: Record<string, { net: number; count: number }>;
+    total: { net: number; count: number };
+  }>;
+  store_totals: Record<string, { net: number; count: number }>;
+  leaks: Array<{
+    date: string; store: string; ref: string; code: string | null;
+    desc: string | null; price: number; sold: number; disc_pct: number;
+    campaign: string | null; salesperson: string | null;
+  }>;
+  girne: Array<{
+    date: string; ref: string; code: string | null; desc: string | null;
+    price: number; sold: number; disc_pct: number; overlap: boolean;
+  }>;
+};
+
+function fmtDateTr(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
+}
+
+function storeDot(name: string): string {
+  const n = name.toLocaleLowerCase("tr").replace(/ı/g, "i");
+  if (n.includes("lefkosa")) return "bg-blue-500";
+  if (n.includes("girne")) return "bg-emerald-500";
+  if (n.includes("magusa")) return "bg-amber-500";
+  return "bg-slate-400";
+}
+
+function OutletGelir({ data }: { data: OutletData }) {
+  const s = data.summary;
+  return (
+    <Card className="overflow-hidden">
+      <CardContent className="p-0">
+        <div className="px-4 py-3 border-b border-border/50 flex items-start gap-2 flex-wrap">
+          <div className="h-7 w-7 rounded-lg bg-indigo-500/10 text-indigo-600 flex items-center justify-center shrink-0">
+            <Tag className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="font-semibold text-sm">Outlet Geliri</div>
+            <div className="text-[11px] text-muted-foreground">
+              Outlet reyonu net cirosu — ay × mağaza (ayakkabı/terlik/sandalet, sabit fiyat)
+            </div>
+          </div>
+          <div className="ml-auto text-right">
+            <div className="text-lg font-bold tabular-nums">{fmt(s.net_total)}</div>
+            <div className="text-[11px] text-muted-foreground">
+              {s.tx_count} işlem · {fmt(s.discount_total)} iskonto verildi
+              {s.returns_count > 0
+                ? ` · ${s.returns_count} iade (${fmt(s.returns_total)})`
+                : ""}
+            </div>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] border-collapse text-sm">
+            <thead>
+              <tr className="bg-slate-900 text-slate-100 text-[10px] uppercase tracking-wider">
+                <th className="text-left font-semibold px-4 py-2.5">Ay</th>
+                {data.stores.map((st) => (
+                  <th key={st} className="text-right font-semibold px-4 py-2.5">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className={`h-2 w-2 rounded-full ${storeDot(st)}`} />
+                      {st}
+                    </span>
+                  </th>
+                ))}
+                <th className="text-right font-semibold px-4 py-2.5">Toplam</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.months.map((m) => (
+                <tr key={m.month} className="border-b border-border/40 hover:bg-muted/30">
+                  <td className="px-4 py-2.5 font-medium">{m.label}</td>
+                  {data.stores.map((st) => {
+                    const c = m.cells[st];
+                    return (
+                      <td key={st} className="px-4 py-2.5 text-right">
+                        {c ? (
+                          <>
+                            <div className="tabular-nums font-semibold">{fmt(c.net)}</div>
+                            <div className="text-[10px] text-muted-foreground">{c.count} işlem</div>
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                  <td className="px-4 py-2.5 text-right tabular-nums font-bold">{fmt(m.total.net)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-900 text-slate-100 font-semibold">
+                <td className="px-4 py-2.5">TOPLAM</td>
+                {data.stores.map((st) => {
+                  const c = data.store_totals[st];
+                  return (
+                    <td key={st} className="px-4 py-2.5 text-right tabular-nums">
+                      {c ? fmt(c.net) : "—"}
+                    </td>
+                  );
+                })}
+                <td className="px-4 py-2.5 text-right tabular-nums">{fmt(s.net_total)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function OutletBulgular({ data }: { data: OutletData }) {
+  const { leaks, girne, summary } = data;
+  if (leaks.length === 0 && girne.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-4 px-4 flex items-center gap-2 text-sm text-emerald-700">
+          <CheckCircle2 className="h-4 w-4" />
+          Kural dışı outlet satışı bulunamadı — tüm indirimli outlet satışlarında yönetim izi var.
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <div className="space-y-4">
+      {leaks.length > 0 ? (
+        <Card className="overflow-hidden border-rose-200">
+          <CardContent className="p-0">
+            <div className="px-4 py-3 border-b border-rose-200/70 bg-rose-50/50 flex items-start gap-2 flex-wrap">
+              <div className="h-7 w-7 rounded-lg bg-rose-500/10 text-rose-600 flex items-center justify-center shrink-0">
+                <ShieldAlert className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="font-semibold text-sm text-rose-900">
+                  Kural Dışı Outlet Satışı — Kampanya Sızması
+                </div>
+                <div className="text-[11px] text-rose-800/70">
+                  Outlet ürünü sabit fiyatlıdır; yönetim izi olmadan indirim uygulanamaz.
+                  Bu satırlarda kampanya indirimi outlet ürüne işlemiş.
+                </div>
+              </div>
+              <div className="ml-auto text-right">
+                <div className="text-lg font-bold tabular-nums text-rose-600">
+                  −{fmt(summary.leak_loss)}
+                </div>
+                <div className="text-[11px] text-rose-800/70">{leaks.length} satır · kaçak indirim</div>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] border-collapse text-sm">
+                <thead>
+                  <tr className="bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <th className="text-left font-medium px-3 py-2">Tarih</th>
+                    <th className="text-left font-medium px-3 py-2">Mağaza</th>
+                    <th className="text-left font-medium px-3 py-2">Fiş</th>
+                    <th className="text-left font-medium px-3 py-2">Ürün</th>
+                    <th className="text-right font-medium px-3 py-2">Etiket</th>
+                    <th className="text-right font-medium px-3 py-2">Satılan</th>
+                    <th className="text-right font-medium px-3 py-2">İnd%</th>
+                    <th className="text-left font-medium px-3 py-2">Kampanya</th>
+                    <th className="text-left font-medium px-3 py-2">Satıcı</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {leaks.map((r, i) => (
+                    <tr key={`${r.ref}-${i}`} className="border-t border-border/40 hover:bg-rose-50/40">
+                      <td className="px-3 py-2 tabular-nums whitespace-nowrap">{fmtDateTr(r.date)}</td>
+                      <td className="px-3 py-2">{r.store}</td>
+                      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{r.ref}</td>
+                      <td className="px-3 py-2">
+                        <div className="font-medium truncate max-w-56">{r.desc ?? "—"}</div>
+                        <div className="text-[10px] text-muted-foreground">{r.code ?? ""}</div>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmt(r.price)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-semibold text-rose-600">
+                        {fmt(r.sold)}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">%{r.disc_pct.toFixed(1)}</td>
+                      <td className="px-3 py-2 text-muted-foreground truncate max-w-44">{r.campaign ?? "—"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{r.salesperson ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {girne.length > 0 ? (
+        <Card className="overflow-hidden border-amber-200">
+          <CardContent className="p-0">
+            <div className="px-4 py-3 border-b border-amber-200/70 bg-amber-50/50 flex items-start gap-2 flex-wrap">
+              <div className="h-7 w-7 rounded-lg bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0">
+                <ShieldAlert className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="font-semibold text-sm text-amber-900">
+                  Girne&apos;de Outlet Ürünü Satışı
+                </div>
+                <div className="text-[11px] text-amber-800/70">
+                  Girne&apos;de outlet reyonu yok — outlet fiyatlı ayakkabı/terlik/sandalet
+                  satışları kontrol edilmeli. &quot;L/M outlet kodu&quot; rozeti: aynı ürün
+                  Lefkoşa/Mağusa outlet reyonunda da satılmış.
+                </div>
+              </div>
+              <div className="ml-auto text-right">
+                <div className="text-lg font-bold tabular-nums text-amber-600">{girne.length}</div>
+                <div className="text-[11px] text-amber-800/70">satış satırı</div>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] border-collapse text-sm">
+                <thead>
+                  <tr className="bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <th className="text-left font-medium px-3 py-2">Tarih</th>
+                    <th className="text-left font-medium px-3 py-2">Fiş</th>
+                    <th className="text-left font-medium px-3 py-2">Ürün</th>
+                    <th className="text-right font-medium px-3 py-2">Etiket</th>
+                    <th className="text-right font-medium px-3 py-2">Satılan</th>
+                    <th className="text-right font-medium px-3 py-2">İnd%</th>
+                    <th className="text-left font-medium px-3 py-2">Kod Eşleşmesi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {girne.map((r, i) => (
+                    <tr key={`${r.ref}-${i}`} className="border-t border-border/40 hover:bg-amber-50/40">
+                      <td className="px-3 py-2 tabular-nums whitespace-nowrap">{fmtDateTr(r.date)}</td>
+                      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{r.ref}</td>
+                      <td className="px-3 py-2">
+                        <div className="font-medium truncate max-w-56">{r.desc ?? "—"}</div>
+                        <div className="text-[10px] text-muted-foreground">{r.code ?? ""}</div>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmt(r.price)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmt(r.sold)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {r.disc_pct > 0.5 ? `%${r.disc_pct.toFixed(1)}` : "—"}
+                      </td>
+                      <td className="px-3 py-2">
+                        {r.overlap ? (
+                          <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[10px] font-medium">
+                            L/M outlet kodu
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground">fiyat denk gelmiş olabilir</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
       ) : null}
     </div>
   );

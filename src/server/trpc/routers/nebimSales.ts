@@ -894,6 +894,181 @@ export const nebimSalesRouter = router({
       };
     }),
 
+  /**
+   * OUTLET analizi — outlet reyonu (Lefkoşa/Mağusa; ayakkabı/terlik/sandalet,
+   * sabit fiyatlar OUTLET_PRICES). Ay × mağaza gelir matrisi + kural-dışı
+   * satışlar: (a) kampanya sızması (indirimli + yönetim izi yok — outlet
+   * sabit fiyatlıdır, personel iskonto yapamaz), (b) Girne satışı (reyon yok).
+   * Yönetim dokunuşlu (mgmt_note/discount_reason) indirimler NORMALDİR
+   * (hediye çeki sepete orantısız dağılır) — ihlal sayılmaz.
+   */
+  outlet: adminProcedure
+    .input(nebimAnalizSchema)
+    .query(async ({ ctx, input }) => {
+      type Cell = { net: number; count: number };
+      type LeakRow = {
+        date: string; store: string; ref: string; code: string | null;
+        desc: string | null; price: number; sold: number; disc_pct: number;
+        campaign: string | null; salesperson: string | null;
+      };
+      type GirneRow = {
+        date: string; ref: string; code: string | null; desc: string | null;
+        price: number; sold: number; disc_pct: number; overlap: boolean;
+      };
+      const empty = {
+        summary: {
+          net_total: 0, tx_count: 0, discount_total: 0,
+          returns_total: 0, returns_count: 0, leak_loss: 0,
+        },
+        stores: [] as string[],
+        months: [] as Array<{
+          month: string; label: string;
+          cells: Record<string, Cell>; total: Cell;
+        }>,
+        store_totals: {} as Record<string, Cell>,
+        leaks: [] as LeakRow[],
+        girne: [] as GirneRow[],
+      };
+      const base = await buildWhere(ctx, {
+        store_id: input.store_id,
+        date_from: input.date_from,
+        date_to: input.date_to,
+      });
+      if (!base) return empty;
+
+      // Outlet ürün tanımı: ayakkabı/terlik/sandalet (kullanıcı tanımı; bot/çizme hariç)
+      const FOOT_OR: Prisma.NebimSaleLineWhereInput[] = [
+        { item_desc: { contains: "AYAKKABI", mode: "insensitive" } },
+        { item_desc: { contains: "TERLİK", mode: "insensitive" } },
+        { item_desc: { contains: "TERLIK", mode: "insensitive" } },
+        { item_desc: { contains: "SANDALET", mode: "insensitive" } },
+      ];
+
+      const [rows, storeRows] = await Promise.all([
+        ctx.prisma.nebimSaleLine.findMany({
+          where: { AND: [base, { price: { in: OUTLET_PRICES } }, { OR: FOOT_OR }] },
+          select: {
+            store_id: true, invoice_date: true, invoice_ref: true, item_code: true,
+            item_desc: true, qty: true, price: true, amount_vi: true, net_amount: true,
+            is_return: true, mgmt_note: true, discount_reason: true, campaign: true,
+            salesperson_name: true,
+          },
+          orderBy: [{ invoice_date: "asc" }, { invoice_ref: "asc" }],
+        }),
+        ctx.prisma.store.findMany({ select: { id: true, name: true } }),
+      ]);
+
+      const storeName = new Map(storeRows.map((s) => [s.id, s.name.replace(/^DERIMOD\s*/i, "")]));
+      const norm = (s: string) => s.toLocaleLowerCase("tr").replace(/ı/g, "i");
+      const isGirneStore = (id: string | null) => norm(storeName.get(id ?? "") ?? "").includes("girne");
+
+      // Girne çapraz kontrolü: L/M outlet reyonunda görülen ürün kodları
+      const lmCodes = new Set<string>();
+      for (const r of rows) {
+        if (!r.is_return && !isGirneStore(r.store_id) && r.item_code) lmCodes.add(r.item_code);
+      }
+
+      const MONTH_TR = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+        "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+      const matrix = new Map<string, Map<string, Cell>>();
+      const storeTotals = new Map<string, Cell>();
+      const seenStores = new Set<string>();
+      let netTotal = 0, txCount = 0, discountTotal = 0;
+      let returnsTotal = 0, returnsCount = 0, leakLoss = 0;
+      const leaks: LeakRow[] = [];
+      const girne: GirneRow[] = [];
+
+      for (const r of rows) {
+        const sName = storeName.get(r.store_id ?? "") ?? "?";
+        const net = Number(r.net_amount ?? 0);
+        const avi = Number(r.amount_vi ?? 0);
+        const qty = Math.abs(Number(r.qty ?? 1)) || 1;
+        const price = Number(r.price ?? 0);
+        if (r.is_return) {
+          returnsTotal += net; // iade net'i zaten negatif
+          returnsCount += 1;
+          continue;
+        }
+        const month = r.invoice_date.toISOString().slice(0, 7);
+        let mRow = matrix.get(month);
+        if (!mRow) { mRow = new Map(); matrix.set(month, mRow); }
+        const cell = mRow.get(sName) ?? { net: 0, count: 0 };
+        cell.net += net; cell.count += 1;
+        mRow.set(sName, cell);
+        const st = storeTotals.get(sName) ?? { net: 0, count: 0 };
+        st.net += net; st.count += 1;
+        storeTotals.set(sName, st);
+        seenStores.add(sName);
+        netTotal += net; txCount += 1;
+        const disc = avi - net;
+        if (disc > 0.01) discountTotal += disc;
+
+        const mgmt = r.mgmt_note != null || r.discount_reason != null;
+        const common = {
+          date: r.invoice_date.toISOString().slice(0, 10),
+          ref: r.invoice_ref,
+          code: r.item_code,
+          desc: r.item_desc,
+          price,
+          sold: Math.abs(net) / qty,
+          disc_pct: avi > 0 ? (disc / avi) * 100 : 0,
+        };
+        if (isGirneStore(r.store_id)) {
+          girne.push({ ...common, overlap: r.item_code != null && lmCodes.has(r.item_code) });
+        } else if (disc > 0.01 && !mgmt) {
+          leaks.push({
+            ...common,
+            store: sName,
+            campaign: r.campaign,
+            salesperson: r.salesperson_name,
+          });
+          leakLoss += disc;
+        }
+      }
+
+      // Sütun sırası: Lefkoşa, Girne, Mağusa, diğerleri
+      const orderKey = (s: string) => {
+        const n = norm(s);
+        if (n.includes("lefkosa")) return 0;
+        if (n.includes("girne")) return 1;
+        if (n.includes("magusa")) return 2;
+        return 3;
+      };
+      const stores = Array.from(seenStores).sort((a, b) => orderKey(a) - orderKey(b));
+
+      const months = Array.from(matrix.keys())
+        .sort()
+        .reverse() // yeni ay üstte
+        .map((month) => {
+          const mRow = matrix.get(month)!;
+          const cells: Record<string, Cell> = {};
+          let tNet = 0, tCount = 0;
+          for (const s of stores) {
+            const c = mRow.get(s);
+            if (c) { cells[s] = c; tNet += c.net; tCount += c.count; }
+          }
+          const [y, m] = month.split("-");
+          return {
+            month,
+            label: `${MONTH_TR[Number(m) - 1]} ${y}`,
+            cells,
+            total: { net: tNet, count: tCount },
+          };
+        });
+
+      return {
+        summary: {
+          net_total: netTotal, tx_count: txCount, discount_total: discountTotal,
+          returns_total: returnsTotal, returns_count: returnsCount, leak_loss: leakLoss,
+        },
+        stores,
+        months,
+        store_totals: Object.fromEntries(storeTotals),
+        leaks: leaks.reverse().slice(0, 200), // yeni → eski
+        girne: girne.reverse().slice(0, 200),
+      };
+    }),
+
   /** Bir müşterinin aldığı ürünler (drill-down) — filtre + customer_name. */
   customerProducts: adminProcedure
     .input(nebimCustomerProductsSchema)
