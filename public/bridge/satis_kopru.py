@@ -234,7 +234,12 @@ SELECT
        JOIN trPaymentLine pl ON pl.PaymentHeaderID = ph.PaymentHeaderID
        JOIN trCreditCardPaymentLine ccl ON ccl.CreditCardPaymentLineID = pl.CreditCardPaymentLineID
        WHERE ph.DocumentNumber = h.InvoiceNumber AND ph.CompanyCode = h.CompanyCode
-         AND pl.PaymentTypeCode = 2)                   AS pay_card
+         AND pl.PaymentTypeCode = 2)                   AS pay_card,
+    (SELECT TOP 1 bb.Barcode
+       FROM prItemBarcode bb
+       WHERE bb.ItemCode = l.ItemCode
+         AND bb.ColorCode = l.ColorCode
+         AND bb.ItemDim1Code = l.ItemDim1Code)         AS barcode
 FROM trInvoiceHeader h
 JOIN trInvoiceLine l
     ON  l.InvoiceHeaderID = h.InvoiceHeaderID
@@ -395,6 +400,7 @@ def build_lines(rows: list[dict], cfg: dict) -> list[dict]:
             "tax_base": _num(r.get("tax_base")),
             "vat": _num(r.get("vat")),
             "net_amount": _num(r.get("net_amount")),
+            "barcode": (str(r["barcode"]).strip() if r.get("barcode") not in (None, "") else None),
         })
     return out
 

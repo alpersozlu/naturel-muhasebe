@@ -49,6 +49,7 @@ export const nebimSaleLineSchema = z.object({
   mgmt_note: z.string().nullish(), // tpInvoiceHeaderExtension — yönetim açıklaması (manuel iskonto)
   discount_reason: z.string().nullish(), // cdDiscountReasonDesc — iskonto nedeni
   campaign: z.string().nullish(), // tpInvoiceDiscountOffer → kampanya adı/adları
+  barcode: z.string().nullish(), // prItemBarcode — ürün barkodu (outlet sayım eşleşmesi)
 });
 
 export const nebimIngestSchema = z.object({

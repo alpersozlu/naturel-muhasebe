@@ -826,6 +826,10 @@ model NebimSaleLine {
   discount_reason String? // cdDiscountReasonDesc — iskonto nedeni ("Yönetim Özel talebi")
   campaign        String? // tpInvoiceDiscountOffer → cdDiscountOfferDesc — satıra uygulanan kampanya adı/adları
 
+  // Ürün barkodu — prItemBarcode (ItemCode+ColorCode+ItemDim1Code → TOP 1).
+  // OutletStockItem sayımıyla eşleştirilerek kesin outlet tespiti sağlar.
+  barcode String?
+
   currency Currency @default(TRY)
 
   source     String   @default("nebim")

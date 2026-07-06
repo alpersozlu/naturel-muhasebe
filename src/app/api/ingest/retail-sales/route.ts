@@ -113,6 +113,7 @@ export async function POST(req: Request) {
           mgmt_note: l.mgmt_note ?? null,
           discount_reason: l.discount_reason ?? null,
           campaign: l.campaign ?? null,
+          barcode: l.barcode ?? null,
           currency,
           source: "nebim",
         };
