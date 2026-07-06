@@ -1,18 +1,184 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { router, adminProcedure } from "../trpc";
 import {
   nebimSalesFilterSchema,
   nebimAnalizSchema,
   nebimCustomerProductsSchema,
+  nebimCustomerDetailSchema,
 } from "@/lib/zod-schemas/nebim-sales";
 import { getAccessibleStoreIds, isAdmin } from "@/lib/auth/permissions";
 import {
   buildNebimSalesExcel,
   type NebimSalesExcelRow,
 } from "@/server/services/exports/excel/nebim-sales";
+import { buildNebimCustomersExcel } from "@/server/services/exports/excel/nebim-customers";
 
 /** Outlet ürün birim fiyatları — bu fiyatlarda indirim yapılmaması normaldir. */
 const OUTLET_PRICES = [1499.99, 1999.99, 2499.99, 2999.99];
+
+/**
+ * Sadakat bantları — dönem net harcamasına göre. İlk kalibrasyon; ileride
+ * kredi-puanı sistemine evrilebilir (eşikleri buradan ayarla).
+ */
+export const LOYALTY_TIERS = [
+  { key: "vip", label: "VIP", min: 100_000 },
+  { key: "gold", label: "Altın", min: 50_000 },
+  { key: "silver", label: "Gümüş", min: 25_000 },
+  { key: "bronze", label: "Bronz", min: 10_000 },
+] as const;
+export type LoyaltyTierKey = (typeof LOYALTY_TIERS)[number]["key"];
+
+function tierFor(net: number): LoyaltyTierKey | null {
+  for (const t of LOYALTY_TIERS) if (net >= t.min) return t.key;
+  return null;
+}
+
+export type NebimCustomerRow = {
+  code: string | null;
+  name: string;
+  net: number;
+  invoices: number;
+  units: number;
+  lines: number;
+  avg_basket: number;
+  first_date: string; // dönem içi ilk alışveriş
+  last_date: string;
+  first_ever: string; // tüm zaman ilk (yeni-müşteri tespiti)
+  is_new: boolean;
+  tier: LoyaltyTierKey | null;
+};
+
+export type NebimCustomersResult = {
+  kpi: {
+    customers: number;
+    net_total: number;
+    new_customers: number;
+    repeat_pct: number;
+    avg_spend: number;
+    anonymous_net: number;
+  };
+  rows: NebimCustomerRow[];
+  total_customers: number;
+};
+
+/**
+ * MÜŞTERİ ANALİZİ hesabı — sadık / yüksek harcamalı müşteri takibi.
+ * Dönem içi net harcamaya göre sıralı müşteri listesi (iadeler net'e dahil,
+ * yani iade eden müşterinin katkısı şişmez) + KPI'lar + sadakat bandı.
+ * "Yeni müşteri" = ilk alışverişi bu dönemde olan (tüm-zaman min tarihe göre).
+ * Hem customers query hem exportCustomers mutation buradan beslenir.
+ */
+async function computeCustomers(
+  ctx: { user: unknown; prisma: PrismaClient },
+  input: { store_id?: string; date_from?: string; date_to?: string }
+): Promise<NebimCustomersResult> {
+  const empty: NebimCustomersResult = {
+    kpi: {
+      customers: 0, net_total: 0, new_customers: 0,
+      repeat_pct: 0, avg_spend: 0, anonymous_net: 0,
+    },
+    rows: [],
+    total_customers: 0,
+  };
+  const base = await buildWhere(ctx, {
+    store_id: input.store_id,
+    date_from: input.date_from,
+    date_to: input.date_to,
+  });
+  if (!base) return empty;
+  const named: Prisma.NebimSaleLineWhereInput = {
+    ...base,
+    customer_name: { not: null },
+  };
+
+  const [groups, invGroups, firstEverGroups, anonAgg] = await Promise.all([
+    ctx.prisma.nebimSaleLine.groupBy({
+      by: ["customer_code", "customer_name"],
+      where: named,
+      _sum: { net_amount: true, qty: true },
+      _count: { _all: true },
+      _min: { invoice_date: true },
+      _max: { invoice_date: true },
+    }),
+    ctx.prisma.nebimSaleLine.groupBy({
+      by: ["customer_code", "customer_name", "invoice_ref"],
+      where: named,
+    }),
+    // Tüm-zaman ilk alışveriş (dönem filtresi YOK; mağaza kapsamı korunur)
+    ctx.prisma.nebimSaleLine.groupBy({
+      by: ["customer_code", "customer_name"],
+      where: {
+        ...(base.store_id ? { store_id: base.store_id } : {}),
+        customer_name: { not: null },
+      },
+      _min: { invoice_date: true },
+    }),
+    ctx.prisma.nebimSaleLine.aggregate({
+      where: { ...base, customer_name: null },
+      _sum: { net_amount: true },
+    }),
+  ]);
+
+  const key = (c: string | null, n: string | null) => `${c ?? ""}|${n ?? ""}`;
+  const invCount = new Map<string, number>();
+  for (const g of invGroups) {
+    const k = key(g.customer_code, g.customer_name);
+    invCount.set(k, (invCount.get(k) ?? 0) + 1);
+  }
+  const firstEver = new Map<string, Date>();
+  for (const g of firstEverGroups) {
+    const d = g._min.invoice_date;
+    if (d) firstEver.set(key(g.customer_code, g.customer_name), d);
+  }
+
+  const periodStart = input.date_from
+    ? new Date(`${input.date_from}T00:00:00.000Z`)
+    : null;
+  const iso = (d: Date | null | undefined) =>
+    d ? d.toISOString().slice(0, 10) : "";
+
+  let netTotal = 0, newCustomers = 0, repeat = 0;
+  const rows: NebimCustomerRow[] = groups.map((g) => {
+    const k = key(g.customer_code, g.customer_name);
+    const net = Number(g._sum.net_amount ?? 0);
+    const invoices = invCount.get(k) ?? 0;
+    const ever = firstEver.get(k) ?? null;
+    // Dönem başlangıcı yoksa (tüm zaman) "yeni" ayrımı anlamsız — false.
+    const isNew = periodStart ? (ever ? ever >= periodStart : true) : false;
+    netTotal += net;
+    if (isNew) newCustomers += 1;
+    if (invoices >= 2) repeat += 1;
+    return {
+      code: g.customer_code,
+      name: g.customer_name ?? "—",
+      net,
+      invoices,
+      units: Number(g._sum.qty ?? 0),
+      lines: g._count._all,
+      avg_basket: invoices ? net / invoices : 0,
+      first_date: iso(g._min.invoice_date),
+      last_date: iso(g._max.invoice_date),
+      first_ever: iso(ever),
+      is_new: isNew,
+      tier: tierFor(net),
+    };
+  });
+  rows.sort((a, b) => b.net - a.net);
+
+  const count = rows.length;
+  return {
+    kpi: {
+      customers: count,
+      net_total: netTotal,
+      new_customers: newCustomers,
+      repeat_pct: count ? (repeat / count) * 100 : 0,
+      avg_spend: count ? netTotal / count : 0,
+      anonymous_net: Number(anonAgg._sum.net_amount ?? 0),
+    },
+    rows: rows.slice(0, 100),
+    total_customers: count,
+  };
+}
 
 /** ~%40 bandı (±1.5). Genelde kabul edilir AMA aşağıdaki dönemlerde şüpheli. */
 const FORTY_BAND = { gte: 38.5, lte: 41.5 } as const;
@@ -1067,6 +1233,112 @@ export const nebimSalesRouter = router({
         leaks: leaks.reverse().slice(0, 200), // yeni → eski
         girne: girne.reverse().slice(0, 200),
       };
+    }),
+
+  /**
+   * MÜŞTERİ ANALİZİ — sadık / yüksek harcamalı müşteri takibi.
+   * Dönem içi net harcamaya göre sıralı müşteri listesi (iadeler net'e dahil,
+   * yani iade eden müşterinin katkısı şişmez) + KPI'lar + sadakat bandı.
+   * "Yeni müşteri" = ilk alışverişi bu dönemde olan (tüm-zaman min tarihe göre).
+   */
+  customers: adminProcedure
+    .input(nebimAnalizSchema)
+    .query(async ({ ctx, input }) => computeCustomers(ctx, input)),
+
+  /**
+   * Müşteri detay kartı — TÜM ZAMAN: aylık harcama serisi, en çok alınan
+   * ürünler, mağaza/ödeme dağılımı, son alışverişler. Kod varsa kodla eşleşir.
+   */
+  customerDetail: adminProcedure
+    .input(nebimCustomerDetailSchema)
+    .query(async ({ ctx, input }) => {
+      const where: Prisma.NebimSaleLineWhereInput = input.customer_code
+        ? { customer_code: input.customer_code }
+        : { customer_name: input.customer_name };
+      const lines = await ctx.prisma.nebimSaleLine.findMany({
+        where,
+        select: {
+          invoice_date: true, invoice_ref: true, item_desc: true, qty: true,
+          net_amount: true, is_return: true, payment_type: true,
+          store: { select: { name: true } },
+        },
+        orderBy: [{ invoice_date: "asc" }],
+        take: 2000,
+      });
+
+      const monthly = new Map<string, { net: number; refs: Set<string> }>();
+      const products = new Map<string, { units: number; net: number }>();
+      const stores = new Map<string, number>();
+      const payments = new Map<string, number>();
+      const allRefs = new Set<string>();
+      let net = 0, units = 0;
+      for (const l of lines) {
+        const n = Number(l.net_amount ?? 0);
+        const q = Number(l.qty ?? 0);
+        net += n;
+        allRefs.add(l.invoice_ref);
+        const mk = l.invoice_date.toISOString().slice(0, 7);
+        let m = monthly.get(mk);
+        if (!m) { m = { net: 0, refs: new Set() }; monthly.set(mk, m); }
+        m.net += n; m.refs.add(l.invoice_ref);
+        if (!l.is_return) {
+          units += q;
+          const pd = l.item_desc ?? "—";
+          const p = products.get(pd) ?? { units: 0, net: 0 };
+          p.units += q; p.net += n;
+          products.set(pd, p);
+        }
+        const sn = (l.store?.name ?? "?").replace(/^DERIMOD\s*/i, "");
+        stores.set(sn, (stores.get(sn) ?? 0) + n);
+        if (l.payment_type) {
+          payments.set(l.payment_type, (payments.get(l.payment_type) ?? 0) + n);
+        }
+      }
+
+      return {
+        totals: {
+          net, units, invoices: allRefs.size,
+          first_date: lines[0]?.invoice_date.toISOString().slice(0, 10) ?? "",
+          last_date: lines[lines.length - 1]?.invoice_date.toISOString().slice(0, 10) ?? "",
+        },
+        monthly: Array.from(monthly.entries())
+          .sort()
+          .map(([month, m]) => ({ month, net: m.net, invoices: m.refs.size })),
+        top_products: Array.from(products.entries())
+          .map(([desc, p]) => ({ desc, ...p }))
+          .sort((a, b) => b.net - a.net)
+          .slice(0, 10),
+        by_store: Array.from(stores.entries())
+          .map(([name, n]) => ({ name, net: n }))
+          .sort((a, b) => b.net - a.net),
+        by_payment: Array.from(payments.entries())
+          .map(([label, n]) => ({ label, net: n }))
+          .sort((a, b) => b.net - a.net),
+        recent: lines
+          .slice(-10)
+          .reverse()
+          .map((l) => ({
+            date: l.invoice_date.toISOString().slice(0, 10),
+            ref: l.invoice_ref,
+            desc: l.item_desc,
+            net: Number(l.net_amount ?? 0),
+            is_return: l.is_return,
+            store: (l.store?.name ?? "?").replace(/^DERIMOD\s*/i, ""),
+          })),
+      };
+    }),
+
+  /** Müşteri listesi Excel — dönem + filtreyle, sadakat rozetli. */
+  exportCustomers: adminProcedure
+    .input(nebimAnalizSchema)
+    .mutation(async ({ ctx, input }) => {
+      const data = await computeCustomers(ctx, input);
+      return buildNebimCustomersExcel({
+        rows: data.rows,
+        kpi: data.kpi,
+        date_from: input.date_from,
+        date_to: input.date_to,
+      });
     }),
 
   /** Bir müşterinin aldığı ürünler (drill-down) — filtre + customer_name. */

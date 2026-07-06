@@ -47,3 +47,9 @@ export const nebimAnalizSchema = z.object({
 export const nebimCustomerProductsSchema = nebimAnalizSchema.extend({
   customer_name: z.string().min(1),
 });
+
+/** Müşteri detay kartı — kod varsa kodla, yoksa adla eşleşir (tüm zaman). */
+export const nebimCustomerDetailSchema = z.object({
+  customer_code: z.string().nullable(),
+  customer_name: z.string().min(1),
+});

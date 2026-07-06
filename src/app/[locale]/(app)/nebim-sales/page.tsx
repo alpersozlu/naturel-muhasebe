@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ListOrdered, BarChart3, ShieldAlert } from "lucide-react";
+import { ListOrdered, BarChart3, ShieldAlert, Users } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { trpc } from "@/lib/trpc";
 import { ExportExcelButton } from "@/components/analytics/export-button";
@@ -13,6 +13,7 @@ import {
 import { NebimList } from "@/components/nebim-sales/nebim-list";
 import { NebimAnaliz } from "@/components/nebim-sales/nebim-analiz";
 import { NebimSuspicious } from "@/components/nebim-sales/nebim-suspicious";
+import { NebimCustomers } from "@/components/nebim-sales/nebim-customers";
 
 function defaultSelection(): NebimSalesSelection {
   const now = new Date();
@@ -29,11 +30,12 @@ function defaultSelection(): NebimSalesSelection {
   };
 }
 
-type Tab = "list" | "analiz" | "suspicious";
+type Tab = "list" | "analiz" | "customers" | "suspicious";
 
 const TABS: { key: Tab; label: string; icon: typeof ListOrdered }[] = [
   { key: "list", label: "Liste", icon: ListOrdered },
   { key: "analiz", label: "Analiz", icon: BarChart3 },
+  { key: "customers", label: "Müşteriler", icon: Users },
   { key: "suspicious", label: "Şüpheli Satış", icon: ShieldAlert },
 ];
 
@@ -92,6 +94,8 @@ export default function NebimSalesPage() {
         <NebimList filters={sel} />
       ) : tab === "analiz" ? (
         <NebimAnaliz filters={sel} />
+      ) : tab === "customers" ? (
+        <NebimCustomers filters={sel} onChange={setSel} />
       ) : (
         <NebimSuspicious filters={sel} />
       )}
