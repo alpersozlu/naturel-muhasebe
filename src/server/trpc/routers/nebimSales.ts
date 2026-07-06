@@ -33,6 +33,21 @@ function tierFor(net: number): LoyaltyTierKey | null {
   return null;
 }
 
+/**
+ * Jenerik/ortak müşteri kartları — gerçek kişi değil (mağazaların turist
+ * kartları: "YABANCI GİRNE", "MAĞUSA YABANCI 2025", "YABANCİ"...). Müşteri
+ * analizinden hariç tutulur; net'leri KPI'da ayrı gösterilir.
+ * DİKKAT: "KART"/"GENEL" gibi kalıplar EKLENMEZ — gerçek soyadlarla
+ * (Kartal, Kartopu, Kart) ve kurumlarla (Polis Genel Müdürlüğü) çakışır.
+ */
+const GENERIC_CUSTOMER_TERMS = ["yabanci"];
+
+function isGenericCustomer(name: string | null): boolean {
+  if (!name) return false;
+  const n = name.toLocaleLowerCase("tr").replace(/ı/g, "i").replace(/i̇/g, "i");
+  return GENERIC_CUSTOMER_TERMS.some((t) => n.includes(t));
+}
+
 export type NebimCustomerRow = {
   code: string | null;
   name: string;
@@ -56,6 +71,9 @@ export type NebimCustomersResult = {
     repeat_pct: number;
     avg_spend: number;
     anonymous_net: number;
+    /** Jenerik/turist kartlarının (hariç tutulan) dönem net'i + kart sayısı. */
+    generic_net: number;
+    generic_count: number;
   };
   rows: NebimCustomerRow[];
   total_customers: number;
@@ -76,6 +94,7 @@ async function computeCustomers(
     kpi: {
       customers: 0, net_total: 0, new_customers: 0,
       repeat_pct: 0, avg_spend: 0, anonymous_net: 0,
+      generic_net: 0, generic_count: 0,
     },
     rows: [],
     total_customers: 0,
@@ -138,9 +157,17 @@ async function computeCustomers(
     d ? d.toISOString().slice(0, 10) : "";
 
   let netTotal = 0, newCustomers = 0, repeat = 0;
-  const rows: NebimCustomerRow[] = groups.map((g) => {
-    const k = key(g.customer_code, g.customer_name);
+  let genericNet = 0, genericCount = 0;
+  const rows: NebimCustomerRow[] = [];
+  for (const g of groups) {
     const net = Number(g._sum.net_amount ?? 0);
+    // Jenerik/turist kartları gerçek kişi değil — listeden ve KPI'lardan hariç.
+    if (isGenericCustomer(g.customer_name)) {
+      genericNet += net;
+      genericCount += 1;
+      continue;
+    }
+    const k = key(g.customer_code, g.customer_name);
     const invoices = invCount.get(k) ?? 0;
     const ever = firstEver.get(k) ?? null;
     // Dönem başlangıcı yoksa (tüm zaman) "yeni" ayrımı anlamsız — false.
@@ -148,7 +175,7 @@ async function computeCustomers(
     netTotal += net;
     if (isNew) newCustomers += 1;
     if (invoices >= 2) repeat += 1;
-    return {
+    rows.push({
       code: g.customer_code,
       name: g.customer_name ?? "—",
       net,
@@ -161,8 +188,8 @@ async function computeCustomers(
       first_ever: iso(ever),
       is_new: isNew,
       tier: tierFor(net),
-    };
-  });
+    });
+  }
   rows.sort((a, b) => b.net - a.net);
 
   const count = rows.length;
@@ -174,6 +201,8 @@ async function computeCustomers(
       repeat_pct: count ? (repeat / count) * 100 : 0,
       avg_spend: count ? netTotal / count : 0,
       anonymous_net: Number(anonAgg._sum.net_amount ?? 0),
+      generic_net: genericNet,
+      generic_count: genericCount,
     },
     rows: rows.slice(0, 100),
     total_customers: count,

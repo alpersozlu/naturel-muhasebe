@@ -221,10 +221,21 @@ export function NebimCustomers({
                   </tbody>
                 </table>
               </div>
-              {data.kpi.anonymous_net > 0 ? (
-                <div className="px-4 py-2 border-t border-border/40 text-[11px] text-muted-foreground">
-                  Not: isimsiz (müşteri kaydı olmayan) satışlar bu listede yok —
-                  dönem isimsiz net: {fmt(data.kpi.anonymous_net)}.
+              {data.kpi.anonymous_net > 0 || data.kpi.generic_count > 0 ? (
+                <div className="px-4 py-2 border-t border-border/40 text-[11px] text-muted-foreground space-y-0.5">
+                  {data.kpi.generic_count > 0 ? (
+                    <div>
+                      Not: {data.kpi.generic_count} jenerik/turist kartı
+                      (&quot;YABANCI&quot; vb. — gerçek kişi değil) listeden hariç
+                      tutuldu — dönem net&apos;i: {fmt(data.kpi.generic_net)}.
+                    </div>
+                  ) : null}
+                  {data.kpi.anonymous_net > 0 ? (
+                    <div>
+                      İsimsiz (müşteri kaydı olmayan) satışlar bu listede yok —
+                      dönem isimsiz net: {fmt(data.kpi.anonymous_net)}.
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </CardContent>
