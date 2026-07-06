@@ -88,6 +88,8 @@ type OutletData = {
   summary: {
     net_total: number; tx_count: number; discount_total: number;
     returns_total: number; returns_count: number; leak_loss: number;
+    certain_tx: number; certain_net: number;
+    probable_tx: number; probable_net: number;
   };
   stores: string[];
   months: Array<{
@@ -99,11 +101,12 @@ type OutletData = {
   leaks: Array<{
     date: string; store: string; ref: string; code: string | null;
     desc: string | null; price: number; sold: number; disc_pct: number;
-    campaign: string | null; salesperson: string | null;
+    campaign: string | null; salesperson: string | null; stock_match: boolean;
   }>;
   girne: Array<{
     date: string; ref: string; code: string | null; desc: string | null;
     price: number; sold: number; disc_pct: number; overlap: boolean;
+    stock_match: boolean;
   }>;
 };
 
@@ -143,6 +146,16 @@ function OutletGelir({ data }: { data: OutletData }) {
                 ? ` · ${s.returns_count} iade (${fmt(s.returns_total)})`
                 : ""}
             </div>
+            {s.certain_tx > 0 ? (
+              <div className="text-[11px] mt-0.5">
+                <span className="text-emerald-700 font-medium">
+                  ✓ {s.certain_tx} sayım-doğrulamalı ({fmt(s.certain_net)})
+                </span>
+                <span className="text-muted-foreground">
+                  {" "}· {s.probable_tx} muhtemel ({fmt(s.probable_net)})
+                </span>
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -265,7 +278,12 @@ function OutletBulgular({ data }: { data: OutletData }) {
                       <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{r.ref}</td>
                       <td className="px-3 py-2">
                         <div className="font-medium truncate max-w-56">{r.desc ?? "—"}</div>
-                        <div className="text-[10px] text-muted-foreground">{r.code ?? ""}</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {r.code ?? ""}
+                          {r.stock_match ? (
+                            <span className="ml-1.5 text-emerald-700 font-semibold">✓ sayımda</span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmt(r.price)}</td>
                       <td className="px-3 py-2 text-right tabular-nums font-semibold text-rose-600">
@@ -333,7 +351,11 @@ function OutletBulgular({ data }: { data: OutletData }) {
                         {r.disc_pct > 0.5 ? `%${r.disc_pct.toFixed(1)}` : "—"}
                       </td>
                       <td className="px-3 py-2">
-                        {r.overlap ? (
+                        {r.stock_match ? (
+                          <span className="inline-flex items-center rounded-full bg-rose-100 text-rose-800 px-2 py-0.5 text-[10px] font-semibold">
+                            ✓ Sayımda — kesin outlet
+                          </span>
+                        ) : r.overlap ? (
                           <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[10px] font-medium">
                             L/M outlet kodu
                           </span>

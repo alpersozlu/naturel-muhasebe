@@ -1090,12 +1090,16 @@ export const nebimSalesRouter = router({
     }),
 
   /**
-   * OUTLET analizi — outlet reyonu (Lefkoşa/Mağusa; ayakkabı/terlik/sandalet,
-   * sabit fiyatlar OUTLET_PRICES). Ay × mağaza gelir matrisi + kural-dışı
-   * satışlar: (a) kampanya sızması (indirimli + yönetim izi yok — outlet
-   * sabit fiyatlıdır, personel iskonto yapamaz), (b) Girne satışı (reyon yok).
-   * Yönetim dokunuşlu (mgmt_note/discount_reason) indirimler NORMALDİR
-   * (hediye çeki sepete orantısız dağılır) — ihlal sayılmaz.
+   * OUTLET analizi — HİBRİT tespit (barkod backfill'i sonrası):
+   * - KESİN: satırın barkodu OutletStockItem sayımında ∧ outlet fiyatında
+   *   satılmış (kategori şartı yok — sayım LOAFER/BABET gibi tanım-dışıları
+   *   da kanıtlar). Sayım "rafta kalanlar"ı gösterir; outlet fiyat şartı,
+   *   ürünün outlet'e alınmadan ÖNCEKİ normal/kampanyalı satışlarını eler.
+   * - MUHTEMEL: eski fiyat+kategori kuralı (ayakkabı/terlik/sandalet, sabit
+   *   fiyat) ∧ sayımda yok — satılıp tükenen model olabilir.
+   * Kural-dışı satışlar aynen: (a) kampanya sızması (indirimli + yönetim izi
+   * yok), (b) Girne satışı (reyon yok; sayım eşleşmesi = kesin kanıt).
+   * Yönetim dokunuşlu indirimler NORMALDİR — ihlal sayılmaz.
    */
   outlet: adminProcedure
     .input(nebimAnalizSchema)
@@ -1104,16 +1108,18 @@ export const nebimSalesRouter = router({
       type LeakRow = {
         date: string; store: string; ref: string; code: string | null;
         desc: string | null; price: number; sold: number; disc_pct: number;
-        campaign: string | null; salesperson: string | null;
+        campaign: string | null; salesperson: string | null; stock_match: boolean;
       };
       type GirneRow = {
         date: string; ref: string; code: string | null; desc: string | null;
         price: number; sold: number; disc_pct: number; overlap: boolean;
+        stock_match: boolean;
       };
       const empty = {
         summary: {
           net_total: 0, tx_count: 0, discount_total: 0,
           returns_total: 0, returns_count: 0, leak_loss: 0,
+          certain_tx: 0, certain_net: 0, probable_tx: 0, probable_net: 0,
         },
         stores: [] as string[],
         months: [] as Array<{
@@ -1131,7 +1137,8 @@ export const nebimSalesRouter = router({
       });
       if (!base) return empty;
 
-      // Outlet ürün tanımı: ayakkabı/terlik/sandalet (kullanıcı tanımı; bot/çizme hariç)
+      // Outlet ürün tanımı: ayakkabı/terlik/sandalet (kategori kuralı) VEYA
+      // barkodu fiziksel sayımda olan ürün (kesin kimlik — loafer/babet dahil).
       const FOOT_OR: Prisma.NebimSaleLineWhereInput[] = [
         { item_desc: { contains: "AYAKKABI", mode: "insensitive" } },
         { item_desc: { contains: "TERLİK", mode: "insensitive" } },
@@ -1139,14 +1146,33 @@ export const nebimSalesRouter = router({
         { item_desc: { contains: "SANDALET", mode: "insensitive" } },
       ];
 
+      const stockItems = await ctx.prisma.outletStockItem.findMany({
+        select: { barcode: true },
+      });
+      const stockBarcodes = Array.from(new Set(stockItems.map((s) => s.barcode)));
+      const stockSet = new Set(stockBarcodes);
+
       const [rows, storeRows] = await Promise.all([
         ctx.prisma.nebimSaleLine.findMany({
-          where: { AND: [base, { price: { in: OUTLET_PRICES } }, { OR: FOOT_OR }] },
+          where: {
+            AND: [
+              base,
+              { price: { in: OUTLET_PRICES } },
+              {
+                OR: [
+                  ...FOOT_OR,
+                  ...(stockBarcodes.length > 0
+                    ? [{ barcode: { in: stockBarcodes } }]
+                    : []),
+                ],
+              },
+            ],
+          },
           select: {
             store_id: true, invoice_date: true, invoice_ref: true, item_code: true,
             item_desc: true, qty: true, price: true, amount_vi: true, net_amount: true,
             is_return: true, mgmt_note: true, discount_reason: true, campaign: true,
-            salesperson_name: true,
+            salesperson_name: true, barcode: true,
           },
           orderBy: [{ invoice_date: "asc" }, { invoice_ref: "asc" }],
         }),
@@ -1170,6 +1196,7 @@ export const nebimSalesRouter = router({
       const seenStores = new Set<string>();
       let netTotal = 0, txCount = 0, discountTotal = 0;
       let returnsTotal = 0, returnsCount = 0, leakLoss = 0;
+      let certainTx = 0, certainNet = 0, probableTx = 0, probableNet = 0;
       const leaks: LeakRow[] = [];
       const girne: GirneRow[] = [];
 
@@ -1179,11 +1206,14 @@ export const nebimSalesRouter = router({
         const avi = Number(r.amount_vi ?? 0);
         const qty = Math.abs(Number(r.qty ?? 1)) || 1;
         const price = Number(r.price ?? 0);
+        const stockMatch = r.barcode != null && stockSet.has(r.barcode);
         if (r.is_return) {
           returnsTotal += net; // iade net'i zaten negatif
           returnsCount += 1;
           continue;
         }
+        if (stockMatch) { certainTx += 1; certainNet += net; }
+        else { probableTx += 1; probableNet += net; }
         const month = r.invoice_date.toISOString().slice(0, 7);
         let mRow = matrix.get(month);
         if (!mRow) { mRow = new Map(); matrix.set(month, mRow); }
@@ -1207,6 +1237,7 @@ export const nebimSalesRouter = router({
           price,
           sold: Math.abs(net) / qty,
           disc_pct: avi > 0 ? (disc / avi) * 100 : 0,
+          stock_match: stockMatch,
         };
         if (isGirneStore(r.store_id)) {
           girne.push({ ...common, overlap: r.item_code != null && lmCodes.has(r.item_code) });
@@ -1255,6 +1286,8 @@ export const nebimSalesRouter = router({
         summary: {
           net_total: netTotal, tx_count: txCount, discount_total: discountTotal,
           returns_total: returnsTotal, returns_count: returnsCount, leak_loss: leakLoss,
+          certain_tx: certainTx, certain_net: certainNet,
+          probable_tx: probableTx, probable_net: probableNet,
         },
         stores,
         months,
