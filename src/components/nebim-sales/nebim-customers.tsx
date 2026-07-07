@@ -49,40 +49,10 @@ const TIER_STYLE: Record<string, { label: string; cls: string }> = {
   bronze: { label: "Bronz", cls: "bg-orange-100 text-orange-700 border-orange-200" },
 };
 
-// ── Dönem kısayolları — sayfanın tarih filtresini SET eder (tüm sekmelerle senkron) ──
-type PeriodKey = "thisMonth" | "lastMonth" | "thisYear" | "all";
-
-function periodRange(key: PeriodKey): { from: string; to: string } {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  const iso = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  switch (key) {
-    case "thisMonth":
-      return { from: iso(new Date(y, m, 1)), to: iso(now) };
-    case "lastMonth":
-      return { from: iso(new Date(y, m - 1, 1)), to: iso(new Date(y, m, 0)) };
-    case "thisYear":
-      return { from: `${y}-01-01`, to: iso(now) };
-    case "all":
-      return { from: "", to: "" };
-  }
-}
-
-const PERIODS: { key: PeriodKey; label: string }[] = [
-  { key: "thisMonth", label: "Bu Ay" },
-  { key: "lastMonth", label: "Geçen Ay" },
-  { key: "thisYear", label: "Bu Yıl" },
-  { key: "all", label: "Tüm Zaman" },
-];
-
 export function NebimCustomers({
   filters,
-  onChange,
 }: {
   filters: NebimSalesSelection;
-  onChange: (s: NebimSalesSelection) => void;
 }) {
   const input = {
     store_id: filters.storeId || undefined,
@@ -93,34 +63,10 @@ export function NebimCustomers({
   const exportMutation = trpc.nebimSales.exportCustomers.useMutation();
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const activePeriod = PERIODS.find(({ key }) => {
-    const r = periodRange(key);
-    return r.from === filters.dateFrom && r.to === filters.dateTo;
-  })?.key;
-
   return (
     <div className="space-y-5">
-      {/* Dönem kısayolları + Excel */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="inline-flex rounded-xl border border-border bg-muted/40 p-1">
-          {PERIODS.map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => {
-                const r = periodRange(key);
-                onChange({ ...filters, dateFrom: r.from, dateTo: r.to });
-              }}
-              className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                activePeriod === key
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      {/* Dönem/mağaza seçimi üstteki Filtreler'den yapılır — burada sadece Excel */}
+      <div className="flex items-center justify-end">
         <ExportExcelButton onExport={() => exportMutation.mutateAsync(input)} />
       </div>
 

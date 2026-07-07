@@ -95,7 +95,7 @@ export default function NebimSalesPage() {
       ) : tab === "analiz" ? (
         <NebimAnaliz filters={sel} />
       ) : tab === "customers" ? (
-        <NebimCustomers filters={sel} onChange={setSel} />
+        <NebimCustomers filters={sel} />
       ) : (
         <NebimSuspicious filters={sel} />
       )}
