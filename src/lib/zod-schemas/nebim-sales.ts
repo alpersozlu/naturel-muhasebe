@@ -53,3 +53,11 @@ export const nebimCustomerDetailSchema = z.object({
   customer_code: z.string().nullable(),
   customer_name: z.string().min(1),
 });
+
+/** Mağaza Karnesi aylık hedef girişi. target_try=0 hedefi kaldırır. */
+export const nebimStoreTargetSchema = z.object({
+  store_id: z.string().uuid(),
+  year: z.number().int().min(2020).max(2100),
+  month: z.number().int().min(1).max(12),
+  target_try: z.number().min(0),
+});

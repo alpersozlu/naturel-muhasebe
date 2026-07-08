@@ -3,6 +3,7 @@
 import { Loader2, Percent, Users, Tag, ShieldAlert, CheckCircle2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
+import { NebimScorecard } from "./nebim-scorecard";
 import type { NebimSalesSelection } from "./nebim-filters";
 
 const TRY = new Intl.NumberFormat("tr-TR", {
@@ -48,6 +49,9 @@ export function NebimAnaliz({ filters }: { filters: NebimSalesSelection }) {
 
   return (
     <div className="space-y-6">
+      {/* Mağaza Karnesi — sunum kalitesinde mağaza kartları (hedef + tahmin) */}
+      <NebimScorecard filters={filters} />
+
       {/* KPI */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Kpi label="Net Toplam" value={fmt(data.kpi.net_total)} sub="iadeler dahil" />

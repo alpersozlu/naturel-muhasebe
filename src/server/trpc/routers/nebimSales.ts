@@ -5,6 +5,7 @@ import {
   nebimAnalizSchema,
   nebimCustomerProductsSchema,
   nebimCustomerDetailSchema,
+  nebimStoreTargetSchema,
 } from "@/lib/zod-schemas/nebim-sales";
 import { getAccessibleStoreIds, isAdmin } from "@/lib/auth/permissions";
 import {
@@ -1401,6 +1402,185 @@ export const nebimSalesRouter = router({
         date_from: input.date_from,
         date_to: input.date_to,
       });
+    }),
+
+  /**
+   * MAĞAZA KARNESİ — sunum kalitesinde mağaza başına dönem özeti.
+   * Mağaza filtresinden BAĞIMSIZ (karnede her zaman tüm Derimod mağazaları
+   * yan yana), tarih filtresine uyar. Dönem TAM AY ise aylık hedef +
+   * gerçekleşme % + ay-sonu tahmini (lineer projeksiyon) + tahmini HGO döner.
+   */
+  storeScorecard: adminProcedure
+    .input(nebimAnalizSchema)
+    .query(async ({ ctx, input }) => {
+      const base = await buildWhere(ctx, {
+        date_from: input.date_from,
+        date_to: input.date_to,
+      });
+      const empty = {
+        period: {
+          is_full_month: false, year: 0, month: 0, label: "",
+          days_in_month: 0, elapsed_days: 0, month_done: false,
+        },
+        cards: [] as Array<{
+          store_id: string; store: string; code: string | null;
+          net: number; gross_units: number; return_units: number;
+          net_units: number; invoices: number; upt: number; avg_basket: number;
+          target: number | null; realized_pct: number | null;
+          forecast: number | null; forecast_pct: number | null;
+        }>,
+      };
+      if (!base) return empty;
+
+      // Tam ay mı? (Ay modunda hedef takibi açılır.)
+      const from = input.date_from ?? "";
+      const to = input.date_to ?? "";
+      let isFullMonth = false, year = 0, month = 0, daysInMonth = 0;
+      if (from.endsWith("-01") && to.startsWith(from.slice(0, 8))) {
+        const [y, m] = from.split("-").map(Number);
+        const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+        if (to === `${from.slice(0, 7)}-${String(last).padStart(2, "0")}`) {
+          isFullMonth = true; year = y; month = m; daysInMonth = last;
+        }
+      }
+      const now = new Date();
+      const nowY = now.getUTCFullYear();
+      const nowM = now.getUTCMonth() + 1;
+      const monthDone =
+        isFullMonth && (year < nowY || (year === nowY && month < nowM));
+      const isCurrentMonth = isFullMonth && year === nowY && month === nowM;
+      const elapsedDays = monthDone
+        ? daysInMonth
+        : isCurrentMonth
+          ? Math.min(now.getUTCDate(), daysInMonth)
+          : 0;
+
+      const MONTH_TR = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+        "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+
+      const [lines, stores, targets] = await Promise.all([
+        ctx.prisma.nebimSaleLine.findMany({
+          where: base,
+          select: {
+            store_id: true, invoice_ref: true, qty: true, net_amount: true,
+            is_return: true, nebim_store_code: true,
+          },
+        }),
+        ctx.prisma.store.findMany({
+          where: {
+            deleted_at: null,
+            brand: { name: { contains: "derimod", mode: "insensitive" } },
+          },
+          select: { id: true, name: true },
+        }),
+        isFullMonth
+          ? ctx.prisma.nebimStoreTarget.findMany({ where: { year, month } })
+          : Promise.resolve([]),
+      ]);
+
+      type Agg = {
+        net: number; gross: number; ret: number;
+        refs: Set<string>; code: string | null;
+      };
+      const byStore = new Map<string, Agg>();
+      for (const l of lines) {
+        if (!l.store_id) continue;
+        let a = byStore.get(l.store_id);
+        if (!a) {
+          a = { net: 0, gross: 0, ret: 0, refs: new Set(), code: null };
+          byStore.set(l.store_id, a);
+        }
+        a.net += Number(l.net_amount ?? 0);
+        const q = Math.abs(Number(l.qty ?? 0));
+        if (l.is_return) a.ret += q;
+        else { a.gross += q; a.refs.add(l.invoice_ref); }
+        if (!a.code && l.nebim_store_code) a.code = l.nebim_store_code;
+      }
+      const targetOf = new Map(
+        targets.map((t) => [t.store_id, Number(t.target_try)])
+      );
+
+      const norm = (s: string) => s.toLocaleLowerCase("tr").replace(/ı/g, "i");
+      const orderKey = (s: string) => {
+        const n = norm(s);
+        if (n.includes("lefkosa")) return 0;
+        if (n.includes("girne")) return 1;
+        if (n.includes("magusa")) return 2;
+        return 3;
+      };
+
+      const cards = stores
+        .sort((a, b) => orderKey(a.name) - orderKey(b.name))
+        .map((s) => {
+          const a = byStore.get(s.id);
+          const net = a?.net ?? 0;
+          const invoices = a?.refs.size ?? 0;
+          const gross = a?.gross ?? 0;
+          const ret = a?.ret ?? 0;
+          const target = targetOf.get(s.id) ?? null;
+          // Ay-sonu tahmini: biten ayda gerçekleşen; süren ayda lineer projeksiyon.
+          const forecast = monthDone
+            ? net
+            : isCurrentMonth && elapsedDays > 0
+              ? (net / elapsedDays) * daysInMonth
+              : null;
+          return {
+            store_id: s.id,
+            store: s.name.replace(/^DERIMOD\s*/i, ""),
+            code: a?.code ?? null,
+            net,
+            gross_units: gross,
+            return_units: ret,
+            net_units: gross - ret,
+            invoices,
+            upt: invoices ? gross / invoices : 0,
+            avg_basket: invoices ? net / invoices : 0,
+            target,
+            realized_pct: target && target > 0 ? (net / target) * 100 : null,
+            forecast,
+            forecast_pct:
+              target && target > 0 && forecast != null
+                ? (forecast / target) * 100
+                : null,
+          };
+        });
+
+      return {
+        period: {
+          is_full_month: isFullMonth,
+          year, month,
+          label: isFullMonth ? `${MONTH_TR[month - 1]} ${year}` : "",
+          days_in_month: daysInMonth,
+          elapsed_days: elapsedDays,
+          month_done: monthDone,
+        },
+        cards,
+      };
+    }),
+
+  /** Mağaza Karnesi aylık hedefi kaydet (0 = hedefi kaldır). */
+  setStoreTarget: adminProcedure
+    .input(nebimStoreTargetSchema)
+    .mutation(async ({ ctx, input }) => {
+      if (input.target_try <= 0) {
+        await ctx.prisma.nebimStoreTarget.deleteMany({
+          where: { store_id: input.store_id, year: input.year, month: input.month },
+        });
+        return { ok: true };
+      }
+      await ctx.prisma.nebimStoreTarget.upsert({
+        where: {
+          store_id_year_month: {
+            store_id: input.store_id, year: input.year, month: input.month,
+          },
+        },
+        update: { target_try: input.target_try },
+        create: {
+          store_id: input.store_id, year: input.year, month: input.month,
+          target_try: input.target_try,
+        },
+      });
+      return { ok: true };
     }),
 
   /** Bir müşterinin aldığı ürünler (drill-down) — filtre + customer_name. */

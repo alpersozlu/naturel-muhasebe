@@ -152,9 +152,25 @@ model Store {
   merge_groups    DayMergeGroup[]
   nebim_sale_lines NebimSaleLine[]
   outlet_stock_items OutletStockItem[]
+  nebim_targets   NebimStoreTarget[]
 
   @@index([brand_id])
   @@index([deleted_at])
+}
+
+// Mağaza Karnesi aylık ciro hedefi (Derimod/NEBIM). Admin Analiz sekmesinden
+// girer; karne gerçekleşme % + ay-sonu tahmini + tahmini HGO'yu bundan hesaplar.
+model NebimStoreTarget {
+  id         String   @id @default(uuid())
+  store_id   String
+  store      Store    @relation(fields: [store_id], references: [id])
+  year       Int
+  month      Int // 1-12
+  target_try Decimal  @db.Decimal(14, 2)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([store_id, year, month])
 }
 
 // Outlet reyonu fiziksel stok sayımı (barkod bazlı). Kullanıcı reyonu el
