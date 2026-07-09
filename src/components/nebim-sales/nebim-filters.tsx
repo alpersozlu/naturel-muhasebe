@@ -88,12 +88,14 @@ function monthOptions(): string[] {
   return out;
 }
 
-type DateMode = "month" | "range" | "single";
+/**
+ * İki görünüm: "month" (birincil — ay gezgini) ve "custom" (Özel aralık).
+ * Tek gün ayrı mod değil: özel aralıkta Bugün/Dün çipleri from=to set eder.
+ */
+type DateMode = "month" | "custom";
 
 function deriveMode(from: string, to: string): DateMode {
-  if (isFullMonth(from, to)) return "month";
-  if (from && from === to) return "single";
-  return "range";
+  return isFullMonth(from, to) ? "month" : "custom";
 }
 
 export function NebimFilters({
@@ -136,16 +138,13 @@ export function NebimFilters({
   const switchMode = (m: DateMode) => {
     setMode(m);
     if (m === "month") {
-      // Mevcut başlangıcın ayına (yoksa bu aya) tam-ay olarak oturt.
+      // "Aya dön": mevcut başlangıcın ayına (yoksa bu aya) tam-ay olarak oturt.
       const ym = (value.dateFrom || todayIso()).slice(0, 7);
       const target = months.includes(ym) ? ym : months[0]!;
       const b = monthBounds(target);
       setDates(b.from, b.to);
-    } else if (m === "single") {
-      const d = value.dateFrom || todayIso();
-      setDates(d, d);
     }
-    // "range": mevcut değerler korunur, kullanıcı düzenler.
+    // "custom": mevcut değerler korunur, kullanıcı düzenler.
   };
 
   const currentMonth = isFullMonth(value.dateFrom, value.dateTo)
@@ -226,7 +225,7 @@ export function NebimFilters({
             size="sm"
             className="h-7 text-xs text-muted-foreground ml-auto"
             onClick={() => {
-              setMode("range");
+              setMode("custom");
               onChange({
                 storeId: "",
                 dateFrom: "",
@@ -282,43 +281,19 @@ export function NebimFilters({
           </div>
         </div>
 
-        {/* Dönem — Ay / Aralık / Tek Gün */}
+        {/* Dönem — birincil: ay gezgini; ikincil: Özel aralık (oradan "Aya dön") */}
         <div className="space-y-1.5 min-w-[300px]">
-          <div className="flex items-center gap-2">
-            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Dönem
-            </Label>
-            <div className="inline-flex rounded-lg border border-border bg-muted/40 p-0.5">
-              {(
-                [
-                  ["month", "Ay"],
-                  ["range", "Aralık"],
-                  ["single", "Tek Gün"],
-                ] as const
-              ).map(([m, label]) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => switchMode(m)}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                    mode === m
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
+          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Dönem
+          </Label>
 
           {mode === "month" ? (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               {/* ◀ eski ay */}
               <Button
                 variant="outline"
                 size="sm"
-                className="h-9 w-9 p-0"
+                className="h-10 w-10 p-0"
                 disabled={monthIdx < 0 ? false : monthIdx >= months.length - 1}
                 onClick={() => {
                   const i = monthIdx < 0 ? 0 : monthIdx + 1;
@@ -331,7 +306,7 @@ export function NebimFilters({
                 value={currentMonth ?? ""}
                 onValueChange={(v) => gotoMonth(v)}
               >
-                <SelectTrigger className="h-9 w-44 font-medium">
+                <SelectTrigger className="h-10 w-48 font-semibold text-base">
                   <SelectValue placeholder="Ay seç…" />
                 </SelectTrigger>
                 <SelectContent>
@@ -346,7 +321,7 @@ export function NebimFilters({
               <Button
                 variant="outline"
                 size="sm"
-                className="h-9 w-9 p-0"
+                className="h-10 w-10 p-0"
                 disabled={monthIdx <= 0}
                 onClick={() => {
                   if (monthIdx > 0) gotoMonth(months[monthIdx - 1]!);
@@ -354,39 +329,47 @@ export function NebimFilters({
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
-            </div>
-          ) : mode === "single" ? (
-            <div className="flex items-center gap-2 flex-wrap">
-              <Input
-                type="date"
-                className="h-9 w-40"
-                value={value.dateFrom}
-                onChange={(e) => setDates(e.target.value, e.target.value)}
-              />
-              {chip("Bugün", () => setDates(todayIso(), todayIso()), value.dateFrom === todayIso())}
-              {chip("Dün", () => {
-                const y = shiftDays(todayIso(), -1);
-                setDates(y, y);
-              }, value.dateFrom === shiftDays(todayIso(), -1))}
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-10 ml-1 text-muted-foreground"
+                onClick={() => switchMode("custom")}
+              >
+                Özel aralık
+              </Button>
             </div>
           ) : (
             <div className="space-y-2">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Input
                   type="date"
-                  className="h-9 w-40"
+                  className="h-10 w-40"
                   value={value.dateFrom}
                   onChange={(e) => onChange({ ...value, dateFrom: e.target.value })}
                 />
                 <span className="text-muted-foreground text-sm">–</span>
                 <Input
                   type="date"
-                  className="h-9 w-40"
+                  className="h-10 w-40"
                   value={value.dateTo}
                   onChange={(e) => onChange({ ...value, dateTo: e.target.value })}
                 />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-10"
+                  onClick={() => switchMode("month")}
+                >
+                  <CalendarDays className="h-4 w-4 mr-1.5" />
+                  Aya dön
+                </Button>
               </div>
               <div className="flex flex-wrap gap-1.5">
+                {chip("Bugün", () => setDates(todayIso(), todayIso()), !!value.dateFrom && value.dateFrom === todayIso() && value.dateFrom === value.dateTo)}
+                {chip("Dün", () => {
+                  const y = shiftDays(todayIso(), -1);
+                  setDates(y, y);
+                }, !!value.dateFrom && value.dateFrom === shiftDays(todayIso(), -1) && value.dateFrom === value.dateTo)}
                 {chip("Son 7 Gün", () => setDates(shiftDays(todayIso(), -6), todayIso()))}
                 {chip("Son 30 Gün", () => setDates(shiftDays(todayIso(), -29), todayIso()))}
                 {chip("Bu Yıl", () => setDates(`${new Date().getFullYear()}-01-01`, todayIso()))}

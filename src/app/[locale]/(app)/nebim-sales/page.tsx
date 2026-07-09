@@ -19,12 +19,13 @@ function defaultSelection(): NebimSalesSelection {
   const now = new Date();
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  // Varsayılan: içinde bulunulan ayın başından bugüne.
+  const last = new Date(y, now.getMonth() + 1, 0).getDate();
+  // Varsayılan: içinde bulunulan ayın TAMAMI — filtre "Ay" modunda açılır,
+  // Mağaza Karnesi hedef/tahmin bloğu ilk görünümde aktif olur.
   return {
     storeId: "",
     dateFrom: `${y}-${m}-01`,
-    dateTo: `${y}-${m}-${d}`,
+    dateTo: `${y}-${m}-${String(last).padStart(2, "0")}`,
     onlyReturns: false,
     discountBand: "",
   };
