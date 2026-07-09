@@ -89,11 +89,16 @@ export default function NebimSalesPage() {
         ) : null}
       </div>
 
-      {/* Analiz'de mağaza seçimi Karne kartlarından — pill'ler gizli */}
-      <NebimFilters value={sel} onChange={setSel} hideStore={tab === "analiz"} />
+      {/* Analiz'de Karne kartları, Liste'de mağaza kartları filtre görevi
+          görür — pill'ler o sekmelerde gizli */}
+      <NebimFilters
+        value={sel}
+        onChange={setSel}
+        hideStore={tab === "analiz" || tab === "list"}
+      />
 
       {tab === "list" ? (
-        <NebimList filters={sel} />
+        <NebimList filters={sel} onChange={setSel} />
       ) : tab === "analiz" ? (
         <NebimAnaliz filters={sel} onChange={setSel} />
       ) : tab === "customers" ? (

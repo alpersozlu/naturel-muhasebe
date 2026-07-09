@@ -457,6 +457,14 @@ export const nebimSalesRouter = router({
         ...(input.only_returns ? { is_return: true } : {}),
         ...discountBandWhere(input.discount_band),
       };
+      // Mağaza kartları için: seçili mağazadan BAĞIMSIZ (erişim kapsamı korunur)
+      // — kartlar filtre görevi görür, seçim yapılınca diğerleri kaybolmasın.
+      const whereAllStores: Prisma.NebimSaleLineWhereInput = {
+        ...(allowedStoreIds ? { store_id: { in: allowedStoreIds } } : {}),
+        ...(Object.keys(dateFilter).length > 0 ? { invoice_date: dateFilter } : {}),
+        ...(input.only_returns ? { is_return: true } : {}),
+        ...discountBandWhere(input.discount_band),
+      };
 
       const rows = await ctx.prisma.nebimSaleLine.findMany({
         where,
@@ -505,7 +513,7 @@ export const nebimSalesRouter = router({
         }),
         ctx.prisma.nebimSaleLine.groupBy({
           by: ["store_id"],
-          where,
+          where: whereAllStores,
           _count: { _all: true },
           _sum: { net_amount: true },
         }),

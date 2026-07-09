@@ -74,7 +74,29 @@ function discountClass(pct: number): string {
   return "bg-amber-50 text-amber-700 border-amber-200";
 }
 
-export function NebimList({ filters }: { filters: NebimSalesSelection }) {
+// Mağaza kimlik renkleri — sistem geneliyle (Karne/Outlet) aynı.
+function storeDot(name: string): string {
+  const n = name.toLocaleLowerCase("tr").replace(/ı/g, "i");
+  if (n.includes("lefkosa")) return "bg-blue-500";
+  if (n.includes("girne")) return "bg-emerald-500";
+  if (n.includes("magusa")) return "bg-amber-500";
+  return "bg-slate-400";
+}
+function storeOrder(name: string): number {
+  const n = name.toLocaleLowerCase("tr").replace(/ı/g, "i");
+  if (n.includes("lefkosa")) return 0;
+  if (n.includes("girne")) return 1;
+  if (n.includes("magusa")) return 2;
+  return 3;
+}
+
+export function NebimList({
+  filters,
+  onChange,
+}: {
+  filters: NebimSalesSelection;
+  onChange: (v: NebimSalesSelection) => void;
+}) {
   const [sort, setSort] = useState<{ by: SortBy; dir: "asc" | "desc" }>({
     by: "date",
     dir: "desc",
@@ -183,21 +205,79 @@ export function NebimList({ filters }: { filters: NebimSalesSelection }) {
         </div>
       ) : null}
 
+      {/* Mağaza kartları = filtre: tıkla → o mağaza, "Tümü" → seçim kalkar.
+          Değerler seçili mağazadan bağımsız (whereAllStores) — geçiş hep mümkün. */}
       {summary && summary.by_store.length > 0 ? (
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
-          {summary.by_store.map((s) => (
-            <Card key={s.store_id ?? "none"}>
-              <CardContent className="p-3.5 flex items-center justify-between">
-                <span className="text-sm font-medium truncate">
-                  {s.store_name ?? "(eşleşmeyen mağaza)"}
-                </span>
-                <div className="text-right shrink-0 ml-2">
-                  <div className="text-sm font-semibold tabular-nums">₺{fmt(s.net)}</div>
-                  <div className="text-[11px] text-muted-foreground">{s.lines} satır</div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+          <Card
+            role="button"
+            tabIndex={0}
+            onClick={() => onChange({ ...filters, storeId: "" })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onChange({ ...filters, storeId: "" });
+              }
+            }}
+            className={`cursor-pointer transition-all outline-none hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary/40 ${
+              !filters.storeId ? "ring-2 ring-primary border-primary/60 shadow-md" : ""
+            }`}
+          >
+            <CardContent className="p-3.5 flex items-center justify-between">
+              <span className="text-sm font-semibold truncate">Tüm Mağazalar</span>
+              <div className="text-right shrink-0 ml-2">
+                <div className="text-sm font-semibold tabular-nums">
+                  ₺{fmt(summary.by_store.reduce((t, s) => t + s.net, 0))}
                 </div>
-              </CardContent>
-            </Card>
-          ))}
+                <div className="text-[11px] text-muted-foreground">
+                  {summary.by_store.reduce((t, s) => t + s.lines, 0)} satır
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          {[...summary.by_store]
+            .sort((a, b) => storeOrder(a.store_name ?? "") - storeOrder(b.store_name ?? ""))
+            .map((s) => {
+              const selected = !!s.store_id && filters.storeId === s.store_id;
+              const short = (s.store_name ?? "(eşleşmeyen mağaza)").replace(/^DERIMOD\s*/i, "");
+              return (
+                <Card
+                  key={s.store_id ?? "none"}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() =>
+                    s.store_id
+                      ? onChange({ ...filters, storeId: selected ? "" : s.store_id })
+                      : undefined
+                  }
+                  onKeyDown={(e) => {
+                    if ((e.key === "Enter" || e.key === " ") && s.store_id) {
+                      e.preventDefault();
+                      onChange({ ...filters, storeId: selected ? "" : s.store_id });
+                    }
+                  }}
+                  className={`cursor-pointer transition-all outline-none hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                    selected ? "ring-2 ring-primary border-primary/60 shadow-md" : ""
+                  }`}
+                >
+                  <CardContent className="p-3.5 flex items-center justify-between">
+                    <span className="inline-flex items-center gap-2 text-sm font-medium truncate">
+                      <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${storeDot(s.store_name ?? "")}`} />
+                      {short}
+                      {selected ? (
+                        <span className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[10px] font-semibold">
+                          Seçili
+                        </span>
+                      ) : null}
+                    </span>
+                    <div className="text-right shrink-0 ml-2">
+                      <div className="text-sm font-semibold tabular-nums">₺{fmt(s.net)}</div>
+                      <div className="text-[11px] text-muted-foreground">{s.lines} satır</div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
         </div>
       ) : null}
 
