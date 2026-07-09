@@ -49,7 +49,13 @@ function hgoTone(pct: number): {
   return { cls: "bg-rose-50 text-rose-700 border-rose-200", bar: "bg-rose-500", icon: AlertTriangle };
 }
 
-export function NebimScorecard({ filters }: { filters: NebimSalesSelection }) {
+export function NebimScorecard({
+  filters,
+  onChange,
+}: {
+  filters: NebimSalesSelection;
+  onChange: (v: NebimSalesSelection) => void;
+}) {
   const input = {
     date_from: filters.dateFrom || undefined,
     date_to: filters.dateTo || undefined,
@@ -107,6 +113,7 @@ export function NebimScorecard({ filters }: { filters: NebimSalesSelection }) {
                     : ""
                 }`
               : "Seçili dönem özeti — hedef takibi için Dönem'den “Ay” seç"}
+            {" · karta tıkla, tüm analiz o mağazaya süzülür"}
           </p>
         </div>
       </div>
@@ -118,18 +125,42 @@ export function NebimScorecard({ filters }: { filters: NebimSalesSelection }) {
           const fPct = c.forecast_pct;
           const tone = fPct != null ? hgoTone(fPct) : pct != null ? hgoTone(pct) : null;
           const ToneIcon = tone?.icon ?? TrendingUp;
+          const selected = filters.storeId === c.store_id;
           return (
-            <Card key={c.store_id} className="overflow-hidden">
+            <Card
+              key={c.store_id}
+              role="button"
+              tabIndex={0}
+              onClick={() =>
+                onChange({ ...filters, storeId: selected ? "" : c.store_id })
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onChange({ ...filters, storeId: selected ? "" : c.store_id });
+                }
+              }}
+              className={`overflow-hidden cursor-pointer transition-all outline-none hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                selected ? "ring-2 ring-primary border-primary/60 shadow-md" : ""
+              }`}
+            >
               <div className={`h-1.5 ${storeStripe(c.store)}`} />
               <CardContent className="p-5 space-y-4">
                 {/* Başlık */}
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-base">{c.store}</span>
-                  {c.code ? (
-                    <span className="rounded-full border border-border px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                      {c.code}
-                    </span>
-                  ) : null}
+                  <span className="flex items-center gap-1.5">
+                    {selected ? (
+                      <span className="rounded-full bg-primary/10 text-primary px-2.5 py-0.5 text-[11px] font-semibold">
+                        Seçili
+                      </span>
+                    ) : null}
+                    {c.code ? (
+                      <span className="rounded-full border border-border px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        {c.code}
+                      </span>
+                    ) : null}
+                  </span>
                 </div>
 
                 {/* Net gelir + birimler */}
@@ -161,9 +192,14 @@ export function NebimScorecard({ filters }: { filters: NebimSalesSelection }) {
                   {c.invoices} fiş · ort. sepet {fmt0(c.avg_basket)}
                 </div>
 
-                {/* Hedef bloğu — sadece tam ay dönemde */}
+                {/* Hedef bloğu — sadece tam ay dönemde. Tıklamalar kart
+                    seçimini tetiklemesin (düzenle/kaydet buradadır). */}
                 {p.is_full_month ? (
-                  <div className="rounded-xl border border-border/60 bg-muted/30 p-3 space-y-2">
+                  <div
+                    className="rounded-xl border border-border/60 bg-muted/30 p-3 space-y-2"
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  >
                     <div className="flex items-center justify-between">
                       <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
                         <Target className="h-3.5 w-3.5" />

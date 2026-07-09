@@ -99,9 +99,12 @@ function deriveMode(from: string, to: string): DateMode {
 export function NebimFilters({
   value,
   onChange,
+  hideStore = false,
 }: {
   value: NebimSalesSelection;
   onChange: (v: NebimSalesSelection) => void;
+  /** Analiz sekmesinde mağaza seçimi Karne kartlarından yapılır — pill'ler gizlenir. */
+  hideStore?: boolean;
 }) {
   // NEBIM verisi yalnız Derimod markasina ait — mağaza listesini ondan çek.
   const { data: brands } = trpc.brand.list.useQuery();
@@ -240,8 +243,8 @@ export function NebimFilters({
       </div>
 
       <div className="p-4 flex flex-wrap items-start gap-x-8 gap-y-4">
-        {/* Mağaza — tek tık pill'ler */}
-        <div className="space-y-1.5">
+        {/* Mağaza — tek tık pill'ler (Analiz'de Karne kartları bu işi görür) */}
+        <div className={hideStore ? "hidden" : "space-y-1.5"}>
           <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
             Mağaza
           </Label>

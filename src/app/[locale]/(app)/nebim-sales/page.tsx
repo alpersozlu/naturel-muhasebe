@@ -88,12 +88,13 @@ export default function NebimSalesPage() {
         ) : null}
       </div>
 
-      <NebimFilters value={sel} onChange={setSel} />
+      {/* Analiz'de mağaza seçimi Karne kartlarından — pill'ler gizli */}
+      <NebimFilters value={sel} onChange={setSel} hideStore={tab === "analiz"} />
 
       {tab === "list" ? (
         <NebimList filters={sel} />
       ) : tab === "analiz" ? (
-        <NebimAnaliz filters={sel} />
+        <NebimAnaliz filters={sel} onChange={setSel} />
       ) : tab === "customers" ? (
         <NebimCustomers filters={sel} />
       ) : (

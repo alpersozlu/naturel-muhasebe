@@ -25,7 +25,13 @@ function toInput(f: NebimSalesSelection) {
   };
 }
 
-export function NebimAnaliz({ filters }: { filters: NebimSalesSelection }) {
+export function NebimAnaliz({
+  filters,
+  onChange,
+}: {
+  filters: NebimSalesSelection;
+  onChange: (v: NebimSalesSelection) => void;
+}) {
   const input = toInput(filters);
   const { data, isLoading } = trpc.nebimSales.analiz.useQuery(input);
   const staff = trpc.nebimSales.staffKpi.useQuery(input);
@@ -49,8 +55,9 @@ export function NebimAnaliz({ filters }: { filters: NebimSalesSelection }) {
 
   return (
     <div className="space-y-6">
-      {/* Mağaza Karnesi — sunum kalitesinde mağaza kartları (hedef + tahmin) */}
-      <NebimScorecard filters={filters} />
+      {/* Mağaza Karnesi — sunum kalitesinde mağaza kartları (hedef + tahmin).
+          Karta tıklamak sayfa filtresindeki mağazayı seçer/kaldırır. */}
+      <NebimScorecard filters={filters} onChange={onChange} />
 
       {/* KPI */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
