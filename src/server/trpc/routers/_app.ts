@@ -16,6 +16,7 @@ import { manualInvoiceRouter } from "./manualInvoice";
 import { budgetRouter } from "./budget";
 import { mergeGroupRouter } from "./mergeGroup";
 import { nebimSalesRouter } from "./nebimSales";
+import { peopleCountRouter } from "./peopleCount";
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({
@@ -40,6 +41,7 @@ export const appRouter = router({
   budget: budgetRouter,
   mergeGroup: mergeGroupRouter,
   nebimSales: nebimSalesRouter,
+  peopleCount: peopleCountRouter,
 });
 
 export type AppRouter = typeof appRouter;

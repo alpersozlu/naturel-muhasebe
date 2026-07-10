@@ -929,3 +929,27 @@ model DefoluEntry {
   @@unique([period_year, period_month, store_code])
   @@index([period_year])
 }
+
+// ─────────────────────────────────────────────────────────────
+// KİŞİ SAYIMI — mağaza kamerasından push (saat × mağaza giren/çıkan)
+// ─────────────────────────────────────────────────────────────
+// KisiSayimKopru (Hikvision ISAPI) → POST /api/ingest/people-count
+// (Bearer INGEST_API_TOKEN, NEBIM/DEFOLU köprüleriyle aynı token).
+// Idempotent: (store_code, date, hour) tekrar gelirse sayılar güncellenir —
+// köprü her turda son günleri yeniden gönderir, gün içi saat dilimi büyüdükçe
+// üzerine yazılır. date kamera YEREL günüdür; TZ kaymasını önlemek için String.
+
+model PeopleCountHour {
+  id         String   @id @default(uuid())
+  store_code String // NEBIM mağaza kodu: S01 Lefkoşa / S02 Mağusa / S03 Girne
+  date       String // YYYY-MM-DD (kamera yerel günü)
+  hour       Int // 0-23
+  enter      Int // o saat diliminde giren kişi
+  exit       Int // o saat diliminde çıkan kişi
+  source     String   @default("hikvision-kopru")
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([store_code, date, hour])
+  @@index([date])
+}

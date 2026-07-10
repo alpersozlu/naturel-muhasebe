@@ -17,6 +17,7 @@ import {
   Building2,
   FileSpreadsheet,
   Ticket,
+  Footprints,
 } from "lucide-react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
@@ -38,6 +39,7 @@ const NAV_ADMIN = [
   { href: "/upload", icon: Upload, key: "upload" as const },
   { href: "/history", icon: History, key: "history" as const },
   { href: "/nebim-sales", icon: ShoppingCart, key: "nebimSales" as const },
+  { href: "/people-count", icon: Footprints, key: "peopleCount" as const },
   { href: "/contact", icon: Mail, key: "contact" as const },
 ] as const;
 
