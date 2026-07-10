@@ -1118,6 +1118,7 @@ export const nebimSalesRouter = router({
         date: string; store: string; ref: string; code: string | null;
         desc: string | null; price: number; sold: number; disc_pct: number;
         campaign: string | null; salesperson: string | null; stock_match: boolean;
+        payment_type: string | null; card_type: string | null;
       };
       type GirneRow = {
         date: string; ref: string; code: string | null; desc: string | null;
@@ -1181,7 +1182,7 @@ export const nebimSalesRouter = router({
             store_id: true, invoice_date: true, invoice_ref: true, item_code: true,
             item_desc: true, qty: true, price: true, amount_vi: true, net_amount: true,
             is_return: true, mgmt_note: true, discount_reason: true, campaign: true,
-            salesperson_name: true, barcode: true,
+            salesperson_name: true, barcode: true, payment_type: true, card_type: true,
           },
           orderBy: [{ invoice_date: "asc" }, { invoice_ref: "asc" }],
         }),
@@ -1256,6 +1257,8 @@ export const nebimSalesRouter = router({
             store: sName,
             campaign: r.campaign,
             salesperson: r.salesperson_name,
+            payment_type: r.payment_type,
+            card_type: r.card_type,
           });
           leakLoss += disc;
         }

@@ -1,6 +1,9 @@
 "use client";
 
-import { Loader2, Percent, Users, Tag, ShieldAlert, CheckCircle2 } from "lucide-react";
+import {
+  Loader2, Percent, Users, Tag, ShieldAlert, CheckCircle2,
+  CreditCard, Banknote,
+} from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { NebimScorecard } from "./nebim-scorecard";
@@ -113,6 +116,7 @@ type OutletData = {
     date: string; store: string; ref: string; code: string | null;
     desc: string | null; price: number; sold: number; disc_pct: number;
     campaign: string | null; salesperson: string | null; stock_match: boolean;
+    payment_type: string | null; card_type: string | null;
   }>;
   girne: Array<{
     date: string; ref: string; code: string | null; desc: string | null;
@@ -132,6 +136,35 @@ function storeDot(name: string): string {
   if (n.includes("girne")) return "bg-emerald-500";
   if (n.includes("magusa")) return "bg-amber-500";
   return "bg-slate-400";
+}
+
+/** Ödeme hücresi — Nakit yeşil, Kredi Kartı indigo (+ banka markası). */
+function PaymentCell({
+  paymentType,
+  cardType,
+}: {
+  paymentType: string | null;
+  cardType: string | null;
+}) {
+  if (!paymentType) return <span className="text-muted-foreground">—</span>;
+  const isCard = paymentType.includes("Kredi") || paymentType.includes("Kart");
+  const isCash = paymentType.includes("Nakit");
+  const mixed = isCard && isCash;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+          isCard ? "bg-indigo-50 text-indigo-700" : "bg-emerald-50 text-emerald-700"
+        }`}
+      >
+        {isCard ? <CreditCard className="h-3 w-3" /> : <Banknote className="h-3 w-3" />}
+        {mixed ? "Nakit+Kart" : isCard ? "Kredi Kartı" : "Nakit"}
+      </span>
+      {cardType ? (
+        <span className="text-[11px] text-foreground/80 truncate max-w-32">{cardType}</span>
+      ) : null}
+    </span>
+  );
 }
 
 function OutletGelir({ data }: { data: OutletData }) {
@@ -267,7 +300,7 @@ function OutletBulgular({ data }: { data: OutletData }) {
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] border-collapse text-sm">
+              <table className="w-full min-w-[1040px] border-collapse text-sm">
                 <thead>
                   <tr className="bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">
                     <th className="text-left font-medium px-3 py-2">Tarih</th>
@@ -277,6 +310,7 @@ function OutletBulgular({ data }: { data: OutletData }) {
                     <th className="text-right font-medium px-3 py-2">Etiket</th>
                     <th className="text-right font-medium px-3 py-2">Satılan</th>
                     <th className="text-right font-medium px-3 py-2">İnd%</th>
+                    <th className="text-left font-medium px-3 py-2">Ödeme</th>
                     <th className="text-left font-medium px-3 py-2">Kampanya</th>
                     <th className="text-left font-medium px-3 py-2">Satıcı</th>
                   </tr>
@@ -301,6 +335,9 @@ function OutletBulgular({ data }: { data: OutletData }) {
                         {fmt(r.sold)}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">%{r.disc_pct.toFixed(1)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <PaymentCell paymentType={r.payment_type} cardType={r.card_type} />
+                      </td>
                       <td className="px-3 py-2 text-muted-foreground truncate max-w-44">{r.campaign ?? "—"}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{r.salesperson ?? "—"}</td>
                     </tr>
