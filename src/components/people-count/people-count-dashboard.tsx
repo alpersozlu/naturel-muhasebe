@@ -25,8 +25,10 @@ import { ChartSkeleton } from "@/components/shared/skeleton";
 
 const TODAY_COLOR = "#0EA5E9"; // sky-500 (seçili gün)
 const COMPARE_COLOR = "#94A3B8"; // slate-400 (dün / referans)
+const SALES_COLOR = "#A855F7"; // purple-500 (satış/dönüşüm — z-analiz konvansiyonu)
 
 const NUM = new Intl.NumberFormat("tr-TR");
+const TRY0 = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 0 });
 const DATE_SHORT = new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "short" });
 const DATE_LONG = new Intl.DateTimeFormat("tr-TR", {
   day: "numeric",
@@ -76,6 +78,10 @@ export function PeopleCountDashboard() {
   );
   const dailyQ = trpc.peopleCount.daily.useQuery(
     { endDate: date, days: rangeDays + 6, store_code: storeCode || undefined },
+    { refetchInterval: 300_000 }
+  );
+  const conversionQ = trpc.peopleCount.conversion.useQuery(
+    { endDate: date, days: rangeDays, store_code: storeCode || undefined },
     { refetchInterval: 300_000 }
   );
 
@@ -168,6 +174,25 @@ export function PeopleCountDashboard() {
     }
     return out;
   }, [dailyQ.data, rangeDays, metric, date]);
+
+  // ── dönüşüm (ziyaretçi × NEBIM satış) ─────────────────────
+  const seciliDonusum = useMemo(
+    () => (conversionQ.data ?? []).find((d) => d.date === date) ?? null,
+    [conversionQ.data, date]
+  );
+  const donusumData = useMemo(
+    () =>
+      (conversionQ.data ?? []).map((d) => ({
+        tarih: fmtDate(d.date, DATE_SHORT),
+        ["Ziyaretçi"]: d.giren,
+        ["Dönüşüm %"]: d.donusum,
+      })),
+    [conversionQ.data]
+  );
+  const donusumVar = useMemo(
+    () => (conversionQ.data ?? []).some((d) => d.donusum !== null),
+    [conversionQ.data]
+  );
 
   const stores = storesQ.data ?? [];
   const storeLabel = (code: string) => STORE_LABELS[code] ?? code;
@@ -436,6 +461,117 @@ export function PeopleCountDashboard() {
                   strokeWidth={2}
                   strokeDasharray="6 4"
                   dot={false}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Dönüşüm: ziyaretçi × NEBIM satış */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="mb-3">
+            <div className="text-sm font-medium">
+              Dönüşüm oranı — ziyaretçi × satış (NEBIM)
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Kaç ziyaretçiden kaçı alışveriş yaptı: iade hariç tekil fiş sayısı
+              ÷ giren kişi. Satış verisi olmayan günler boş bırakılır.
+            </p>
+          </div>
+
+          {/* Seçili gün mini-KPI'ları */}
+          <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-lg border border-border/60 p-3">
+              <div className="text-xs text-muted-foreground">
+                {isToday ? "Bugün dönüşüm" : "Seçili gün dönüşüm"}
+              </div>
+              <div className="mt-0.5 text-2xl font-semibold tracking-tight">
+                {seciliDonusum?.donusum !== null && seciliDonusum?.donusum !== undefined
+                  ? `%${NUM.format(seciliDonusum.donusum)}`
+                  : "—"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-border/60 p-3">
+              <div className="text-xs text-muted-foreground">Fiş sayısı</div>
+              <div className="mt-0.5 text-2xl font-semibold tracking-tight">
+                {seciliDonusum?.fis !== null && seciliDonusum?.fis !== undefined
+                  ? NUM.format(seciliDonusum.fis)
+                  : "—"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-border/60 p-3">
+              <div className="text-xs text-muted-foreground">Ziyaretçi başına ciro</div>
+              <div className="mt-0.5 text-2xl font-semibold tracking-tight">
+                {seciliDonusum &&
+                seciliDonusum.ciro !== null &&
+                seciliDonusum.giren !== null &&
+                seciliDonusum.giren > 0
+                  ? `${TRY0.format(seciliDonusum.ciro / seciliDonusum.giren)} ₺`
+                  : "—"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-border/60 p-3">
+              <div className="text-xs text-muted-foreground">Günün cirosu (net)</div>
+              <div className="mt-0.5 text-2xl font-semibold tracking-tight">
+                {seciliDonusum?.ciro !== null && seciliDonusum?.ciro !== undefined
+                  ? `${TRY0.format(seciliDonusum.ciro)} ₺`
+                  : "—"}
+              </div>
+            </div>
+          </div>
+
+          {conversionQ.isLoading ? (
+            <ChartSkeleton />
+          ) : !donusumVar ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              Bu aralıkta ziyaretçi ve NEBIM satışının kesiştiği gün yok.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={donusumData}>
+                <CartesianGrid strokeDasharray="0" stroke="#e5e7eb" vertical={false} />
+                <XAxis dataKey="tarih" tick={{ fontSize: 12 }} tickLine={false} minTickGap={24} />
+                <YAxis
+                  yAxisId="sol"
+                  tick={{ fontSize: 12 }}
+                  tickLine={false}
+                  axisLine={false}
+                  allowDecimals={false}
+                  width={42}
+                />
+                <YAxis
+                  yAxisId="sag"
+                  orientation="right"
+                  tick={{ fontSize: 12 }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v: number) => `%${v}`}
+                  width={44}
+                />
+                <Tooltip
+                  formatter={(v: number | string, name: string) =>
+                    name === "Dönüşüm %" ? `%${NUM.format(Number(v))}` : NUM.format(Number(v))
+                  }
+                />
+                <Legend />
+                <Bar
+                  yAxisId="sol"
+                  dataKey="Ziyaretçi"
+                  fill={TODAY_COLOR}
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={22}
+                />
+                <Line
+                  yAxisId="sag"
+                  type="monotone"
+                  dataKey="Dönüşüm %"
+                  stroke={SALES_COLOR}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                  connectNulls={false}
                 />
               </ComposedChart>
             </ResponsiveContainer>

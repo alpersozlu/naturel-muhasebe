@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { router, adminProcedure } from "../trpc";
 import { prisma } from "@/lib/prisma";
 
@@ -90,5 +91,73 @@ export const peopleCountRouter = router({
         enter: g._sum.enter ?? 0,
         exit: g._sum.exit ?? 0,
       }));
+    }),
+
+  /**
+   * Günlük dönüşüm — ziyaretçi (kamera) × satış (NEBIM) birleşimi.
+   * fis = iade olmayan tekil fiş sayısı, ciro = net_amount toplamı (iade dahil
+   * net; day-summary ile aynı konvansiyon). Veri olmayan gün null döner ki
+   * grafikte 0 sanılmasın (kamera veya NEBIM aktarımı o gün yoksa boşluk).
+   */
+  conversion: adminProcedure
+    .input(
+      z.object({
+        store_code: z.string().trim().min(1).optional(),
+        endDate: z.string().regex(DATE_RE),
+        days: z.number().int().min(1).max(730),
+      })
+    )
+    .query(async ({ input }) => {
+      const { store_code, endDate, days } = input;
+      const startDate = addDays(endDate, -(days - 1));
+      const [giren, satis] = await Promise.all([
+        prisma.peopleCountHour.groupBy({
+          by: ["date"],
+          where: {
+            ...(store_code ? { store_code } : {}),
+            date: { gte: startDate, lte: endDate },
+          },
+          _sum: { enter: true },
+        }),
+        // Tekil fiş sayısı (COUNT DISTINCT) Prisma groupBy'da yok; gün başına
+        // binlerce satırı çekmemek için tek parametreli salt-okuma sorgusu.
+        prisma.$queryRaw<{ date: string; fis: bigint; ciro: number }[]>(Prisma.sql`
+          SELECT invoice_date::text AS date,
+                 COUNT(DISTINCT invoice_ref) FILTER (WHERE is_return = false) AS fis,
+                 COALESCE(SUM(net_amount), 0)::float8 AS ciro
+          FROM "NebimSaleLine"
+          WHERE invoice_date >= ${startDate}::date
+            AND invoice_date <= ${endDate}::date
+            ${store_code ? Prisma.sql`AND nebim_store_code = ${store_code}` : Prisma.empty}
+          GROUP BY invoice_date
+        `),
+      ]);
+      const girenMap = new Map(giren.map((g) => [g.date, g._sum.enter ?? 0]));
+      const satisMap = new Map(
+        satis.map((s) => [s.date, { fis: Number(s.fis), ciro: s.ciro }])
+      );
+      const out: {
+        date: string;
+        giren: number | null;
+        fis: number | null;
+        ciro: number | null;
+        donusum: number | null; // % (fiş / giren)
+      }[] = [];
+      for (let i = days - 1; i >= 0; i--) {
+        const day = addDays(endDate, -i);
+        const g = girenMap.get(day) ?? null;
+        const sat = satisMap.get(day) ?? null;
+        out.push({
+          date: day,
+          giren: g,
+          fis: sat ? sat.fis : null,
+          ciro: sat ? sat.ciro : null,
+          donusum:
+            g !== null && g > 0 && sat !== null
+              ? Math.round((sat.fis / g) * 1000) / 10
+              : null,
+        });
+      }
+      return out;
     }),
 });
