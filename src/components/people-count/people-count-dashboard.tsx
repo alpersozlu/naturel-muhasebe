@@ -551,8 +551,10 @@ export function PeopleCountDashboard() {
                   width={44}
                 />
                 <Tooltip
-                  formatter={(v: number | string, name: string) =>
-                    name === "Dönüşüm %" ? `%${NUM.format(Number(v))}` : NUM.format(Number(v))
+                  formatter={(v, name) =>
+                    name === "Dönüşüm %"
+                      ? `%${NUM.format(Number(v ?? 0))}`
+                      : NUM.format(Number(v ?? 0))
                   }
                 />
                 <Legend />
