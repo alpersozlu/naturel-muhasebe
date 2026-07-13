@@ -939,6 +939,17 @@ model DefoluEntry {
 // köprü her turda son günleri yeniden gönderir, gün içi saat dilimi büyüdükçe
 // üzerine yazılır. date kamera YEREL günüdür; TZ kaymasını önlemek için String.
 
+// Çözümlenemeyen push gövdeleri (hikvision-push keşif tuzağı): NVR/kamera yeni
+// bir formatta gönderirse ham XML buraya düşer; parser buradan okunarak
+// uyarlanır. Route her eklemede 7 günden eskiyi siler (şişmesin).
+model PeopleCountRawPush {
+  id         String   @id @default(uuid())
+  body       String   @db.Text // ilk 4000 karakter
+  created_at DateTime @default(now())
+
+  @@index([created_at])
+}
+
 // Kamera push'unun dakikalık ham kaydı (hikvision-push). Her kamera her dakika
 // bir EventNotificationAlert basar; (camera_mac, start) idempotent anahtardır.
 // PeopleCountHour saatlik satırı, o saatin dakikalarının kameralar-arası

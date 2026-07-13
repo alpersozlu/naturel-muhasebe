@@ -76,7 +76,13 @@ export async function POST(req: Request) {
   const exit = Number(tag(pcBlock, "exit"));
 
   if (!cam || start.length < 16 || !Number.isFinite(enter) || !Number.isFinite(exit)) {
-    console.log("[hikvision-push] çözümlenemedi:", JSON.stringify({ mac, start, body: body.slice(0, 600) }));
+    // Keşif tuzağı: yeni kaynak (örn. NVR) farklı formatta gönderiyorsa ham
+    // gövdeyi sakla — parser buradan okunarak uyarlanır. 7 günden eskiyi temizle.
+    await prisma.peopleCountRawPush.create({ data: { body: body.slice(0, 4000) } });
+    await prisma.peopleCountRawPush.deleteMany({
+      where: { created_at: { lt: new Date(Date.now() - 7 * 24 * 3600 * 1000) } },
+    });
+    console.log("[hikvision-push] çözümlenemedi, ham kayıt alındı:", JSON.stringify({ mac, start }));
     return NextResponse.json({ ok: true, unparsed: true });
   }
 
