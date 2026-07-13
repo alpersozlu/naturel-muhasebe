@@ -1,23 +1,33 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 /**
- * Hikvision kamera push alıcısı — FAZ 1: keşif/log modu.
+ * Hikvision kamera push alıcısı — FAZ 2: canlı işleyici.
  *
- * Mağazadaki kişi sayım kamerası, "HTTP veri yükleme / bildirim sunucusu"
- * özelliğiyle sayım verisini periyodik olarak buraya POST'lar (kamera ağının
- * kendi interneti var; araya PC/köprü girmez). Gönderilen XML'in tam şeması
- * firmware'e göre değiştiği için ilk kurulumda ham gövde Vercel Logs'a
- * yazılır; gerçek format görüldüğünde parser + PeopleCountHour'a idempotent
- * yazım eklenecek (Faz 2).
+ * Mağazadaki kişi sayım kameraları her dakika bir EventNotificationAlert
+ * (PSIA XML) basar: <peopleCounting> içinde o dakikanın giren/çıkanı +
+ * TimeRange. Zincir: kamera → kisi-sayim-relay (Cloudflare, HTTP→HTTPS) →
+ * burası. Kamera MAC'i kapıyı tanımlar; dakika kaydı (camera_mac, start)
+ * üzerinden idempotent yazılır, ardından o saatin PeopleCountHour satırı
+ * dakikaların kameralar-arası toplamı olarak yeniden hesaplanır.
  *
- * Kimlik: kamera Authorization başlığı gönderemez; URL'deki ?key= parametresi
- * HIKVISION_PUSH_KEY env değişkeniyle karşılaştırılır (INGEST_API_TOKEN'dan
- * bilinçli olarak ayrı — URL'ler log'lara düşer, ana token'ı kirletmesin).
+ * Saat/tarih kameranın YEREL zaman bileşenlerinden alınır, ofset yok sayılır
+ * (kameranın TZ etiketi yanlış ama duvar saati doğru; arama API'siyle ve
+ * panelle aynı konvansiyon).
+ *
+ * Kimlik: ?key= = HIKVISION_PUSH_KEY (relay bunu gizli tutar; kamera yalnız
+ * relay'in yol token'ını bilir).
  */
+
+/** Kamera MAC → mağaza eşlemesi (Derimod Lefkoşa: iki giriş kapısı). */
+const CAMERAS: Record<string, { store_code: string; label: string }> = {
+  "bc:9b:5e:e4:11:72": { store_code: "S01", label: "Lefkosa Kapi 2" },
+  "bc:9b:5e:e4:11:70": { store_code: "S01", label: "Lefkosa Kapi 1" },
+};
 
 function keyOk(req: Request): boolean {
   const expected = (process.env.HIKVISION_PUSH_KEY || "").trim();
@@ -25,29 +35,85 @@ function keyOk(req: Request): boolean {
   return Boolean(expected) && got === expected;
 }
 
-/** Kameranın "Test" butonu bazı firmware'lerde GET/HEAD atar. */
+/** İlk eşleşen tag içeriği (regex; şema sabit, XML bağımlılığına gerek yok). */
+function tag(xml: string, name: string): string | null {
+  const m = xml.match(new RegExp(`<${name}>([^<]*)</${name}>`));
+  return m ? m[1]!.trim() : null;
+}
+
 export async function GET(req: Request) {
   if (!keyOk(req)) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
-  return NextResponse.json({ ok: true, mode: "discovery" });
+  return NextResponse.json({ ok: true, mode: "live" });
 }
 
 export async function POST(req: Request) {
   if (!keyOk(req)) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
-  const contentType = req.headers.get("content-type") || "";
   let body = "";
   try {
-    body = (await req.text()).slice(0, 8000); // log taşmasın; keşif için yeterli
+    body = (await req.text()).slice(0, 16000);
   } catch {
-    body = "<gövde okunamadı>";
+    return NextResponse.json({ ok: false, error: "unreadable_body" }, { status: 400 });
   }
-  // Vercel Logs'tan izlenecek — kurulum günü format buradan çıkarılacak.
-  console.log(
-    "[hikvision-push]",
-    JSON.stringify({ contentType, length: body.length, body })
-  );
-  return NextResponse.json({ ok: true, received: body.length });
+
+  // Yalnız peopleCounting olaylarını işle; gerisini (heartbeat vb.) logla-geç.
+  const eventType = tag(body, "eventType") || "";
+  if (eventType.toLowerCase() !== "peoplecounting") {
+    console.log("[hikvision-push] atlandı, eventType:", eventType || "(yok)");
+    return NextResponse.json({ ok: true, skipped: eventType || "unknown" });
+  }
+
+  const mac = (tag(body, "macAddress") || "").toLowerCase();
+  const cam = CAMERAS[mac];
+  // childCounting bloğunu at, ana peopleCounting sayılarının yanlış
+  // eşleşmesini önle (ikisi de <enter>/<exit> kullanıyor).
+  const pcBlock = body.match(/<peopleCounting>[\s\S]*?<\/peopleCounting>/)?.[0] ?? "";
+  const start = tag(pcBlock, "startTime") || tag(body, "dateTime") || "";
+  const enter = Number(tag(pcBlock, "enter"));
+  const exit = Number(tag(pcBlock, "exit"));
+
+  if (!cam || start.length < 16 || !Number.isFinite(enter) || !Number.isFinite(exit)) {
+    console.log("[hikvision-push] çözümlenemedi:", JSON.stringify({ mac, start, body: body.slice(0, 600) }));
+    return NextResponse.json({ ok: true, unparsed: true });
+  }
+
+  const minuteKey = start.slice(0, 16); // YYYY-MM-DDTHH:MM (yerel, ofsetsiz)
+  const date = minuteKey.slice(0, 10);
+  const hour = Number(minuteKey.slice(11, 13));
+
+  await prisma.peopleCountMinute.upsert({
+    where: { camera_mac_start: { camera_mac: mac, start: minuteKey } },
+    create: {
+      camera_mac: mac,
+      store_code: cam.store_code,
+      start: minuteKey,
+      enter: Math.min(enter, 100000),
+      exit: Math.min(exit, 100000),
+    },
+    update: { enter: Math.min(enter, 100000), exit: Math.min(exit, 100000) },
+  });
+
+  // Saatlik satırı dakikaların toplamından yeniden kur (tüm kapılar dahil).
+  const agg = await prisma.peopleCountMinute.aggregate({
+    where: {
+      store_code: cam.store_code,
+      start: { gte: `${date}T${minuteKey.slice(11, 13)}:00`, lte: `${date}T${minuteKey.slice(11, 13)}:59` },
+    },
+    _sum: { enter: true, exit: true },
+  });
+  const data = {
+    enter: agg._sum.enter ?? 0,
+    exit: agg._sum.exit ?? 0,
+    source: "hikvision-push",
+  };
+  await prisma.peopleCountHour.upsert({
+    where: { store_code_date_hour: { store_code: cam.store_code, date, hour } },
+    create: { store_code: cam.store_code, date, hour, ...data },
+    update: data,
+  });
+
+  return NextResponse.json({ ok: true, store: cam.store_code, minute: minuteKey, enter, exit });
 }
