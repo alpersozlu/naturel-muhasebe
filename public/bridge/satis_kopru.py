@@ -337,10 +337,14 @@ def _dt_str(v):
     return str(v)
 
 
-# Ödeme tipi kodu -> okunur etiket (bsPaymentType: 1=Nakit, 2=Kredi Karti, ...)
+# Ödeme tipi kodu -> okunur etiket (bsPaymentTypeDesc sözlüğünden birebir,
+# KESIF11 ile doğrulandı — 7 "Puan" DEĞİL "Kredi Çeki"!)
 _PAYMENT_KOD = {
     "1": "Nakit", "2": "Kredi Kartı", "3": "Hediye Kartı", "4": "Havale/EFT",
-    "5": "İade", "6": "Nakit Fazlası", "7": "Puan", "8": "Personel Borç",
+    "5": "İade ile Kapama", "6": "Para Üstü", "7": "Kredi Çeki",
+    "8": "Personel Borcu", "9": "Erken Ödeme İndirimi", "10": "Alacak Seneti",
+    "20": "Alacak Çeki", "40": "Borç Seneti", "50": "Borç Çeki",
+    "70": "Diğer Ödeme",
 }
 
 
