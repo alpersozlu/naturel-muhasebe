@@ -311,6 +311,132 @@ def fetch_sales(conn, cfg: dict, since_override=None) -> list[dict]:
 
 
 # ────────────────────────────────────────────────────────────────────────────
+# KREDİ ÇEKİ (bsPaymentType kod 7 — GiftCard/CV mekanizması, KESIF11-12 ile
+# çözüldü). Hareket = ödeme satırı: EKSİ tutar = çek DÜZENLENDİ (iade/değişim
+# store-credit), ARTI tutar = çek KULLANILDI. trPaymentHeader.DocumentNumber
+# bu ödemelerde BOŞ olduğundan satış sorgusuna join edilemez; fatura bağı
+# (varsa) trGiftCardPaymentHeader.DocumentNumber üzerinden gelir.
+# ────────────────────────────────────────────────────────────────────────────
+
+_VOUCHER_TXN_SQL = """
+SELECT
+    ap.PaymentLineID      AS payment_line_id,
+    ap.PaymentNumber      AS payment_no,
+    ap.DocumentDate       AS txn_date,
+    ap.DocumentTime       AS txn_time,
+    ap.StoreCode          AS store_code,
+    ap.Loc_Payment        AS amount,
+    ap.CurrAccCode        AS customer_code,
+    ca.FirstLastName      AS customer_name,
+    gl.SerialNumber       AS serial,
+    gh.DocumentNumber     AS invoice_ref
+FROM AllPayments ap
+LEFT JOIN trGiftCardPaymentLine gl
+       ON gl.GiftCardPaymentLineID = ap.GiftCardPaymentLineID
+LEFT JOIN trGiftCardPaymentHeader gh
+       ON gh.GiftCardPaymentHeaderID = gl.GiftCardPaymentHeaderID
+LEFT JOIN cdCurrAcc ca
+       ON ca.CurrAccCode = ap.CurrAccCode
+WHERE ap.PaymentTypeCode = 7
+  AND ap.CompanyCode = ?
+  AND ap.DocumentDate >= ?
+ORDER BY ap.DocumentDate, ap.PaymentNumber
+"""
+
+# Çek kartlarının GÜNCEL durumu (kalan bakiye = Amount - UsedAmount).
+# Anlık görüntü — her çalışmada tamamı gönderilir (~5k satır, upsert).
+_VOUCHER_CARD_SQL = """
+SELECT SerialNumber   AS serial,
+       Amount         AS amount,
+       UsedAmount     AS used_amount,
+       FirstValidDate AS first_valid,
+       LastValidDate  AS last_valid,
+       IsUsed         AS is_used,
+       IsBlocked      AS is_blocked,
+       CreatedDate    AS nebim_created
+FROM cdGiftCard
+"""
+
+
+def fetch_vouchers(conn, cfg: dict, since_override=None):
+    """Kredi çeki hareketleri (since'ten itibaren) + kart anlık görüntüsü."""
+    lookback = int(cfg.get("sales_lookback_days", 3))
+    company = cfg.get("company_code", 1)
+    since = since_override or (datetime.now() - timedelta(days=lookback)).date()
+    cur = conn.cursor()
+    cur.execute(_VOUCHER_TXN_SQL, company, since)
+    txns = _rows_to_dicts(cur)
+    cur.execute(_VOUCHER_CARD_SQL)
+    cards = _rows_to_dicts(cur)
+    LOG.info("Kredi ceki sorgusu OK: %d hareket (>= %s), %d kart.",
+             len(txns), since, len(cards))
+    return txns, cards
+
+
+def build_vouchers(txns: list[dict], cards: list[dict], cfg: dict):
+    store_map = cfg.get("store_map", {})
+    t_out = []
+    for r in txns:
+        code = "" if r.get("store_code") is None else str(r["store_code"]).strip()
+        t_out.append({
+            "payment_line_id": str(r.get("payment_line_id")),
+            "payment_no": (str(r["payment_no"]).strip() if r.get("payment_no") else None),
+            "txn_date": _date_str(r.get("txn_date")),
+            "txn_time": (str(r["txn_time"])[:8] if r.get("txn_time") is not None else None),
+            "store_code": code or None,
+            "store_name": store_map.get(code) or code or None,
+            "amount": _num(r.get("amount")),
+            "customer_code": (str(r["customer_code"]).strip() if r.get("customer_code") else None),
+            "customer_name": (str(r["customer_name"]).strip() if r.get("customer_name") not in (None, "") else None),
+            "serial": (str(r["serial"]).strip() if r.get("serial") not in (None, "") else None),
+            "invoice_ref": (str(r["invoice_ref"]).strip() if r.get("invoice_ref") not in (None, "") and str(r["invoice_ref"]).strip() else None),
+        })
+    c_out = []
+    for r in cards:
+        serial = r.get("serial")
+        if serial in (None, ""):
+            continue
+        c_out.append({
+            "serial": str(serial).strip(),
+            "amount": _num(r.get("amount")) or 0,
+            "used_amount": _num(r.get("used_amount")) or 0,
+            "first_valid": _date_str(r.get("first_valid")),
+            "last_valid": _date_str(r.get("last_valid")),
+            "is_used": bool(r.get("is_used")),
+            "is_blocked": bool(r.get("is_blocked")),
+            "nebim_created": _dt_str(r.get("nebim_created")),
+        })
+    return t_out, c_out
+
+
+def post_vouchers(cfg: dict, txns: list[dict], cards: list[dict]) -> None:
+    base = (cfg.get("webapp_url") or "").rstrip("/")
+    token = cfg.get("ingest_token") or ""
+    if not base or not token:
+        raise RuntimeError("config.json'da webapp_url/ingest_token bos.")
+    url = f"{base}/api/ingest/vouchers"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    timeout = int(cfg.get("request_timeout_seconds", 120))
+    chunk = int(cfg.get("post_chunk_size", 2000)) or 1
+    company = cfg.get("company_code", 1)
+
+    parts = []
+    for start in range(0, len(txns), chunk):
+        parts.append({"txns": txns[start:start + chunk], "cards": []})
+    for start in range(0, len(cards), chunk):
+        parts.append({"txns": [], "cards": cards[start:start + chunk]})
+    for i, p in enumerate(parts, 1):
+        payload = {"company_code": company, **p}
+        LOG.info("POST %s (parca %d/%d: %d hareket, %d kart)",
+                 url, i, len(parts), len(p["txns"]), len(p["cards"]))
+        resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        if not (200 <= resp.status_code < 300):
+            raise RuntimeError(
+                f"Kredi ceki reddedildi (HTTP {resp.status_code}): {(resp.text or '')[:300]}")
+    LOG.info("Kredi ceki gonderimi tamam: %d hareket, %d kart.", len(txns), len(cards))
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # ROW -> JSON
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -545,8 +671,15 @@ def main(argv=None) -> int:
 
     try:
         conn = connect(cfg)
+        v_txns_raw: list[dict] = []
+        v_cards_raw: list[dict] = []
         try:
             rows = fetch_sales(conn, cfg, since_override)
+            # Kredi çeki (kod 7) — satış aktarımını asla bozmasın.
+            try:
+                v_txns_raw, v_cards_raw = fetch_vouchers(conn, cfg, since_override)
+            except Exception as vexc:
+                LOG.warning("Kredi ceki sorgusu basarisiz (satislar etkilenmez): %s", vexc)
         finally:
             try:
                 conn.close()
@@ -554,6 +687,7 @@ def main(argv=None) -> int:
                 pass
 
         lines = build_lines(rows, cfg)
+        v_txns, v_cards = build_vouchers(v_txns_raw, v_cards_raw, cfg)
 
         if args.probe_stores or args.dry_run:
             _store_summary(lines, cfg)
@@ -561,11 +695,18 @@ def main(argv=None) -> int:
                 _discount_meta_preview(lines)
             net = sum((l["net_amount"] or 0) for l in lines)
             print(f"Toplam {len(lines)} satir, net toplam ~ {net:,.2f}")
+            print(f"KREDI CEKI: {len(v_txns)} hareket, {len(v_cards)} kart "
+                  f"(acik bakiye ~ {sum((c['amount'] - c['used_amount']) for c in v_cards):,.2f})")
             if args.dry_run:
                 print("(--dry-run: hicbir sey GONDERILMEDI)")
             return 0
 
         post_ingest(cfg, lines)
+        if v_txns or v_cards:
+            try:
+                post_vouchers(cfg, v_txns, v_cards)
+            except Exception as vexc:
+                LOG.warning("Kredi ceki gonderimi basarisiz (satislar gonderildi): %s", vexc)
         LOG.info("Kopru calismasi tamamlandi.")
         return 0
     except Exception as exc:

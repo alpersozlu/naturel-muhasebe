@@ -1627,4 +1627,233 @@ export const nebimSalesRouter = router({
       const net_total = items.reduce((s, i) => s + (i.net_amount ?? 0), 0);
       return { items, net_total };
     }),
+
+  /**
+   * Kredi Çeki analizi (Nebim kod 7 — CV çekleri, GiftCard mekanizması).
+   * Hareketler dönem filtresine uyar (eksi = çek düzenlendi, artı = kullanıldı);
+   * "kalanlar" (açık çek bakiyeleri) cdGiftCard anlık görüntüsünden gelir ve
+   * dönemden BAĞIMSIZ güncel durumdur. Ürün eşleşmesi: hareketin invoice_ref'i
+   * doluysa doğrudan, boşsa aynı müşteri + aynı gün faturaları (tahmini).
+   */
+  krediCeki: adminProcedure
+    .input(nebimAnalizSchema)
+    .query(async ({ ctx, input }) => {
+      const dateFilter: { gte?: Date; lte?: Date } = {};
+      if (input.date_from) dateFilter.gte = new Date(`${input.date_from}T00:00:00.000Z`);
+      if (input.date_to) dateFilter.lte = new Date(`${input.date_to}T00:00:00.000Z`);
+
+      const txns = await ctx.prisma.nebimVoucherTxn.findMany({
+        where: {
+          ...(input.store_id ? { store_id: input.store_id } : {}),
+          ...(Object.keys(dateFilter).length > 0 ? { txn_date: dateFilter } : {}),
+        },
+        orderBy: [{ txn_date: "desc" }, { txn_time: "desc" }],
+        take: 1500,
+        include: { store: { select: { name: true } } },
+      });
+
+      // ── Fatura/ürün eşleşmesi ─────────────────────────────────────────
+      const refs = Array.from(
+        new Set(txns.map((t) => t.invoice_ref).filter((r): r is string => !!r))
+      );
+      const noRef = txns.filter((t) => !t.invoice_ref && t.customer_code);
+      const custCodes = Array.from(new Set(noRef.map((t) => t.customer_code as string)));
+      const custDates = Array.from(
+        new Set(noRef.map((t) => t.txn_date.toISOString().slice(0, 10)))
+      );
+
+      const saleLines =
+        refs.length > 0 || custCodes.length > 0
+          ? await ctx.prisma.nebimSaleLine.findMany({
+              where: {
+                OR: [
+                  ...(refs.length > 0 ? [{ invoice_ref: { in: refs } }] : []),
+                  ...(custCodes.length > 0
+                    ? [
+                        {
+                          customer_code: { in: custCodes },
+                          invoice_date: {
+                            in: custDates.map((d) => new Date(`${d}T00:00:00.000Z`)),
+                          },
+                        },
+                      ]
+                    : []),
+                ],
+              },
+              select: {
+                invoice_ref: true,
+                invoice_date: true,
+                customer_code: true,
+                is_return: true,
+                item_desc: true,
+                color_desc: true,
+                size: true,
+                qty: true,
+                net_amount: true,
+                salesperson_name: true,
+              },
+            })
+          : [];
+
+      type MatchedInvoice = {
+        ref: string;
+        is_return: boolean;
+        salesperson: string | null;
+        net: number;
+        approx: boolean; // müşteri+gün üzerinden tahmini eşleşme
+        items: Array<{ desc: string; qty: number; net: number }>;
+      };
+      const byRef = new Map<string, MatchedInvoice>();
+      const byCustDate = new Map<string, Set<string>>(); // "code|date" -> refs
+      for (const l of saleLines) {
+        let inv = byRef.get(l.invoice_ref);
+        if (!inv) {
+          inv = {
+            ref: l.invoice_ref,
+            is_return: l.is_return,
+            salesperson: l.salesperson_name,
+            net: 0,
+            approx: false,
+            items: [],
+          };
+          byRef.set(l.invoice_ref, inv);
+        }
+        inv.is_return = inv.is_return || l.is_return;
+        const desc = [l.item_desc, l.color_desc, l.size ? `(${l.size})` : null]
+          .filter(Boolean)
+          .join(" ");
+        inv.items.push({
+          desc: desc || "—",
+          qty: Number(l.qty),
+          net: l.net_amount == null ? 0 : Number(l.net_amount),
+        });
+        inv.net += l.net_amount == null ? 0 : Number(l.net_amount);
+        if (l.customer_code) {
+          const k = `${l.customer_code}|${l.invoice_date.toISOString().slice(0, 10)}`;
+          let set = byCustDate.get(k);
+          if (!set) {
+            set = new Set();
+            byCustDate.set(k, set);
+          }
+          set.add(l.invoice_ref);
+        }
+      }
+
+      const outTxns = txns.map((t) => {
+        let matches: MatchedInvoice[] = [];
+        if (t.invoice_ref && byRef.has(t.invoice_ref)) {
+          matches = [byRef.get(t.invoice_ref)!];
+        } else if (t.customer_code) {
+          const k = `${t.customer_code}|${t.txn_date.toISOString().slice(0, 10)}`;
+          matches = Array.from(byCustDate.get(k) ?? [])
+            .map((r) => ({ ...byRef.get(r)!, approx: true }))
+            .slice(0, 4);
+        }
+        return {
+          id: t.id,
+          date: t.txn_date.toISOString().slice(0, 10),
+          time: t.txn_time ? t.txn_time.slice(0, 5) : null,
+          store_name: t.store?.name ?? t.nebim_store_code,
+          store_code: t.nebim_store_code,
+          amount: Number(t.amount),
+          customer_code: t.customer_code,
+          customer_name: t.customer_name,
+          serial: t.serial,
+          invoice_ref: t.invoice_ref,
+          matches,
+        };
+      });
+
+      // ── KPI (dönem) ───────────────────────────────────────────────────
+      let used_total = 0;
+      let used_count = 0;
+      let issued_total = 0;
+      let issued_count = 0;
+      for (const t of outTxns) {
+        if (t.amount > 0) {
+          used_total += t.amount;
+          used_count += 1;
+        } else if (t.amount < 0) {
+          issued_total += Math.abs(t.amount);
+          issued_count += 1;
+        }
+      }
+
+      // ── Kalanlar (açık çekler — güncel anlık görüntü) ─────────────────
+      const cards = await ctx.prisma.nebimVoucher.findMany({
+        where: { is_blocked: false },
+      });
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      const open = cards
+        .map((c) => ({
+          serial: c.serial,
+          amount: Number(c.amount),
+          used: Number(c.used_amount),
+          remaining: Number(c.amount) - Number(c.used_amount),
+          first_valid: c.first_valid ? c.first_valid.toISOString().slice(0, 10) : null,
+          last_valid: c.last_valid ? c.last_valid.toISOString().slice(0, 10) : null,
+          expired: c.last_valid != null && c.last_valid < today,
+        }))
+        .filter((c) => c.remaining > 0.005);
+
+      // Açık çeklerin sahibi — düzenleme (eksi) hareketinden (senkron aralığında varsa).
+      const openSerials = open.map((o) => o.serial);
+      const issuers =
+        openSerials.length > 0
+          ? await ctx.prisma.nebimVoucherTxn.findMany({
+              where: { serial: { in: openSerials }, amount: { lt: 0 } },
+              orderBy: { txn_date: "desc" },
+              select: {
+                serial: true,
+                customer_name: true,
+                customer_code: true,
+                txn_date: true,
+                store: { select: { name: true } },
+                nebim_store_code: true,
+              },
+            })
+          : [];
+      const issuerBySerial = new Map<
+        string,
+        { customer: string | null; date: string; store: string | null }
+      >();
+      for (const i of issuers) {
+        if (!i.serial || issuerBySerial.has(i.serial)) continue; // en yenisi kalsın
+        issuerBySerial.set(i.serial, {
+          customer: i.customer_name,
+          date: i.txn_date.toISOString().slice(0, 10),
+          store: i.store?.name ?? i.nebim_store_code,
+        });
+      }
+      const withIssuer = open.map((o) => ({
+        ...o,
+        issuer: issuerBySerial.get(o.serial) ?? null,
+      }));
+      const active = withIssuer
+        .filter((o) => !o.expired)
+        .sort((a, b) => (a.last_valid ?? "9999").localeCompare(b.last_valid ?? "9999"));
+      const expiredAll = withIssuer
+        .filter((o) => o.expired)
+        .sort((a, b) => (b.last_valid ?? "").localeCompare(a.last_valid ?? ""));
+      const expired = expiredAll.slice(0, 100);
+
+      return {
+        has_data: txns.length > 0 || cards.length > 0,
+        kpi: {
+          used_total,
+          used_count,
+          issued_total,
+          issued_count,
+          active_total: active.reduce((s, o) => s + o.remaining, 0),
+          active_count: active.length,
+          expired_total: expiredAll.reduce((s, o) => s + o.remaining, 0),
+          expired_count: expiredAll.length,
+        },
+        txns: outTxns,
+        active,
+        expired,
+        expired_more: Math.max(0, expiredAll.length - expired.length),
+      };
+    }),
 });

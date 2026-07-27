@@ -7,6 +7,7 @@ import {
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { NebimScorecard } from "./nebim-scorecard";
+import { NebimKrediCeki } from "./nebim-kredi-ceki";
 import type { NebimSalesSelection } from "./nebim-filters";
 
 const TRY = new Intl.NumberFormat("tr-TR", {
@@ -81,6 +82,9 @@ export function NebimAnaliz({
 
       {/* İndirim Analizi — orijinal fiyat → satılan fiyat → indirim % */}
       <IndirimAnaliz indirim={data.indirim} />
+
+      {/* Kredi Çeki — hareketler (tarih×mağaza) + açık çek kalanları */}
+      <NebimKrediCeki filters={filters} />
 
       {/* Outlet Geliri (ay × mağaza) + kural-dışı outlet satışları */}
       {outlet.data && outlet.data.months.length > 0 ? (

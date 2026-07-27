@@ -153,6 +153,7 @@ model Store {
   nebim_sale_lines NebimSaleLine[]
   outlet_stock_items OutletStockItem[]
   nebim_targets   NebimStoreTarget[]
+  nebim_voucher_txns NebimVoucherTxn[]
 
   @@index([brand_id])
   @@index([deleted_at])
@@ -856,6 +857,57 @@ model NebimSaleLine {
   @@index([store_id])
   @@index([invoice_date])
   @@index([store_name_raw, invoice_date])
+}
+
+// ─────────────────────────────────────────────────────────────
+// KREDİ ÇEKİ (Nebim bsPaymentType kod 7 — GiftCard/CV çekleri)
+// Hareket = Nebim ödeme satırı: EKSİ tutar = çek DÜZENLENDİ (iade/değişimde
+// müşteriye store-credit), ARTI tutar = çek KULLANILDI. Köprü satışlarla
+// birlikte /api/ingest/vouchers'a gönderir.
+// ─────────────────────────────────────────────────────────────
+
+model NebimVoucherTxn {
+  id              String   @id @default(uuid())
+  company_code    Int
+  payment_line_id String // Nebim trPaymentLine.PaymentLineID (idempotent anahtar)
+  payment_no      String?
+  txn_date        DateTime @db.Date
+  txn_time        String? // "HH:MM:SS"
+  store_id        String?
+  store           Store?   @relation(fields: [store_id], references: [id])
+  nebim_store_code String? // S01/S02/S03
+  amount          Decimal  @db.Decimal(14, 2) // eksi=düzenleme, artı=kullanım
+  customer_code   String?
+  customer_name   String?
+  serial          String? // cdGiftCard.SerialNumber (CV...)
+  invoice_ref     String? // trGiftCardPaymentHeader.DocumentNumber (varsa fatura bağı)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  @@unique([company_code, payment_line_id])
+  @@index([txn_date])
+  @@index([serial])
+}
+
+// Çek kartlarının güncel durumu (cdGiftCard anlık görüntüsü, her köprü
+// çalışmasında upsert). Kalan bakiye = amount - used_amount;
+// last_valid < bugün ise süresi dolmuş.
+model NebimVoucher {
+  id            String    @id @default(uuid())
+  company_code  Int
+  serial        String
+  amount        Decimal   @db.Decimal(14, 2)
+  used_amount   Decimal   @db.Decimal(14, 2)
+  first_valid   DateTime? @db.Date
+  last_valid    DateTime? @db.Date
+  is_used       Boolean   @default(false)
+  is_blocked    Boolean   @default(false)
+  nebim_created DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  @@unique([company_code, serial])
+  @@index([last_valid])
 }
 
 // ─────────────────────────────────────────────────────────────
