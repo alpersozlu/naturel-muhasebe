@@ -60,6 +60,14 @@ type KrediCekiData = {
   active: Array<OpenVoucher>;
   expired: Array<OpenVoucher>;
   expired_more: number;
+  by_store: Array<{
+    store: string;
+    used: number;
+    used_count: number;
+    issued: number;
+    ciro: number;
+    pay_pct: number;
+  }>;
 };
 
 type OpenVoucher = {
@@ -149,6 +157,11 @@ export function NebimKrediCeki({ filters }: { filters: NebimSalesSelection }) {
         </CardContent>
       </Card>
 
+      {/* Ciro payı — dükkan dükkan (çekle tahsilat ↔ mağaza cirosu) */}
+      {data.by_store.some((s) => s.ciro > 0 || s.used > 0) ? (
+        <CiroPayiTable rows={data.by_store} />
+      ) : null}
+
       {/* Kalanlar — aktif açık çekler */}
       {data.active.length > 0 ? (
         <KalanlarTable
@@ -177,6 +190,89 @@ export function NebimKrediCeki({ filters }: { filters: NebimSalesSelection }) {
       {/* Hareketler — tarih tarih, mağaza mağaza */}
       <Hareketler txns={data.txns} />
     </div>
+  );
+}
+
+/**
+ * CİRO PAYI — dükkan dükkan: dönemde çekle yapılan tahsilatın o mağazanın
+ * cirosuna oranı. Kullanıcının referans görselindeki stil: % kalın, altında
+ * "ciro ₺X" soluk. TOPLAM satırı koyu.
+ */
+function CiroPayiTable({ rows }: { rows: KrediCekiData["by_store"] }) {
+  const tUsed = rows.reduce((s, r) => s + r.used, 0);
+  const tUsedCount = rows.reduce((s, r) => s + r.used_count, 0);
+  const tIssued = rows.reduce((s, r) => s + r.issued, 0);
+  const tCiro = rows.reduce((s, r) => s + r.ciro, 0);
+  const tPct = tCiro > 0 ? (tUsed / tCiro) * 100 : 0;
+  const pct = (n: number) => `%${n.toFixed(1).replace(".", ",")}`;
+  return (
+    <Card className="overflow-hidden">
+      <CardContent className="p-0">
+        <div className="px-4 py-2.5 border-b border-border/50 text-sm font-semibold">
+          Ciro Payı — Dükkan Dükkan
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            çekle tahsilatın mağaza cirosuna oranı (dönem)
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] border-collapse text-sm">
+            <thead>
+              <tr className="bg-slate-900 text-slate-100 text-[10px] uppercase tracking-wider">
+                <th className="text-left font-semibold px-4 py-2.5">Mağaza</th>
+                <th className="text-right font-semibold px-4 py-2.5">Çekle Tahsilat</th>
+                <th className="text-right font-semibold px-4 py-2.5">Düzenlenen Çek</th>
+                <th className="text-right font-semibold px-4 py-2.5">Ciro Payı</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.store} className="border-b border-border/40 hover:bg-muted/30">
+                  <td className="px-4 py-2.5">
+                    <span className="inline-flex items-center gap-1.5 font-medium">
+                      <span className={`h-2 w-2 rounded-full ${storeDot(r.store)}`} />
+                      {r.store}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    <div className="tabular-nums font-semibold">{fmt(r.used)}</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {r.used_count} işlem
+                    </div>
+                  </td>
+                  <td className="px-4 py-2.5 text-right tabular-nums text-rose-700">
+                    {r.issued > 0 ? `−${fmt(r.issued)}` : "—"}
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    <div className="tabular-nums font-bold">{pct(r.pay_pct)}</div>
+                    <div className="text-[10px] text-muted-foreground tabular-nums">
+                      ciro {fmt(r.ciro)}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-900 text-slate-100 font-semibold">
+                <td className="px-4 py-2.5">TOPLAM</td>
+                <td className="px-4 py-2.5 text-right">
+                  <div className="tabular-nums">{fmt(tUsed)}</div>
+                  <div className="text-[10px] text-slate-300">{tUsedCount} işlem</div>
+                </td>
+                <td className="px-4 py-2.5 text-right tabular-nums">
+                  {tIssued > 0 ? `−${fmt(tIssued)}` : "—"}
+                </td>
+                <td className="px-4 py-2.5 text-right">
+                  <div className="tabular-nums font-bold">{pct(tPct)}</div>
+                  <div className="text-[10px] text-slate-300 tabular-nums">
+                    ciro {fmt(tCiro)}
+                  </div>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

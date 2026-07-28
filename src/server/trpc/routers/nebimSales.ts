@@ -1838,6 +1838,87 @@ export const nebimSalesRouter = router({
         .sort((a, b) => (b.last_valid ?? "").localeCompare(a.last_valid ?? ""));
       const expired = expiredAll.slice(0, 100);
 
+      // ── CİRO PAYI — mağaza mağaza (dönem) ────────────────────────────
+      // Çekle tahsilat (artı hareket) ve düzenlenen çek (eksi) mağaza
+      // bazında, dönem cirosuyla (NebimSaleLine net) oranlanır. txns'in
+      // take:1500 sınırından etkilenmesin diye ayrı groupBy ile (kesin).
+      const [usedGroups, issuedGroups, ciroGroups, allStores] =
+        await Promise.all([
+          ctx.prisma.nebimVoucherTxn.groupBy({
+            by: ["store_id"],
+            where: {
+              amount: { gt: 0 },
+              ...(input.store_id ? { store_id: input.store_id } : {}),
+              ...(Object.keys(dateFilter).length > 0
+                ? { txn_date: dateFilter }
+                : {}),
+            },
+            _sum: { amount: true },
+            _count: { _all: true },
+          }),
+          ctx.prisma.nebimVoucherTxn.groupBy({
+            by: ["store_id"],
+            where: {
+              amount: { lt: 0 },
+              ...(input.store_id ? { store_id: input.store_id } : {}),
+              ...(Object.keys(dateFilter).length > 0
+                ? { txn_date: dateFilter }
+                : {}),
+            },
+            _sum: { amount: true },
+          }),
+          ctx.prisma.nebimSaleLine.groupBy({
+            by: ["store_id"],
+            where: {
+              ...(input.store_id ? { store_id: input.store_id } : {}),
+              ...(Object.keys(dateFilter).length > 0
+                ? { invoice_date: dateFilter }
+                : {}),
+            },
+            _sum: { net_amount: true },
+          }),
+          ctx.prisma.store.findMany({
+            where: {
+              deleted_at: null,
+              brand: { name: { contains: "derimod", mode: "insensitive" } },
+            },
+            select: { id: true, name: true },
+          }),
+        ]);
+      const usedOf = new Map(
+        usedGroups.map((g) => [
+          g.store_id,
+          { sum: Number(g._sum.amount ?? 0), count: g._count._all },
+        ])
+      );
+      const issuedOf = new Map(
+        issuedGroups.map((g) => [g.store_id, Math.abs(Number(g._sum.amount ?? 0))])
+      );
+      const ciroOf = new Map(
+        ciroGroups.map((g) => [g.store_id, Number(g._sum.net_amount ?? 0)])
+      );
+      const storeOrderKey = (s: string) => {
+        const n = s.toLocaleLowerCase("tr").replace(/ı/g, "i");
+        if (n.includes("lefkosa")) return 0;
+        if (n.includes("girne")) return 1;
+        if (n.includes("magusa")) return 2;
+        return 3;
+      };
+      const byStore = allStores
+        .sort((a, b) => storeOrderKey(a.name) - storeOrderKey(b.name))
+        .map((s) => {
+          const u = usedOf.get(s.id) ?? { sum: 0, count: 0 };
+          const ciro = ciroOf.get(s.id) ?? 0;
+          return {
+            store: s.name.replace(/^DERIMOD\s*/i, ""),
+            used: u.sum,
+            used_count: u.count,
+            issued: issuedOf.get(s.id) ?? 0,
+            ciro,
+            pay_pct: ciro > 0 ? (u.sum / ciro) * 100 : 0,
+          };
+        });
+
       return {
         has_data: txns.length > 0 || cards.length > 0,
         kpi: {
@@ -1854,6 +1935,7 @@ export const nebimSalesRouter = router({
         active,
         expired,
         expired_more: Math.max(0, expiredAll.length - expired.length),
+        by_store: byStore,
       };
     }),
 });
