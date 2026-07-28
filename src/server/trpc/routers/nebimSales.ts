@@ -1435,8 +1435,9 @@ export const nebimSalesRouter = router({
         },
         cards: [] as Array<{
           store_id: string; store: string; code: string | null;
-          net: number; gross_units: number; return_units: number;
-          net_units: number; invoices: number; upt: number; avg_basket: number;
+          net: number; net_ex_vat: number; gross_units: number;
+          return_units: number; net_units: number; invoices: number;
+          upt: number; avg_basket: number;
           target: number | null; realized_pct: number | null;
           forecast: number | null; forecast_pct: number | null;
         }>,
@@ -1474,7 +1475,7 @@ export const nebimSalesRouter = router({
           where: base,
           select: {
             store_id: true, invoice_ref: true, qty: true, net_amount: true,
-            is_return: true, nebim_store_code: true,
+            tax_base: true, is_return: true, nebim_store_code: true,
           },
         }),
         ctx.prisma.store.findMany({
@@ -1490,7 +1491,7 @@ export const nebimSalesRouter = router({
       ]);
 
       type Agg = {
-        net: number; gross: number; ret: number;
+        net: number; exVat: number; gross: number; ret: number;
         refs: Set<string>; code: string | null;
       };
       const byStore = new Map<string, Agg>();
@@ -1498,10 +1499,14 @@ export const nebimSalesRouter = router({
         if (!l.store_id) continue;
         let a = byStore.get(l.store_id);
         if (!a) {
-          a = { net: 0, gross: 0, ret: 0, refs: new Set(), code: null };
+          a = { net: 0, exVat: 0, gross: 0, ret: 0, refs: new Set(), code: null };
           byStore.set(l.store_id, a);
         }
         a.net += Number(l.net_amount ?? 0);
+        // Vergisiz ciro (Nebim TaxBase = KDV matrahı) — HEDEFLER VERGİSİZ
+        // verildiğinden hedef/HGO/tahmin bu tutarla kıyaslanır.
+        // Kimlik doğrulandı: tax_base + vat = net_amount (17.267/17.267, sapma 0).
+        a.exVat += Number(l.tax_base ?? 0);
         const q = Math.abs(Number(l.qty ?? 0));
         if (l.is_return) a.ret += q;
         else { a.gross += q; a.refs.add(l.invoice_ref); }
@@ -1525,21 +1530,24 @@ export const nebimSalesRouter = router({
         .map((s) => {
           const a = byStore.get(s.id);
           const net = a?.net ?? 0;
+          const netExVat = a?.exVat ?? 0;
           const invoices = a?.refs.size ?? 0;
           const gross = a?.gross ?? 0;
           const ret = a?.ret ?? 0;
           const target = targetOf.get(s.id) ?? null;
-          // Ay-sonu tahmini: biten ayda gerçekleşen; süren ayda lineer projeksiyon.
+          // Ay-sonu tahmini — VERGİSİZ (hedefler KDV hariç verilir):
+          // biten ayda gerçekleşen; süren ayda lineer projeksiyon.
           const forecast = monthDone
-            ? net
+            ? netExVat
             : isCurrentMonth && elapsedDays > 0
-              ? (net / elapsedDays) * daysInMonth
+              ? (netExVat / elapsedDays) * daysInMonth
               : null;
           return {
             store_id: s.id,
             store: s.name.replace(/^DERIMOD\s*/i, ""),
             code: a?.code ?? null,
             net,
+            net_ex_vat: netExVat,
             gross_units: gross,
             return_units: ret,
             net_units: gross - ret,
@@ -1547,7 +1555,8 @@ export const nebimSalesRouter = router({
             upt: invoices ? gross / invoices : 0,
             avg_basket: invoices ? net / invoices : 0,
             target,
-            realized_pct: target && target > 0 ? (net / target) * 100 : null,
+            realized_pct:
+              target && target > 0 ? (netExVat / target) * 100 : null,
             forecast,
             forecast_pct:
               target && target > 0 && forecast != null

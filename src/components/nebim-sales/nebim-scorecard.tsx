@@ -167,10 +167,13 @@ export function NebimScorecard({
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                      Net Gelir
+                      Net Gelir <span className="normal-case">(KDV dahil)</span>
                     </div>
                     <div className="text-2xl font-bold tabular-nums mt-0.5">
                       {fmt2(c.net)}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
+                      KDV hariç: <span className="font-semibold text-foreground/80">{fmt2(c.net_ex_vat)}</span>
                     </div>
                   </div>
                   <div>
@@ -242,7 +245,8 @@ export function NebimScorecard({
                         </div>
                         <div className="flex items-center justify-between text-[11px]">
                           <span className="tabular-nums text-muted-foreground">
-                            {fmt2(c.target)}
+                            {fmt0(c.net_ex_vat)} / {fmt2(c.target)}
+                            <span className="ml-1 text-[10px]">· KDV hariç</span>
                           </span>
                           <button
                             type="button"
@@ -261,7 +265,8 @@ export function NebimScorecard({
                               {p.month_done ? "Ay kapandı" : "Ay-sonu tahmini:"}{" "}
                               <span className="font-semibold text-foreground tabular-nums">
                                 {fmt0(c.forecast)}
-                              </span>
+                              </span>{" "}
+                              <span className="text-[10px]">(KDV hariç)</span>
                             </span>
                             {fPct != null ? (
                               <span
