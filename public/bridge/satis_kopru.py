@@ -31,7 +31,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 try:
     import requests
@@ -358,11 +358,17 @@ FROM cdGiftCard
 """
 
 
+# Çek DÜZENLEME hareketleri (müşteri/mağaza kaynağı) yıllar öncesine gider —
+# açık çeklerin en eskisi 2019. Satış lookback'i burada YETERSİZ kalır; sabit
+# eski tarihten çekiyoruz. Hacim düşük (PaymentTypeCode=7), upsert idempotent.
+VOUCHER_TXN_SINCE = date(2019, 1, 1)
+
+
 def fetch_vouchers(conn, cfg: dict, since_override=None):
-    """Kredi çeki hareketleri (since'ten itibaren) + kart anlık görüntüsü."""
-    lookback = int(cfg.get("sales_lookback_days", 3))
+    """Kredi çeki hareketleri (HER ZAMAN 2019'dan itibaren — since_override
+    ve satış lookback'i bilerek yok sayılır) + kart anlık görüntüsü."""
     company = cfg.get("company_code", 1)
-    since = since_override or (datetime.now() - timedelta(days=lookback)).date()
+    since = VOUCHER_TXN_SINCE
     cur = conn.cursor()
     cur.execute(_VOUCHER_TXN_SQL, company, since)
     txns = _rows_to_dicts(cur)
