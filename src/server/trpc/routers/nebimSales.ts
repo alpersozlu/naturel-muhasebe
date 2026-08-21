@@ -5,6 +5,7 @@ import {
   nebimAnalizSchema,
   nebimCustomerProductsSchema,
   nebimCustomerDetailSchema,
+  nebimCustomersSchema,
   nebimStoreTargetSchema,
 } from "@/lib/zod-schemas/nebim-sales";
 import { getAccessibleStoreIds, isAdmin } from "@/lib/auth/permissions";
@@ -89,7 +90,12 @@ export type NebimCustomersResult = {
  */
 async function computeCustomers(
   ctx: { user: unknown; prisma: PrismaClient },
-  input: { store_id?: string; date_from?: string; date_to?: string }
+  input: {
+    store_id?: string;
+    date_from?: string;
+    date_to?: string;
+    search?: string;
+  }
 ): Promise<NebimCustomersResult> {
   const empty: NebimCustomersResult = {
     kpi: {
@@ -106,9 +112,21 @@ async function computeCustomers(
     date_to: input.date_to,
   });
   if (!base) return empty;
+  // Arama: ada (Türkçe büyük-harf katlamalı — isimler DB'de BÜYÜK) veya
+  // müşteri koduna. Postgres ILIKE 'İ'yi katlayamadığından TR-upper varyantı
+  // da denenir ("fatih" → "FATİH" eşleşir).
+  const q = input.search?.trim();
+  const searchOr: Prisma.NebimSaleLineWhereInput[] | null = q
+    ? [
+        { customer_name: { contains: q, mode: "insensitive" } },
+        { customer_name: { contains: q.toLocaleUpperCase("tr-TR") } },
+        { customer_code: { contains: q } },
+      ]
+    : null;
   const named: Prisma.NebimSaleLineWhereInput = {
     ...base,
     customer_name: { not: null },
+    ...(searchOr ? { OR: searchOr } : {}),
   };
 
   const [groups, invGroups, firstEverGroups, anonAgg] = await Promise.all([
@@ -1316,7 +1334,7 @@ export const nebimSalesRouter = router({
    * "Yeni müşteri" = ilk alışverişi bu dönemde olan (tüm-zaman min tarihe göre).
    */
   customers: adminProcedure
-    .input(nebimAnalizSchema)
+    .input(nebimCustomersSchema)
     .query(async ({ ctx, input }) => computeCustomers(ctx, input)),
 
   /**
@@ -1402,9 +1420,9 @@ export const nebimSalesRouter = router({
       };
     }),
 
-  /** Müşteri listesi Excel — dönem + filtreyle, sadakat rozetli. */
+  /** Müşteri listesi Excel — dönem + filtre + arama ile, sadakat rozetli. */
   exportCustomers: adminProcedure
-    .input(nebimAnalizSchema)
+    .input(nebimCustomersSchema)
     .mutation(async ({ ctx, input }) => {
       const data = await computeCustomers(ctx, input);
       return buildNebimCustomersExcel({

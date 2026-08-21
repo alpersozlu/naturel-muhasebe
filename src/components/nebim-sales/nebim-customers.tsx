@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Loader2,
   Users,
@@ -12,9 +12,12 @@ import {
   ChevronUp,
   Store as StoreIcon,
   CreditCard,
+  Search,
+  X,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { ExportExcelButton } from "@/components/analytics/export-button";
 import type { NebimSalesSelection } from "./nebim-filters";
 
@@ -54,10 +57,19 @@ export function NebimCustomers({
 }: {
   filters: NebimSalesSelection;
 }) {
+  // Müşteri arama — 300ms debounce ile sunucuda (isim TR-katlamalı + kod).
+  const [searchRaw, setSearchRaw] = useState("");
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchRaw.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchRaw]);
+
   const input = {
     store_id: filters.storeId || undefined,
     date_from: filters.dateFrom || undefined,
     date_to: filters.dateTo || undefined,
+    search: search || undefined,
   };
   const { data, isLoading } = trpc.nebimSales.customers.useQuery(input);
   const exportMutation = trpc.nebimSales.exportCustomers.useMutation();
@@ -65,8 +77,26 @@ export function NebimCustomers({
 
   return (
     <div className="space-y-5">
-      {/* Dönem/mağaza seçimi üstteki Filtreler'den yapılır — burada sadece Excel */}
-      <div className="flex items-center justify-end">
+      {/* Müşteri ara + Excel (dönem/mağaza üstteki Filtreler'den) */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="relative w-full max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={searchRaw}
+            onChange={(e) => setSearchRaw(e.target.value)}
+            placeholder="Müşteri adı veya kodu ara… (örn. Fatih, 1-4-21648)"
+            className="pl-9 pr-9 h-10"
+          />
+          {searchRaw ? (
+            <button
+              type="button"
+              onClick={() => setSearchRaw("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
         <ExportExcelButton onExport={() => exportMutation.mutateAsync(input)} />
       </div>
 
@@ -81,9 +111,22 @@ export function NebimCustomers({
         <Card>
           <CardContent className="py-16 text-center text-muted-foreground">
             <Users className="h-12 w-12 mx-auto mb-3 opacity-30" />
-            <div className="font-medium text-foreground">
-              Bu dönemde isimli müşteri satışı yok
-            </div>
+            {search ? (
+              <>
+                <div className="font-medium text-foreground">
+                  &quot;{search}&quot; için bu dönemde müşteri bulunamadı
+                </div>
+                <div className="text-sm mt-1">
+                  Müşterinin bu dönemde alışverişi olmayabilir — üstteki
+                  Dönem&apos;den &quot;Özel aralık → Tüm Zaman&quot; seçip tüm
+                  geçmişte ara.
+                </div>
+              </>
+            ) : (
+              <div className="font-medium text-foreground">
+                Bu dönemde isimli müşteri satışı yok
+              </div>
+            )}
           </CardContent>
         </Card>
       ) : (

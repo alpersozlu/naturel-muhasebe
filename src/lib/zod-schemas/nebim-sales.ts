@@ -54,6 +54,11 @@ export const nebimCustomerDetailSchema = z.object({
   customer_name: z.string().min(1),
 });
 
+/** Müşteri listesi — analiz filtreleri + ada/koda arama. */
+export const nebimCustomersSchema = nebimAnalizSchema.extend({
+  search: z.string().trim().max(80).optional(),
+});
+
 /** Mağaza Karnesi aylık hedef girişi. target_try=0 hedefi kaldırır. */
 export const nebimStoreTargetSchema = z.object({
   store_id: z.string().uuid(),
