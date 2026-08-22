@@ -95,6 +95,7 @@ export default function NebimSalesPage() {
         value={sel}
         onChange={setSel}
         hideStore={tab === "analiz" || tab === "list"}
+        hideExtras={tab === "customers"}
       />
 
       {tab === "list" ? (

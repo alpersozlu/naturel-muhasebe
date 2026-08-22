@@ -102,11 +102,14 @@ export function NebimFilters({
   value,
   onChange,
   hideStore = false,
+  hideExtras = false,
 }: {
   value: NebimSalesSelection;
   onChange: (v: NebimSalesSelection) => void;
   /** Analiz sekmesinde mağaza seçimi Karne kartlarından yapılır — pill'ler gizlenir. */
   hideStore?: boolean;
+  /** Kayıt Tipi + İndirim'i kullanmayan sekmelerde (Müşteriler) gizlenir. */
+  hideExtras?: boolean;
 }) {
   // NEBIM verisi yalnız Derimod markasina ait — mağaza listesini ondan çek.
   const { data: brands } = trpc.brand.list.useQuery();
@@ -379,8 +382,8 @@ export function NebimFilters({
           )}
         </div>
 
-        {/* Kayıt Tipi + İndirim */}
-        <div className="flex gap-3 ml-auto">
+        {/* Kayıt Tipi + İndirim — yalnız bunları kullanan sekmelerde */}
+        <div className={hideExtras ? "hidden" : "flex gap-3 ml-auto"}>
           <div className="space-y-1.5 w-36">
             <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
               Kayıt Tipi
