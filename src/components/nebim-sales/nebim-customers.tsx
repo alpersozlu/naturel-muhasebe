@@ -95,26 +95,8 @@ export function NebimCustomers({
 
   return (
     <div className="space-y-5">
-      {/* Müşteri ara + Excel (dönem/mağaza üstteki Filtreler'den) */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="relative w-full max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            value={searchRaw}
-            onChange={(e) => setSearchRaw(e.target.value)}
-            placeholder="Müşteri adı veya kodu ara… (örn. Fatih, 1-4-21648)"
-            className="pl-9 pr-9 h-10"
-          />
-          {searchRaw ? (
-            <button
-              type="button"
-              onClick={() => setSearchRaw("")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          ) : null}
-        </div>
+      {/* Sayfa aksiyonu — dönem/mağaza üstteki Filtreler'den, arama tabloda */}
+      <div className="flex items-center justify-end">
         <ExportExcelButton onExport={() => exportMutation.mutateAsync(input)} />
       </div>
 
@@ -125,26 +107,13 @@ export function NebimCustomers({
             Müşteri analizi hesaplanıyor…
           </CardContent>
         </Card>
-      ) : data.rows.length === 0 ? (
+      ) : data.rows.length === 0 && !search ? (
         <Card>
           <CardContent className="py-16 text-center text-muted-foreground">
             <Users className="h-12 w-12 mx-auto mb-3 opacity-30" />
-            {search ? (
-              <>
-                <div className="font-medium text-foreground">
-                  &quot;{search}&quot; için bu dönemde müşteri bulunamadı
-                </div>
-                <div className="text-sm mt-1">
-                  Müşterinin bu dönemde alışverişi olmayabilir — üstteki
-                  Dönem&apos;den &quot;Özel aralık → Tüm Zaman&quot; seçip tüm
-                  geçmişte ara.
-                </div>
-              </>
-            ) : (
-              <div className="font-medium text-foreground">
-                Bu dönemde isimli müşteri satışı yok
-              </div>
-            )}
+            <div className="font-medium text-foreground">
+              Bu dönemde isimli müşteri satışı yok
+            </div>
           </CardContent>
         </Card>
       ) : (
@@ -431,17 +400,43 @@ export function NebimCustomers({
           {/* Top müşteriler tablosu */}
           <Card className="overflow-hidden">
             <CardContent className="p-0">
-              <div className="px-4 py-3 border-b border-border/50 flex items-center gap-2">
-                <div className="h-7 w-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+              <div className="px-4 py-3 border-b border-border/50 flex items-center gap-3 flex-wrap">
+                <div className="h-7 w-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
                   <Crown className="h-4 w-4" />
                 </div>
-                <span className="font-semibold text-sm">En Çok Alışveriş Yapan Müşteriler</span>
-                <span className="ml-auto text-[11px] text-muted-foreground">
-                  net harcamaya göre · top {data.rows.length}
-                  {data.total_customers > data.rows.length
-                    ? ` / ${data.total_customers}`
-                    : ""}
-                </span>
+                <div className="min-w-0">
+                  <div className="font-semibold text-sm">
+                    En Çok Alışveriş Yapan Müşteriler
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {search
+                      ? `"${search}" için ${data.total_customers} sonuç`
+                      : `net harcamaya göre · top ${data.rows.length}${
+                          data.total_customers > data.rows.length
+                            ? ` / ${data.total_customers}`
+                            : ""
+                        }`}
+                  </div>
+                </div>
+                {/* Arama — bu tablonun filtresi, o yüzden burada */}
+                <div className="relative ml-auto w-full sm:w-72">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    value={searchRaw}
+                    onChange={(e) => setSearchRaw(e.target.value)}
+                    placeholder="Müşteri adı veya kodu ara…"
+                    className="pl-9 pr-9 h-9"
+                  />
+                  {searchRaw ? (
+                    <button
+                      type="button"
+                      onClick={() => setSearchRaw("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[880px] border-collapse text-sm">
@@ -459,6 +454,19 @@ export function NebimCustomers({
                     </tr>
                   </thead>
                   <tbody>
+                    {data.rows.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
+                          <div className="font-medium text-foreground">
+                            &quot;{search}&quot; için bu dönemde müşteri bulunamadı
+                          </div>
+                          <div className="text-sm mt-1">
+                            Müşterinin bu dönemde alışverişi olmayabilir — üstteki
+                            Dönem&apos;den &quot;Tüm Zaman&quot; seçip tüm geçmişte ara.
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
                     {data.rows.map((r, i) => {
                       const k = `${r.code ?? ""}|${r.name}`;
                       const isOpen = expanded === k;
