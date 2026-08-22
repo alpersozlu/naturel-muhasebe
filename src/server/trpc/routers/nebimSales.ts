@@ -2043,9 +2043,10 @@ export const nebimSalesRouter = router({
         ...o,
         issuer: issuerBySerial.get(o.serial) ?? null,
       }));
+      // Düzenlenme tarihine göre YENİDEN ESKİYE (en son kesilen çek en üstte).
       const active = withIssuer
         .filter((o) => !o.expired)
-        .sort((a, b) => (a.last_valid ?? "9999").localeCompare(b.last_valid ?? "9999"));
+        .sort((a, b) => (b.first_valid ?? "").localeCompare(a.first_valid ?? ""));
       const expiredAll = withIssuer
         .filter((o) => o.expired)
         .sort((a, b) => (b.last_valid ?? "").localeCompare(a.last_valid ?? ""));
