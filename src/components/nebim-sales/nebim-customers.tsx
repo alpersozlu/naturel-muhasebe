@@ -167,12 +167,16 @@ export function NebimCustomers({
             <Kpi
               icon={UserPlus}
               label="Yeni Müşteri"
-              value={String(data.kpi.new_customers)}
-              accent="text-emerald-700"
+              value={
+                data.kpi.new_applicable ? String(data.kpi.new_customers) : "—"
+              }
+              accent="text-emerald-600"
               sub={
-                data.kpi.customers
-                  ? `müşterilerin %${((data.kpi.new_customers / data.kpi.customers) * 100).toFixed(0)}'i`
-                  : "ilk alışverişi bu dönemde"
+                data.kpi.new_applicable
+                  ? data.kpi.customers
+                    ? `müşterilerin %${((data.kpi.new_customers / data.kpi.customers) * 100).toFixed(0)}'i · ilk alışverişi bu dönemde`
+                    : "ilk alışverişi bu dönemde"
+                  : "tüm zamanda ölçülmez — aylık trend aşağıda"
               }
             />
             <Kpi
@@ -189,6 +193,79 @@ export function NebimCustomers({
               delta={deltaPct(data.kpi.avg_spend, data.prev?.avg_spend)}
             />
           </div>
+
+          {/* Aylık yeni müşteri trendi — dikkat çekici ana grafik */}
+          {data.monthly.length > 0 ? (
+            <Card className="overflow-hidden">
+              <CardContent className="p-0">
+                <div className="px-4 py-3 border-b border-border/50 flex items-center gap-2 flex-wrap">
+                  <div className="h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
+                    <UserPlus className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-sm">Yeni Müşteri Trendi</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Her ay kaç müşteri ilk kez alışveriş yaptı ve o ayın
+                      müşterilerinin yüzde kaçı yeni
+                    </div>
+                  </div>
+                  <div className="ml-auto flex items-center gap-3 text-[11px]">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />
+                      Yeni müşteri
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-sm bg-slate-300" />
+                      Geri gelen
+                    </span>
+                  </div>
+                </div>
+                <div className="p-4 overflow-x-auto">
+                  <div className="flex items-end gap-2 min-w-[560px] h-44">
+                    {data.monthly.map((m) => {
+                      const maxA = Math.max(...data.monthly.map((x) => x.active), 1);
+                      const h = (m.active / maxA) * 100;
+                      const newH = m.active > 0 ? (m.new_customers / m.active) * 100 : 0;
+                      const hot = m.new_pct >= 60;
+                      return (
+                        <div key={m.month} className="flex-1 flex flex-col items-center gap-1">
+                          <span
+                            className={`text-[11px] font-bold tabular-nums ${
+                              hot ? "text-emerald-700" : "text-muted-foreground"
+                            }`}
+                          >
+                            %{m.new_pct.toFixed(0)}
+                          </span>
+                          <div
+                            className="w-full rounded-t-md bg-slate-200 relative flex flex-col justify-end overflow-hidden"
+                            style={{ height: `${Math.max(h, 4)}%` }}
+                            title={`${fmtMonth(m.month)}: ${m.active} müşteri · ${m.new_customers} yeni`}
+                          >
+                            <div
+                              className="w-full bg-emerald-500"
+                              style={{ height: `${newH}%` }}
+                            />
+                          </div>
+                          <span className="text-[10px] text-muted-foreground tabular-nums">
+                            {m.active}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                            {fmtMonth(m.month)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
+                    Çubuk yüksekliği o ayın toplam müşterisi; yeşil kısım ilk kez
+                    gelenler. Oran düştükçe geri gelen müşteri tabanınız büyüyor
+                    demektir. Not: veri Ocak 2026&apos;da başladığı için ilk ay
+                    doğal olarak %100 görünür.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
           {/* Sadakat piramidi + konsantrasyon */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

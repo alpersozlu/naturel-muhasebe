@@ -1,4 +1,5 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { router, adminProcedure } from "../trpc";
 import {
   nebimSalesFilterSchema,
@@ -76,6 +77,8 @@ export type NebimCustomersResult = {
     /** Jenerik/turist kartlarının (hariç tutulan) dönem net'i + kart sayısı. */
     generic_net: number;
     generic_count: number;
+    /** "Yeni müşteri" ölçülebilir mi (dönem başlangıcı var mı)? */
+    new_applicable: boolean;
   };
   rows: NebimCustomerRow[];
   total_customers: number;
@@ -88,6 +91,10 @@ export type NebimCustomersResult = {
   }>;
   /** Ciro konsantrasyonu (Pareto): en çok harcayan N müşterinin ciro payı. */
   concentration: { top10: number; top50: number; top100: number };
+  /** Aylık yeni müşteri trendi (son 12 ay, dönem filtresinden BAĞIMSIZ). */
+  monthly: Array<{
+    month: string; active: number; new_customers: number; new_pct: number;
+  }>;
   /** Geri kazanılacaklar: yüksek yaşam-boyu harcaması olan ama uzun süredir
    *  gelmeyen müşteriler (dönem filtresinden BAĞIMSIZ, tüm geçmiş). */
   dormant: Array<{
@@ -116,12 +123,13 @@ async function computeCustomers(
     kpi: {
       customers: 0, net_total: 0, new_customers: 0,
       repeat_pct: 0, avg_spend: 0, anonymous_net: 0,
-      generic_net: 0, generic_count: 0,
+      generic_net: 0, generic_count: 0, new_applicable: false,
     },
     rows: [],
     total_customers: 0,
     prev: null,
     tiers: [],
+    monthly: [],
     concentration: { top10: 0, top50: 0, top100: 0 },
     dormant: [],
   };
@@ -299,6 +307,42 @@ async function computeCustomers(
     };
   }
 
+  // ── Aylık yeni müşteri trendi (son 12 ay, dönem filtresinden bağımsız) ──
+  // Yeni = o ay İLK kez alışveriş yapan müşteri (firstEver'dan); aktif = o ay
+  // alışveriş yapan tekil müşteri (raw SQL, mağaza kapsamı korunur).
+  const newByMonth = new Map<string, number>();
+  for (const g of firstEverGroups) {
+    if (isGenericCustomer(g.customer_name)) continue;
+    const d = g._min.invoice_date;
+    if (!d) continue;
+    const ym = d.toISOString().slice(0, 7);
+    newByMonth.set(ym, (newByMonth.get(ym) ?? 0) + 1);
+  }
+  const activeRaw = await ctx.prisma.$queryRaw<
+    Array<{ ym: string; active: bigint }>
+  >(Prisma.sql`
+    SELECT to_char(invoice_date, 'YYYY-MM') AS ym,
+           COUNT(DISTINCT COALESCE(customer_code, '') || '|' || customer_name) AS active
+    FROM "NebimSaleLine"
+    WHERE customer_name IS NOT NULL
+      AND lower(replace(customer_name, 'ı', 'i')) NOT LIKE '%yabanci%'
+      ${base.store_id ? Prisma.sql`AND store_id = ${base.store_id as string}` : Prisma.empty}
+    GROUP BY 1
+    ORDER BY 1
+  `);
+  const monthly = activeRaw
+    .map((r) => {
+      const active = Number(r.active);
+      const nc = newByMonth.get(r.ym) ?? 0;
+      return {
+        month: r.ym,
+        active,
+        new_customers: nc,
+        new_pct: active > 0 ? (nc / active) * 100 : 0,
+      };
+    })
+    .slice(-12);
+
   // ── Geri kazanılacaklar: yaşam-boyu değerli ama uykuda müşteriler ───
   // Dönem filtresinden bağımsız (tüm geçmiş), mağaza kapsamı korunur.
   const DORMANT_DAYS = 90;
@@ -356,11 +400,13 @@ async function computeCustomers(
       anonymous_net: Number(anonAgg._sum.net_amount ?? 0),
       generic_net: genericNet,
       generic_count: genericCount,
+      new_applicable: periodStart != null,
     },
     rows: rows.slice(0, 100),
     total_customers: count,
     prev,
     tiers,
+    monthly,
     concentration,
     dormant,
   };
