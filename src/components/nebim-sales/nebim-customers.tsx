@@ -4,9 +4,6 @@ import { useEffect, useState } from "react";
 import {
   Loader2,
   Users,
-  UserPlus,
-  Repeat,
-  Wallet,
   Crown,
   ChevronDown,
   ChevronUp,
@@ -14,10 +11,7 @@ import {
   CreditCard,
   Search,
   X,
-  PieChart,
   UserMinus,
-  TrendingUp,
-  TrendingDown,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -56,13 +50,6 @@ const TIER_STYLE: Record<string, { label: string; cls: string }> = {
   bronze: { label: "Bronz", cls: "bg-orange-100 text-orange-700 border-orange-200" },
 };
 
-const TIER_BAR: Record<string, string> = {
-  vip: "bg-violet-500",
-  gold: "bg-amber-500",
-  silver: "bg-slate-400",
-  bronze: "bg-orange-400",
-  none: "bg-slate-300",
-};
 
 /** Geçen döneme göre değişim (%). Önceki dönem yoksa/sıfırsa null. */
 function deltaPct(cur: number, prev: number | undefined): number | null {
@@ -118,164 +105,176 @@ export function NebimCustomers({
         </Card>
       ) : (
         <>
-          {/* KPI şeridi — geçen dönemle kıyaslı */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            <Kpi
-              icon={Users}
-              label="Müşteri"
-              value={String(data.kpi.customers)}
-              delta={deltaPct(data.kpi.customers, data.prev?.customers)}
-            />
-            <Kpi
-              icon={Wallet}
-              label="Müşteri Cirosu"
-              value={intTL(data.kpi.net_total)}
-              accent="text-indigo-700"
-              delta={deltaPct(data.kpi.net_total, data.prev?.net_total)}
-            />
-            <Kpi
-              icon={UserPlus}
-              label="Yeni Müşteri"
-              value={
-                data.kpi.new_applicable ? String(data.kpi.new_customers) : "—"
-              }
-              accent="text-emerald-600"
-              sub={
-                data.kpi.new_applicable
-                  ? data.kpi.customers
-                    ? `müşterilerin %${((data.kpi.new_customers / data.kpi.customers) * 100).toFixed(0)}'i · ilk alışverişi bu dönemde`
-                    : "ilk alışverişi bu dönemde"
-                  : "tüm zamanda ölçülmez — aylık trend aşağıda"
-              }
-            />
-            <Kpi
-              icon={Repeat}
-              label="Tekrar Eden"
-              value={`%${data.kpi.repeat_pct.toFixed(1)}`}
-              sub="2+ fişli müşteri oranı"
-            />
-            <Kpi
-              icon={Crown}
-              label="Ort. Harcama"
-              value={intTL(data.kpi.avg_spend)}
-              accent="text-violet-700"
-              delta={deltaPct(data.kpi.avg_spend, data.prev?.avg_spend)}
-            />
-          </div>
+          {/* Özet şerit — tek kart, ince bölmeler, sakin tipografi */}
+          <Card className="overflow-hidden">
+            <CardContent className="p-0">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 divide-x divide-border/50">
+                <StatCell
+                  label="Müşteri"
+                  value={String(data.kpi.customers)}
+                  delta={deltaPct(data.kpi.customers, data.prev?.customers)}
+                />
+                <StatCell
+                  label="Ciro"
+                  value={intTL(data.kpi.net_total)}
+                  delta={deltaPct(data.kpi.net_total, data.prev?.net_total)}
+                />
+                <StatCell
+                  label="Yeni Müşteri"
+                  value={
+                    data.kpi.new_applicable
+                      ? String(data.kpi.new_customers)
+                      : "—"
+                  }
+                  sub={
+                    data.kpi.new_applicable
+                      ? data.kpi.customers
+                        ? `müşterilerin %${((data.kpi.new_customers / data.kpi.customers) * 100).toFixed(0)}'i`
+                        : "ilk alışverişi bu dönemde"
+                      : "aylık trend aşağıda"
+                  }
+                />
+                <StatCell
+                  label="Tekrar Eden"
+                  value={`%${data.kpi.repeat_pct.toFixed(1)}`}
+                  sub="2+ fişli müşteri oranı"
+                />
+                <StatCell
+                  label="Ort. Harcama"
+                  value={intTL(data.kpi.avg_spend)}
+                  delta={deltaPct(data.kpi.avg_spend, data.prev?.avg_spend)}
+                />
+              </div>
+            </CardContent>
+          </Card>
 
-          {/* Aylık yeni müşteri trendi — dikkat çekici ana grafik */}
+          {/* Yeni müşteri trendi — piksel-kesin sütunlar, tek mürekkep tonu */}
           {data.monthly.length > 0 ? (
             <Card className="overflow-hidden">
               <CardContent className="p-0">
-                <div className="px-4 py-3 border-b border-border/50 flex items-center gap-2 flex-wrap">
-                  <div className="h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
-                    <UserPlus className="h-4 w-4" />
-                  </div>
+                <div className="px-5 py-4 border-b border-border/50 flex items-baseline justify-between gap-3 flex-wrap">
                   <div>
-                    <div className="font-semibold text-sm">Yeni Müşteri Trendi</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      Her ay kaç müşteri ilk kez alışveriş yaptı ve o ayın
-                      müşterilerinin yüzde kaçı yeni
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em]">
+                      Yeni Müşteri Trendi
+                    </div>
+                    <div className="mt-0.5 text-[12px] text-muted-foreground">
+                      Ayın müşterileri içinde ilk kez gelenlerin payı
                     </div>
                   </div>
-                  <div className="ml-auto flex items-center gap-3 text-[11px]">
+                  <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
                     <span className="inline-flex items-center gap-1.5">
-                      <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />
-                      Yeni müşteri
+                      <span className="h-2 w-2 rounded-[2px] bg-foreground" />
+                      Yeni
                     </span>
                     <span className="inline-flex items-center gap-1.5">
-                      <span className="h-2.5 w-2.5 rounded-sm bg-slate-300" />
+                      <span className="h-2 w-2 rounded-[2px] bg-muted-foreground/25" />
                       Geri gelen
                     </span>
                   </div>
                 </div>
-                <div className="p-4 overflow-x-auto">
-                  <div className="flex items-end gap-2 min-w-[560px] h-44">
-                    {data.monthly.map((m) => {
-                      const maxA = Math.max(...data.monthly.map((x) => x.active), 1);
-                      const h = (m.active / maxA) * 100;
-                      const newH = m.active > 0 ? (m.new_customers / m.active) * 100 : 0;
-                      const hot = m.new_pct >= 60;
-                      return (
-                        <div key={m.month} className="flex-1 flex flex-col items-center gap-1">
-                          <span
-                            className={`text-[11px] font-bold tabular-nums ${
-                              hot ? "text-emerald-700" : "text-muted-foreground"
-                            }`}
-                          >
-                            %{m.new_pct.toFixed(0)}
-                          </span>
-                          <div
-                            className="w-full rounded-t-md bg-slate-200 relative flex flex-col justify-end overflow-hidden"
-                            style={{ height: `${Math.max(h, 4)}%` }}
-                            title={`${fmtMonth(m.month)}: ${m.active} müşteri · ${m.new_customers} yeni`}
-                          >
-                            <div
-                              className="w-full bg-emerald-500"
-                              style={{ height: `${newH}%` }}
-                            />
-                          </div>
-                          <span className="text-[10px] text-muted-foreground tabular-nums">
-                            {m.active}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                            {fmtMonth(m.month)}
-                          </span>
+                <div className="px-5 py-6 overflow-x-auto">
+                  {(() => {
+                    const maxA = Math.max(...data.monthly.map((x) => x.active), 1);
+                    const BAR = 140; // px — yüzde yerine piksel: her zaman doğru çizer
+                    return (
+                      <>
+                        <div
+                          className="flex items-end gap-3 min-w-[560px] border-b border-border/70"
+                          style={{ height: BAR + 28 }}
+                        >
+                          {data.monthly.map((m) => {
+                            const total = Math.max(
+                              Math.round((m.active / maxA) * BAR), 3
+                            );
+                            const newH = Math.round(
+                              total * (m.active > 0 ? m.new_customers / m.active : 0)
+                            );
+                            return (
+                              <div
+                                key={m.month}
+                                className="flex-1 flex flex-col items-center justify-end gap-1.5"
+                                title={`${fmtMonth(m.month)} · ${m.active} müşteri · ${m.new_customers} yeni (%${m.new_pct.toFixed(0)})`}
+                              >
+                                <span className="text-[11px] font-semibold tabular-nums">
+                                  %{m.new_pct.toFixed(0)}
+                                </span>
+                                <div
+                                  className="w-full max-w-[36px] flex flex-col justify-end rounded-t-[3px] overflow-hidden"
+                                  style={{ height: total }}
+                                >
+                                  <div
+                                    className="w-full bg-muted-foreground/25"
+                                    style={{ height: total - newH }}
+                                  />
+                                  <div
+                                    className="w-full bg-foreground"
+                                    style={{ height: newH }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
-                      );
-                    })}
-                  </div>
-                  <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
-                    Çubuk yüksekliği o ayın toplam müşterisi; yeşil kısım ilk kez
-                    gelenler. Oran düştükçe geri gelen müşteri tabanınız büyüyor
-                    demektir. Not: veri Ocak 2026&apos;da başladığı için ilk ay
-                    doğal olarak %100 görünür.
+                        <div className="flex gap-3 min-w-[560px] mt-2">
+                          {data.monthly.map((m) => (
+                            <div key={m.month} className="flex-1 text-center">
+                              <div className="text-[11px] tabular-nums text-foreground/80">
+                                {m.active}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground mt-0.5">
+                                {fmtMonth(m.month)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    );
+                  })()}
+                  <p className="text-[11px] text-muted-foreground mt-4 leading-relaxed max-w-3xl">
+                    Koyu kısım o ay ilk kez gelen müşteri; oran düştükçe geri
+                    gelen müşteri tabanı büyüyor demektir. Veri Ocak
+                    2026&apos;da başladığı için ilk ay doğal olarak %100
+                    görünür.
                   </p>
                 </div>
               </CardContent>
             </Card>
           ) : null}
 
-          {/* Sadakat piramidi + konsantrasyon */}
+          {/* Sadakat piramidi + konsantrasyon — tek renk, ince çizgi */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <Card className="lg:col-span-2 overflow-hidden">
               <CardContent className="p-0">
-                <div className="px-4 py-3 border-b border-border/50 flex items-center gap-2">
-                  <div className="h-7 w-7 rounded-lg bg-violet-500/10 text-violet-600 flex items-center justify-center">
-                    <Crown className="h-4 w-4" />
-                  </div>
-                  <span className="font-semibold text-sm">Sadakat Piramidi</span>
-                  <span className="ml-auto text-[11px] text-muted-foreground">
+                <div className="px-5 py-4 border-b border-border/50 flex items-baseline justify-between gap-3">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">
+                    Sadakat Piramidi
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
                     dönem harcamasına göre bant · ciro payı
                   </span>
                 </div>
-                <div className="p-4 space-y-2.5">
+                <div className="px-5 py-4 space-y-3">
                   {data.tiers.map((t) => (
-                    <div key={t.key} className="flex items-center gap-3">
-                      <span
-                        className={`w-16 shrink-0 text-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                          TIER_STYLE[t.key]?.cls ??
-                          "bg-slate-50 text-slate-600 border-slate-200"
-                        }`}
-                      >
+                    <div key={t.key} className="flex items-center gap-4">
+                      <span className="w-14 shrink-0 text-xs font-medium">
                         {t.label}
                       </span>
-                      <span className="w-20 shrink-0 text-xs text-muted-foreground tabular-nums">
+                      <span className="w-16 shrink-0 text-right text-[11px] text-muted-foreground tabular-nums">
                         {t.count} kişi
                       </span>
-                      <div className="flex-1 h-2.5 rounded-full bg-muted/60 overflow-hidden">
+                      <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
                         <div
-                          className={`h-full rounded-full ${TIER_BAR[t.key] ?? "bg-slate-400"}`}
+                          className="h-full rounded-full bg-foreground/75"
                           style={{ width: `${Math.min(t.share_pct, 100)}%` }}
                         />
                       </div>
-                      <span className="w-28 shrink-0 text-right text-xs tabular-nums font-semibold">
+                      <span className="w-24 shrink-0 text-right text-xs tabular-nums font-semibold">
                         {intTL(t.net)}
                       </span>
-                      <span className="w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                      <span className="w-12 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
                         %{t.share_pct.toFixed(1)}
                       </span>
-                      <span className="w-24 shrink-0 text-right text-[10px] text-muted-foreground tabular-nums hidden sm:block">
+                      <span className="w-20 shrink-0 text-right text-[10px] text-muted-foreground tabular-nums hidden sm:block">
                         ort. {intTL(t.avg)}
                       </span>
                     </div>
@@ -286,13 +285,12 @@ export function NebimCustomers({
 
             <Card className="overflow-hidden">
               <CardContent className="p-0">
-                <div className="px-4 py-3 border-b border-border/50 flex items-center gap-2">
-                  <div className="h-7 w-7 rounded-lg bg-indigo-500/10 text-indigo-600 flex items-center justify-center">
-                    <PieChart className="h-4 w-4" />
-                  </div>
-                  <span className="font-semibold text-sm">Ciro Konsantrasyonu</span>
+                <div className="px-5 py-4 border-b border-border/50">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">
+                    Ciro Konsantrasyonu
+                  </span>
                 </div>
-                <div className="p-4 space-y-3">
+                <div className="px-5 py-4 space-y-4">
                   {(
                     [
                       ["İlk 10 müşteri", data.concentration.top10],
@@ -301,23 +299,23 @@ export function NebimCustomers({
                     ] as Array<[string, number]>
                   ).map(([label, v]) => (
                     <div key={label}>
-                      <div className="flex items-baseline justify-between mb-1">
+                      <div className="flex items-baseline justify-between mb-1.5">
                         <span className="text-xs text-muted-foreground">{label}</span>
-                        <span className="text-sm font-bold tabular-nums">
+                        <span className="text-sm font-semibold tabular-nums">
                           %{v.toFixed(1)}
                         </span>
                       </div>
-                      <div className="h-2 rounded-full bg-muted/60 overflow-hidden">
+                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                         <div
-                          className="h-full rounded-full bg-indigo-500"
+                          className="h-full rounded-full bg-foreground/75"
                           style={{ width: `${Math.min(v, 100)}%` }}
                         />
                       </div>
                     </div>
                   ))}
-                  <p className="text-[10px] text-muted-foreground pt-1 leading-relaxed">
-                    Cironun ne kadarı en çok harcayan müşterilerden geliyor.
-                    Yüksek oran = az sayıda müşteriye bağımlılık.
+                  <p className="text-[11px] text-muted-foreground pt-1 leading-relaxed">
+                    Cironun ne kadarı en çok harcayan müşterilerden geliyor —
+                    yüksek oran, az sayıda müşteriye bağımlılık demektir.
                   </p>
                 </div>
               </CardContent>
@@ -718,47 +716,38 @@ function CustomerDetail({ code, name }: { code: string | null; name: string }) {
   );
 }
 
-function Kpi({
-  icon: Icon,
+/** Sakin istatistik hücresi — ikon yok, tipografi hiyerarşisi konuşur. */
+function StatCell({
   label,
   value,
   sub,
-  accent,
   delta,
 }: {
-  icon: typeof Users;
   label: string;
   value: string;
   sub?: string;
-  accent?: string;
-  /** Geçen döneme göre % değişim — ok + etiketle gösterilir (renk tek başına değil). */
   delta?: number | null;
 }) {
-  const up = delta != null && delta >= 0;
-  const DeltaIcon = up ? TrendingUp : TrendingDown;
   return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
-          <Icon className="h-3.5 w-3.5" />
-          {label}
+    <div className="px-5 py-4">
+      <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1.5 text-2xl font-semibold tabular-nums tracking-tight">
+        {value}
+      </div>
+      {delta != null ? (
+        <div
+          className={`mt-1 text-[11px] tabular-nums ${
+            delta >= 0 ? "text-emerald-600" : "text-rose-500"
+          }`}
+        >
+          {delta >= 0 ? "↑" : "↓"} %{Math.abs(delta).toFixed(1).replace(".", ",")}
+          <span className="text-muted-foreground"> önceki dönem</span>
         </div>
-        <div className={`mt-1 text-xl font-bold tabular-nums ${accent ?? ""}`}>{value}</div>
-        {delta != null ? (
-          <div
-            className={`mt-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-              up ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
-            }`}
-          >
-            <DeltaIcon className="h-3 w-3" />
-            {up ? "+" : ""}
-            {delta.toFixed(1).replace(".", ",")}%
-            <span className="font-normal opacity-70">geçen dönem</span>
-          </div>
-        ) : sub ? (
-          <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>
-        ) : null}
-      </CardContent>
-    </Card>
+      ) : sub ? (
+        <div className="mt-1 text-[11px] text-muted-foreground">{sub}</div>
+      ) : null}
+    </div>
   );
 }
