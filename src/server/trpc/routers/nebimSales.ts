@@ -160,7 +160,7 @@ async function computeCustomers(
     ctx.prisma.nebimSaleLine.groupBy({
       by: ["customer_code", "customer_name"],
       where: named,
-      _sum: { net_amount: true, qty: true },
+      _sum: { tax_base: true, qty: true },
       _count: { _all: true },
       _min: { invoice_date: true },
       _max: { invoice_date: true },
@@ -180,7 +180,7 @@ async function computeCustomers(
     }),
     ctx.prisma.nebimSaleLine.aggregate({
       where: { ...base, customer_name: null },
-      _sum: { net_amount: true },
+      _sum: { tax_base: true },
     }),
   ]);
 
@@ -206,7 +206,7 @@ async function computeCustomers(
   let genericNet = 0, genericCount = 0;
   const rows: NebimCustomerRow[] = [];
   for (const g of groups) {
-    const net = Number(g._sum.net_amount ?? 0);
+    const net = Number(g._sum.tax_base ?? 0); // KDV hariç
     // Jenerik/turist kartları gerçek kişi değil — listeden ve KPI'lardan hariç.
     if (isGenericCustomer(g.customer_name)) {
       genericNet += net;
@@ -292,12 +292,12 @@ async function computeCustomers(
         customer_name: { not: null },
         invoice_date: { gte: prevFrom, lte: prevTo },
       },
-      _sum: { net_amount: true },
+      _sum: { tax_base: true },
     });
     let pNet = 0, pCount = 0;
     for (const g of pg) {
       if (isGenericCustomer(g.customer_name)) continue;
-      pNet += Number(g._sum.net_amount ?? 0);
+      pNet += Number(g._sum.tax_base ?? 0);
       pCount += 1;
     }
     prev = {
@@ -346,14 +346,15 @@ async function computeCustomers(
   // ── Geri kazanılacaklar: yaşam-boyu değerli ama uykuda müşteriler ───
   // Dönem filtresinden bağımsız (tüm geçmiş), mağaza kapsamı korunur.
   const DORMANT_DAYS = 90;
-  const DORMANT_MIN_NET = 25_000; // Gümüş bandı ve üzeri
+  // Gümüş bandı ve üzeri. LOYALTY_TIERS ile aynı bazda (KDV hariç) okunur.
+  const DORMANT_MIN_NET = 25_000;
   const lifetime = await ctx.prisma.nebimSaleLine.groupBy({
     by: ["customer_code", "customer_name"],
     where: {
       ...(base.store_id ? { store_id: base.store_id } : {}),
       customer_name: { not: null },
     },
-    _sum: { net_amount: true },
+    _sum: { tax_base: true },
     _max: { invoice_date: true },
   });
   const lifeInv = await ctx.prisma.nebimSaleLine.groupBy({
@@ -380,7 +381,7 @@ async function computeCustomers(
       return {
         code: g.customer_code,
         name: g.customer_name ?? "—",
-        lifetime_net: Number(g._sum.net_amount ?? 0),
+        lifetime_net: Number(g._sum.tax_base ?? 0),
         invoices: lifeInvCount.get(key(g.customer_code, g.customer_name)) ?? 0,
         last_date: iso(last),
         days_since: daysSince,
@@ -397,7 +398,7 @@ async function computeCustomers(
       new_customers: newCustomers,
       repeat_pct: count ? (repeat / count) * 100 : 0,
       avg_spend: count ? netTotal / count : 0,
-      anonymous_net: Number(anonAgg._sum.net_amount ?? 0),
+      anonymous_net: Number(anonAgg._sum.tax_base ?? 0),
       generic_net: genericNet,
       generic_count: genericCount,
       new_applicable: periodStart != null,
@@ -542,7 +543,7 @@ function buildOrderBy(
     case "discount":
       return [{ discount_pct: { sort: dir, nulls: "last" } }, { id: "desc" }];
     case "net":
-      return [{ net_amount: { sort: dir, nulls: "last" } }, { id: "desc" }];
+      return [{ tax_base: { sort: dir, nulls: "last" } }, { id: "desc" }];
     case "date":
       // Tarih sıralarken fişi/satırı bir arada tut (tekil sıra).
       return dir === "asc"
@@ -551,6 +552,19 @@ function buildOrderBy(
     default:
       return [{ invoice_date: "desc" }, { invoice_ref: "desc" }, { sort_order: "asc" }];
   }
+}
+
+/**
+ * KDV-hariç orijinal tutar. Net tarafın aksine hazır bir sütun yok (`amount_vi`
+ * = Vergi İçeren), bu yüzden satır bazlı `vat_rate` ile türetilir. Oran SABİT
+ * DEĞİL: veride %10 ve %16 birlikte görülüyor — tek bir bölene indirgeme.
+ */
+function exVatAmount(amount: unknown, vatRate: unknown): number | null {
+  if (amount == null) return null;
+  const a = Number(amount);
+  if (vatRate == null) return a;
+  const r = Number(vatRate);
+  return r > 0 ? a / (1 + r / 100) : a;
 }
 
 /** İndirim yüzdesi bantları — orijinal (amount_vi) → net (net_amount) farkına göre. */
@@ -696,20 +710,24 @@ export const nebimSalesRouter = router({
         payment_type: r.payment_type,
         card_type: r.card_type,
         qty: Number(r.qty),
+        // KDV DAHİL ham tutarlar — Nebim fişiyle birebir karşılaştırma için durur.
         amount_vi: r.amount_vi == null ? null : Number(r.amount_vi),
         net_amount: r.net_amount == null ? null : Number(r.net_amount),
+        // KDV HARİÇ — tablo bunları gösterir (özet kartlarıyla aynı baz).
+        amount_ex: exVatAmount(r.amount_vi, r.vat_rate),
+        net_ex: r.tax_base == null ? null : Number(r.tax_base),
         invoice_note: r.invoice_note,
         mgmt_note: r.mgmt_note,
         discount_reason: r.discount_reason,
         campaign: r.campaign,
       }));
 
-      // Özet — sayfa değil, TÜM filtre için
+      // Özet — sayfa değil, TÜM filtre için. Tutarlar KDV HARİÇ (tax_base).
       const [agg, byStoreRaw, invoiceGroups, stores] = await Promise.all([
         ctx.prisma.nebimSaleLine.aggregate({
           where,
           _count: { _all: true },
-          _sum: { net_amount: true },
+          _sum: { tax_base: true },
           _min: { invoice_date: true },
           _max: { invoice_date: true },
         }),
@@ -717,7 +735,7 @@ export const nebimSalesRouter = router({
           by: ["store_id"],
           where: whereAllStores,
           _count: { _all: true },
-          _sum: { net_amount: true },
+          _sum: { tax_base: true },
         }),
         ctx.prisma.nebimSaleLine.groupBy({
           by: ["company_code", "invoice_ref"],
@@ -732,7 +750,7 @@ export const nebimSalesRouter = router({
           store_id: g.store_id,
           store_name: g.store_id ? nameOf.get(g.store_id) ?? null : null,
           lines: g._count._all,
-          net: Number(g._sum.net_amount ?? 0),
+          net: Number(g._sum.tax_base ?? 0),
         }))
         .sort((a, b) => b.net - a.net);
 
@@ -742,7 +760,7 @@ export const nebimSalesRouter = router({
         summary: {
           lines: agg._count._all,
           invoices: invoiceGroups.length,
-          net_total: Number(agg._sum.net_amount ?? 0),
+          net_total: Number(agg._sum.tax_base ?? 0),
           date_min: agg._min.invoice_date,
           date_max: agg._max.invoice_date,
           by_store,
@@ -972,9 +990,10 @@ export const nebimSalesRouter = router({
         odeme: r.payment_type ?? "",
         kart: r.card_type ?? "",
         adet: Number(r.qty),
-        orijinal: r.amount_vi == null ? null : Number(r.amount_vi),
+        // Tutarlar KDV HARİÇ — ekrandaki Liste ile aynı baz.
+        orijinal: exVatAmount(r.amount_vi, r.vat_rate),
         indirim_pct: r.discount_pct == null ? null : Number(r.discount_pct),
-        net: r.net_amount == null ? null : Number(r.net_amount),
+        net: r.tax_base == null ? null : Number(r.tax_base),
         kampanya: r.campaign ?? "",
         iskonto_nedeni: r.discount_reason ?? "",
         yonetim_aciklamasi: r.mgmt_note ?? "",
@@ -1003,8 +1022,10 @@ export const nebimSalesRouter = router({
     }),
 
   /**
-   * Satış analizi — personel / müşteri / mağaza kırılımı (tarih aralığına göre).
-   * Net = sum(net_amount) (iadeler negatif → kendiliğinden düşer).
+   * Satış analizi — dönem KPI'ları + indirim kırılımı.
+   * Net = sum(tax_base), yani KDV HARİÇ (iadeler negatif → kendiliğinden düşer).
+   * İndirim analizi tek istisna: KDV DAHİL kalır, çünkü orijinal fiyatın
+   * (amount_vi) vergisiz karşılığı DB'de yok. UI bunu açıkça etiketler.
    */
   analiz: adminProcedure
     .input(nebimAnalizSchema)
@@ -1012,23 +1033,9 @@ export const nebimSalesRouter = router({
       const where = await buildWhere(ctx, input);
       const empty = {
         kpi: { net_total: 0, invoices: 0, lines: 0, returns_total: 0, returns_count: 0 },
-        by_salesperson: [] as Array<{ name: string; net: number; lines: number; invoices: number }>,
-        by_customer: [] as Array<{ name: string; net: number; lines: number; invoices: number }>,
-        by_store: [] as Array<{ store_name: string | null; net: number; lines: number }>,
-        by_payment: [] as Array<{ label: string; net: number; lines: number; invoices: number }>,
-        by_campaign: [] as Array<{ label: string; net: number; lines: number; invoices: number }>,
-        by_reason: [] as Array<{ label: string; net: number; lines: number; invoices: number }>,
-        manuel: {
-          lines: 0,
-          invoices: 0,
-          net: 0,
-          top: [] as Array<{ note: string; net: number; lines: number }>,
-        },
         indirim: EMPTY_INDIRIM,
       };
       if (!where) return empty;
-
-      const manuelWhere: Prisma.NebimSaleLineWhereInput = { ...where, mgmt_note: { not: null } };
 
       // İndirim = sadece satış satırları (iade hariç, orijinal tutar > 0)
       const discWhere: Prisma.NebimSaleLineWhereInput = {
@@ -1036,181 +1043,23 @@ export const nebimSalesRouter = router({
         is_return: false,
         amount_vi: { gt: 0 },
       };
-      const campWhere: Prisma.NebimSaleLineWhereInput = { ...where, campaign: { not: null } };
-      const reasonWhere: Prisma.NebimSaleLineWhereInput = { ...where, discount_reason: { not: null } };
 
-      const custWhere: Prisma.NebimSaleLineWhereInput = {
-        ...where,
-        customer_name: { not: null },
-      };
-
-      const [
-        agg,
-        bySales,
-        salesInv,
-        byCust,
-        custInv,
-        byStoreRaw,
-        byPayRaw,
-        payInv,
-        invoiceGroups,
-        stores,
-        discRows,
-        byCampRaw,
-        campInv,
-        byReasonRaw,
-        reasonInv,
-        manuelAgg,
-        manuelInv,
-        byMgmtRaw,
-        retAgg,
-      ] = await Promise.all([
-        ctx.prisma.nebimSaleLine.aggregate({ where, _count: { _all: true }, _sum: { net_amount: true } }),
-        ctx.prisma.nebimSaleLine.groupBy({ by: ["salesperson_name"], where, _count: { _all: true }, _sum: { net_amount: true } }),
-        ctx.prisma.nebimSaleLine.groupBy({ by: ["salesperson_name", "invoice_ref"], where }),
-        ctx.prisma.nebimSaleLine.groupBy({ by: ["customer_name"], where: custWhere, _count: { _all: true }, _sum: { net_amount: true } }),
-        ctx.prisma.nebimSaleLine.groupBy({ by: ["customer_name", "invoice_ref"], where: custWhere }),
-        ctx.prisma.nebimSaleLine.groupBy({ by: ["store_id"], where, _count: { _all: true }, _sum: { net_amount: true } }),
-        ctx.prisma.nebimSaleLine.groupBy({ by: ["payment_type"], where, _count: { _all: true }, _sum: { net_amount: true } }),
-        ctx.prisma.nebimSaleLine.groupBy({ by: ["payment_type", "invoice_ref"], where }),
+      const [agg, invoiceGroups, discRows, retAgg] = await Promise.all([
+        ctx.prisma.nebimSaleLine.aggregate({ where, _count: { _all: true }, _sum: { tax_base: true } }),
         ctx.prisma.nebimSaleLine.groupBy({ by: ["company_code", "invoice_ref"], where }),
-        ctx.prisma.store.findMany({ select: { id: true, name: true } }),
         ctx.prisma.nebimSaleLine.findMany({ where: discWhere, select: { amount_vi: true, net_amount: true } }),
-        ctx.prisma.nebimSaleLine.groupBy({ by: ["campaign"], where: campWhere, _count: { _all: true }, _sum: { net_amount: true } }),
-        ctx.prisma.nebimSaleLine.groupBy({ by: ["campaign", "invoice_ref"], where: campWhere }),
-        ctx.prisma.nebimSaleLine.groupBy({ by: ["discount_reason"], where: reasonWhere, _count: { _all: true }, _sum: { net_amount: true } }),
-        ctx.prisma.nebimSaleLine.groupBy({ by: ["discount_reason", "invoice_ref"], where: reasonWhere }),
-        ctx.prisma.nebimSaleLine.aggregate({ where: manuelWhere, _count: { _all: true }, _sum: { net_amount: true } }),
-        ctx.prisma.nebimSaleLine.groupBy({ by: ["invoice_ref"], where: manuelWhere }),
-        ctx.prisma.nebimSaleLine.groupBy({ by: ["mgmt_note"], where: manuelWhere, _count: { _all: true }, _sum: { net_amount: true } }),
-        // İadeler — net_amount negatif; net toplamdan düşülür. Ayrı gösterilir.
-        ctx.prisma.nebimSaleLine.aggregate({ where: { ...where, is_return: true }, _count: { _all: true }, _sum: { net_amount: true } }),
+        // İadeler — tax_base negatif; net toplamdan düşülür. Ayrı gösterilir.
+        ctx.prisma.nebimSaleLine.aggregate({ where: { ...where, is_return: true }, _count: { _all: true }, _sum: { tax_base: true } }),
       ]);
-
-      const salesFis = new Map<string, number>();
-      for (const g of salesInv) {
-        const k = g.salesperson_name ?? "—";
-        salesFis.set(k, (salesFis.get(k) ?? 0) + 1);
-      }
-      const custFis = new Map<string, number>();
-      for (const g of custInv) {
-        const k = g.customer_name ?? "—";
-        custFis.set(k, (custFis.get(k) ?? 0) + 1);
-      }
-
-      const by_salesperson = bySales
-        .map((g) => ({
-          name: g.salesperson_name ?? "—",
-          net: Number(g._sum.net_amount ?? 0),
-          lines: g._count._all,
-          invoices: salesFis.get(g.salesperson_name ?? "—") ?? 0,
-        }))
-        .sort((a, b) => b.net - a.net);
-
-      const by_customer = byCust
-        .map((g) => ({
-          name: g.customer_name ?? "—",
-          net: Number(g._sum.net_amount ?? 0),
-          lines: g._count._all,
-          invoices: custFis.get(g.customer_name ?? "—") ?? 0,
-        }))
-        .sort((a, b) => b.net - a.net)
-        .slice(0, 300);
-
-      const nameOf = new Map(stores.map((s) => [s.id, s.name]));
-      const by_store = byStoreRaw
-        .map((g) => ({
-          store_name: g.store_id ? nameOf.get(g.store_id) ?? null : null,
-          net: Number(g._sum.net_amount ?? 0),
-          lines: g._count._all,
-        }))
-        .sort((a, b) => b.net - a.net);
-
-      // Ödeme tipi — boş/null genelde iade satırı (ödeme satırı yok)
-      const UNSET_PAY = "(İade/Tanımsız)";
-      const payFis = new Map<string, number>();
-      for (const g of payInv) {
-        const k = g.payment_type ?? UNSET_PAY;
-        payFis.set(k, (payFis.get(k) ?? 0) + 1);
-      }
-      const by_payment = byPayRaw
-        .map((g) => {
-          const label = g.payment_type ?? UNSET_PAY;
-          return {
-            label,
-            net: Number(g._sum.net_amount ?? 0),
-            lines: g._count._all,
-            invoices: payFis.get(label) ?? 0,
-          };
-        })
-        .sort((a, b) => b.net - a.net);
-
-      // Kampanya ve İskonto nedeni kırılımları (aynı "etiket bazında net+satır+fiş" deseni)
-      const fisCountBy = <K extends string>(
-        groups: Array<Record<K, string | null> & { invoice_ref: string }>,
-        key: K
-      ) => {
-        const m = new Map<string, number>();
-        for (const g of groups) {
-          const k = g[key];
-          if (k == null) continue;
-          m.set(k, (m.get(k) ?? 0) + 1);
-        }
-        return m;
-      };
-      const campFis = fisCountBy(campInv, "campaign");
-      const by_campaign = byCampRaw
-        .filter((g) => g.campaign != null)
-        .map((g) => ({
-          label: g.campaign as string,
-          net: Number(g._sum.net_amount ?? 0),
-          lines: g._count._all,
-          invoices: campFis.get(g.campaign as string) ?? 0,
-        }))
-        .sort((a, b) => b.net - a.net);
-
-      const reasonFis = fisCountBy(reasonInv, "discount_reason");
-      const by_reason = byReasonRaw
-        .filter((g) => g.discount_reason != null)
-        .map((g) => ({
-          label: g.discount_reason as string,
-          net: Number(g._sum.net_amount ?? 0),
-          lines: g._count._all,
-          invoices: reasonFis.get(g.discount_reason as string) ?? 0,
-        }))
-        .sort((a, b) => b.net - a.net);
-
-      // Manuel iskonto (yönetim açıklamalı) özeti + en sık açıklamalar
-      const manuel = {
-        lines: manuelAgg._count._all,
-        invoices: manuelInv.length,
-        net: Number(manuelAgg._sum.net_amount ?? 0),
-        top: byMgmtRaw
-          .filter((g) => g.mgmt_note != null)
-          .map((g) => ({
-            note: g.mgmt_note as string,
-            net: Number(g._sum.net_amount ?? 0),
-            lines: g._count._all,
-          }))
-          .sort((a, b) => b.net - a.net)
-          .slice(0, 100),
-      };
 
       return {
         kpi: {
-          net_total: Number(agg._sum.net_amount ?? 0),
+          net_total: Number(agg._sum.tax_base ?? 0),
           invoices: invoiceGroups.length,
           lines: agg._count._all,
-          returns_total: Number(retAgg._sum.net_amount ?? 0),
+          returns_total: Number(retAgg._sum.tax_base ?? 0),
           returns_count: retAgg._count._all,
         },
-        by_salesperson,
-        by_customer,
-        by_store,
-        by_payment,
-        by_campaign,
-        by_reason,
-        manuel,
         indirim: computeIndirim(discRows),
       };
     }),
@@ -1241,7 +1090,7 @@ export const nebimSalesRouter = router({
 
       const rows = await ctx.prisma.nebimSaleLine.findMany({
         where: { ...base, is_return: false },
-        select: { salesperson_name: true, invoice_ref: true, qty: true, net_amount: true },
+        select: { salesperson_name: true, invoice_ref: true, qty: true, tax_base: true },
       });
 
       // Satıcı → { net, units, fiş başına qty toplamı }
@@ -1254,7 +1103,7 @@ export const nebimSalesRouter = router({
           m.set(s, o);
         }
         const q = Number(r.qty);
-        o.net += Number(r.net_amount ?? 0);
+        o.net += Number(r.tax_base ?? 0); // KDV hariç — SEPET de vergisiz olur
         o.units += q;
         o.inv.set(r.invoice_ref, (o.inv.get(r.invoice_ref) ?? 0) + q);
       }
@@ -1535,7 +1384,7 @@ export const nebimSalesRouter = router({
         where,
         select: {
           invoice_date: true, invoice_ref: true, item_desc: true, qty: true,
-          net_amount: true, is_return: true, payment_type: true,
+          tax_base: true, is_return: true, payment_type: true,
           store: { select: { name: true } },
         },
         orderBy: [{ invoice_date: "asc" }],
@@ -1549,7 +1398,7 @@ export const nebimSalesRouter = router({
       const allRefs = new Set<string>();
       let net = 0, units = 0;
       for (const l of lines) {
-        const n = Number(l.net_amount ?? 0);
+        const n = Number(l.tax_base ?? 0); // KDV hariç
         const q = Number(l.qty ?? 0);
         net += n;
         allRefs.add(l.invoice_ref);
@@ -1597,7 +1446,7 @@ export const nebimSalesRouter = router({
             date: l.invoice_date.toISOString().slice(0, 10),
             ref: l.invoice_ref,
             desc: l.item_desc,
-            net: Number(l.net_amount ?? 0),
+            net: Number(l.tax_base ?? 0),
             is_return: l.is_return,
             store: (l.store?.name ?? "?").replace(/^DERIMOD\s*/i, ""),
           })),
@@ -1835,7 +1684,7 @@ export const nebimSalesRouter = router({
         size: r.size,
         salesperson_name: r.salesperson_name,
         qty: Number(r.qty),
-        net_amount: r.net_amount == null ? null : Number(r.net_amount),
+        net_amount: r.tax_base == null ? null : Number(r.tax_base), // KDV hariç
       }));
       const net_total = items.reduce((s, i) => s + (i.net_amount ?? 0), 0);
       return { items, net_total };

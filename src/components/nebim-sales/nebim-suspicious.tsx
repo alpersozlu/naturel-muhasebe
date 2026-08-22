@@ -130,6 +130,10 @@ export function NebimSuspicious({ filters }: { filters: NebimSalesSelection }) {
           </CardContent>
         </Card>
       ) : (
+        <>
+        <div className="mb-2 text-right text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+          Tutarlar KDV dahil — fişle karşılaştırma için
+        </div>
         <Card className="overflow-hidden">
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -154,6 +158,7 @@ export function NebimSuspicious({ filters }: { filters: NebimSalesSelection }) {
             </div>
           </CardContent>
         </Card>
+        </>
       )}
 
       <div className="flex flex-col items-center gap-2">

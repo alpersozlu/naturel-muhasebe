@@ -105,6 +105,10 @@ export function NebimCustomers({
         </Card>
       ) : (
         <>
+          <div className="mb-2 text-right text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+            Tutarlar KDV hariç
+          </div>
+
           {/* Özet şerit — tek kart, ince bölmeler, sakin tipografi */}
           <Card className="overflow-hidden">
             <CardContent className="p-0">

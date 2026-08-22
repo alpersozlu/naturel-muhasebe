@@ -102,14 +102,17 @@ export function NebimFilters({
   value,
   onChange,
   hideStore = false,
-  hideExtras = false,
+  hideReturns = false,
+  hideDiscount = false,
 }: {
   value: NebimSalesSelection;
   onChange: (v: NebimSalesSelection) => void;
   /** Analiz sekmesinde mağaza seçimi Karne kartlarından yapılır — pill'ler gizlenir. */
   hideStore?: boolean;
-  /** Kayıt Tipi + İndirim'i kullanmayan sekmelerde (Müşteriler) gizlenir. */
-  hideExtras?: boolean;
+  /** Kayıt Tipi'ni sorgusuna bağlamayan sekmelerde gizlenir. */
+  hideReturns?: boolean;
+  /** İndirim bandını sorgusuna bağlamayan sekmelerde gizlenir. */
+  hideDiscount?: boolean;
 }) {
   // NEBIM verisi yalnız Derimod markasina ait — mağaza listesini ondan çek.
   const { data: brands } = trpc.brand.list.useQuery();
@@ -382,9 +385,9 @@ export function NebimFilters({
           )}
         </div>
 
-        {/* Kayıt Tipi + İndirim — yalnız bunları kullanan sekmelerde */}
-        <div className={hideExtras ? "hidden" : "flex gap-3 ml-auto"}>
-          <div className="space-y-1.5 w-36">
+        {/* Kayıt Tipi + İndirim — yalnız sorgusuna gerçekten bağlayan sekmelerde */}
+        <div className={hideReturns && hideDiscount ? "hidden" : "flex gap-3 ml-auto"}>
+          <div className={hideReturns ? "hidden" : "space-y-1.5 w-36"}>
             <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
               Kayıt Tipi
             </Label>
@@ -403,7 +406,7 @@ export function NebimFilters({
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5 w-36">
+          <div className={hideDiscount ? "hidden" : "space-y-1.5 w-36"}>
             <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
               İndirim
             </Label>

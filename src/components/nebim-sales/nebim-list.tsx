@@ -50,20 +50,27 @@ type Item = {
   payment_type: string | null;
   card_type: string | null;
   qty: number;
+  /** KDV dahil ham tutarlar — yalnız detay panelinde, fişle karşılaştırma için. */
   amount_vi: number | null;
   net_amount: number | null;
+  /** KDV hariç — tablo ve özetlerin bazı. */
+  amount_ex: number | null;
+  net_ex: number | null;
   invoice_note: string | null;
   mgmt_note: string | null;
   discount_reason: string | null;
   campaign: string | null;
 };
 
-/** İndirim oranı — satış ve İADE için (iadede orijinal/net negatif; oran pozitif). */
+/**
+ * İndirim oranı — satış ve İADE için (iadede orijinal/net negatif; oran pozitif).
+ * KDV hariç taraftan hesaplanır; oran her iki bazda da aynıdır (aynı vat_rate).
+ */
 function discountPct(r: Item): number | null {
-  if (r.amount_vi == null || r.amount_vi === 0 || r.net_amount == null) {
+  if (r.amount_ex == null || r.amount_ex === 0 || r.net_ex == null) {
     return null;
   }
-  const pct = ((r.amount_vi - r.net_amount) / r.amount_vi) * 100;
+  const pct = ((r.amount_ex - r.net_ex) / r.amount_ex) * 100;
   return pct >= 0.5 ? pct : null;
 }
 
@@ -187,7 +194,11 @@ export function NebimList({
     <>
       {summary ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-          <SummaryCard label="Net Toplam" value={`₺${fmt(summary.net_total)}`} />
+          <SummaryCard
+            label="Net Toplam"
+            value={`₺${fmt(summary.net_total)}`}
+            sub="KDV hariç"
+          />
           <SummaryCard label="Fiş Sayısı" value={String(summary.invoices)} />
           <SummaryCard label="Satır Sayısı" value={String(summary.lines)} />
           <SummaryCard
@@ -278,6 +289,12 @@ export function NebimList({
                 </Card>
               );
             })}
+        </div>
+      ) : null}
+
+      {items.length > 0 ? (
+        <div className="mb-2 text-right text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+          Tutarlar KDV hariç
         </div>
       ) : null}
 
@@ -436,13 +453,13 @@ function NebimRow({ r }: { r: Item }) {
 
         {/* Orijinal */}
         <td className="align-top px-3 py-3 text-right whitespace-nowrap">
-          {r.amount_vi != null ? (
+          {r.amount_ex != null ? (
             <span
               className={`tabular-nums ${
                 pct != null ? "text-muted-foreground line-through" : "text-foreground/80"
               }`}
             >
-              ₺{fmt(r.amount_vi)}
+              ₺{fmt(r.amount_ex)}
             </span>
           ) : (
             <span className="text-muted-foreground">—</span>
@@ -471,7 +488,7 @@ function NebimRow({ r }: { r: Item }) {
               r.is_return ? "text-rose-600" : ""
             }`}
           >
-            ₺{fmt(r.net_amount)}
+            ₺{fmt(r.net_ex)}
           </span>
           <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
             {r.qty} adet
@@ -493,26 +510,31 @@ function NebimRow({ r }: { r: Item }) {
 
 function DetailPanel({ r, pct }: { r: Item; pct: number | null }) {
   const indirimTutar =
-    r.amount_vi != null && r.net_amount != null ? r.amount_vi - r.net_amount : null;
+    r.amount_ex != null && r.net_ex != null ? r.amount_ex - r.net_ex : null;
 
   return (
     <div className="rounded-lg border border-border/60 bg-card p-3 space-y-3">
-      {/* Fiyat kırılımı */}
-      {r.amount_vi != null ? (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-          <span className="text-muted-foreground">Orijinal</span>
-          <span className="font-semibold tabular-nums">₺{fmt(r.amount_vi)}</span>
-          {pct != null && indirimTutar != null ? (
-            <>
-              <span className="text-muted-foreground">−</span>
-              <span className="font-semibold tabular-nums text-rose-600">
-                ₺{fmt(Math.abs(indirimTutar))} (−%{Math.round(pct)})
-              </span>
-            </>
-          ) : null}
-          <span className="text-muted-foreground">=</span>
-          <span className="font-bold tabular-nums">Net ₺{fmt(r.net_amount)}</span>
-          <span className="ml-1 text-muted-foreground">· {r.qty} adet</span>
+      {/* Fiyat kırılımı — KDV hariç; fişle karşılaştırma için dahil karşılığı altta */}
+      {r.amount_ex != null ? (
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+            <span className="text-muted-foreground">Orijinal</span>
+            <span className="font-semibold tabular-nums">₺{fmt(r.amount_ex)}</span>
+            {pct != null && indirimTutar != null ? (
+              <>
+                <span className="text-muted-foreground">−</span>
+                <span className="font-semibold tabular-nums text-rose-600">
+                  ₺{fmt(Math.abs(indirimTutar))} (−%{Math.round(pct)})
+                </span>
+              </>
+            ) : null}
+            <span className="text-muted-foreground">=</span>
+            <span className="font-bold tabular-nums">Net ₺{fmt(r.net_ex)}</span>
+            <span className="ml-1 text-muted-foreground">· {r.qty} adet</span>
+          </div>
+          <div className="text-[11px] text-muted-foreground tabular-nums">
+            KDV dahil: orijinal ₺{fmt(r.amount_vi)} · net ₺{fmt(r.net_amount)}
+          </div>
         </div>
       ) : null}
 
@@ -594,12 +616,25 @@ function SortTh({
   );
 }
 
-function SummaryCard({ label, value }: { label: string; value: string }) {
+function SummaryCard({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+}) {
   return (
     <Card>
       <CardContent className="p-4">
         <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
         <div className="text-lg font-bold tabular-nums tracking-tight mt-1">{value}</div>
+        {sub ? (
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">
+            {sub}
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

@@ -65,7 +65,7 @@ export function NebimAnaliz({
 
       {/* KPI */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi label="Net Toplam" value={fmt(data.kpi.net_total)} sub="iadeler dahil" />
+        <Kpi label="Net Toplam" value={fmt(data.kpi.net_total)} sub="KDV hariç · iadeler dahil" />
         <Kpi
           label="İadeler"
           value={
@@ -73,7 +73,7 @@ export function NebimAnaliz({
               ? `−₺${TRY.format(Math.abs(data.kpi.returns_total))}`
               : "₺0,00"
           }
-          sub={`${data.kpi.returns_count} iade satırı · net toplamdan düşülür`}
+          sub={`KDV hariç · ${data.kpi.returns_count} iade satırı · net toplamdan düşülür`}
           accent
         />
         <Kpi label="Fiş Sayısı" value={String(data.kpi.invoices)} />
@@ -183,7 +183,7 @@ function OutletGelir({ data }: { data: OutletData }) {
           <div className="min-w-0">
             <div className="font-semibold text-sm">Outlet Geliri</div>
             <div className="text-[11px] text-muted-foreground">
-              Outlet reyonu net cirosu — ay × mağaza (ayakkabı/terlik/sandalet, sabit fiyat)
+              Outlet reyonu net cirosu — ay × mağaza (ayakkabı/terlik/sandalet, sabit fiyat) · KDV dahil
             </div>
           </div>
           <div className="ml-auto text-right">
@@ -462,7 +462,7 @@ function CalisanKpi({
           </div>
           <span className="font-semibold text-sm">Çalışan Satış KPI</span>
           <span className="ml-auto text-[11px] text-muted-foreground">
-            iade hariç (brüt) · NET TL&apos;ye göre sıralı
+            iade hariç (brüt) · KDV hariç · NET TL&apos;ye göre sıralı
           </span>
         </div>
         <div className="overflow-x-auto">
@@ -536,7 +536,7 @@ function IndirimAnaliz({
           </div>
           <span className="font-semibold text-sm">İndirim Analizi</span>
           <span className="ml-auto text-[11px] text-muted-foreground">
-            sadece satış (iade hariç)
+            sadece satış (iade hariç) · KDV dahil
           </span>
         </div>
 

@@ -90,12 +90,15 @@ export default function NebimSalesPage() {
       </div>
 
       {/* Analiz'de Karne kartları, Liste'de mağaza kartları filtre görevi
-          görür — pill'ler o sekmelerde gizli */}
+          görür — pill'ler o sekmelerde gizli.
+          Kayıt Tipi yalnız Liste + Analiz sorgusuna, İndirim bandı yalnız Liste
+          sorgusuna bağlı; bağlanmadığı sekmelerde kontrol gösterilmez. */}
       <NebimFilters
         value={sel}
         onChange={setSel}
         hideStore={tab === "analiz" || tab === "list"}
-        hideExtras={tab === "customers"}
+        hideReturns={tab === "customers" || tab === "suspicious"}
+        hideDiscount={tab !== "list"}
       />
 
       {tab === "list" ? (

@@ -218,7 +218,7 @@ function CiroPayiTable({ rows }: { rows: KrediCekiData["by_store"] }) {
         <div className="px-4 py-2.5 border-b border-border/50 text-sm font-semibold">
           Ciro Payı — Dükkan Dükkan
           <span className="ml-2 text-xs font-normal text-muted-foreground">
-            çekle tahsilatın mağaza cirosuna oranı (dönem)
+            çekle tahsilatın mağaza cirosuna oranı (dönem) · her iki taraf KDV dahil
           </span>
         </div>
         <div className="overflow-x-auto">
