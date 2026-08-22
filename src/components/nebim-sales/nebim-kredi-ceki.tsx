@@ -58,6 +58,8 @@ type KrediCekiData = {
     }>;
   }>;
   active: Array<OpenVoucher>;
+  minor: Array<OpenVoucher>;
+  minor_total: number;
   expired: Array<OpenVoucher>;
   expired_more: number;
   by_store: Array<{
@@ -176,6 +178,11 @@ export function NebimKrediCeki({ filters }: { filters: NebimSalesSelection }) {
           </CardContent>
         </Card>
       )}
+
+      {/* ₺50 altı artık bakiyeler — ana listeyi şişirmesin diye ayrı */}
+      {data.minor.length > 0 ? (
+        <MinorCollapsible rows={data.minor} total={data.minor_total} />
+      ) : null}
 
       {/* Süresi dolmuş açık çekler (bilgi amaçlı, katlanabilir) */}
       {data.expired.length > 0 ? (
@@ -377,6 +384,33 @@ function KalanlarTable({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** ₺50 altı kalan bakiyeler — takip değeri düşük, katlanır özet. */
+function MinorCollapsible({
+  rows, total,
+}: {
+  rows: OpenVoucher[]; total: number;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+      >
+        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        Küçük bakiyeler (₺50 altı): {rows.length} çek · {fmt(total)} — takip
+        gerektirmez (göster/gizle)
+      </button>
+      {open ? (
+        <div className="mt-2">
+          <KalanlarTable title="Küçük Bakiyeler (₺50 altı)" rows={rows} />
+        </div>
+      ) : null}
+    </div>
   );
 }
 

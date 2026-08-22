@@ -2044,9 +2044,13 @@ export const nebimSalesRouter = router({
         issuer: issuerBySerial.get(o.serial) ?? null,
       }));
       // Düzenlenme tarihine göre YENİDEN ESKİYE (en son kesilen çek en üstte).
-      const active = withIssuer
+      const activeAll = withIssuer
         .filter((o) => !o.expired)
         .sort((a, b) => (b.first_valid ?? "").localeCompare(a.first_valid ?? ""));
+      // Kuruşluk artık bakiyeler ana listeyi şişirmesin — ayrı toplanır.
+      const MINOR_BALANCE = 50;
+      const active = activeAll.filter((o) => o.remaining >= MINOR_BALANCE);
+      const minor = activeAll.filter((o) => o.remaining < MINOR_BALANCE);
       const expiredAll = withIssuer
         .filter((o) => o.expired)
         .sort((a, b) => (b.last_valid ?? "").localeCompare(a.last_valid ?? ""));
@@ -2147,6 +2151,8 @@ export const nebimSalesRouter = router({
         },
         txns: outTxns,
         active,
+        minor,
+        minor_total: minor.reduce((t, o) => t + o.remaining, 0),
         expired,
         expired_more: Math.max(0, expiredAll.length - expired.length),
         by_store: byStore,
