@@ -14,6 +14,10 @@ import {
   CreditCard,
   Search,
   X,
+  PieChart,
+  UserMinus,
+  TrendingUp,
+  TrendingDown,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -51,6 +55,20 @@ const TIER_STYLE: Record<string, { label: string; cls: string }> = {
   silver: { label: "Gümüş", cls: "bg-slate-100 text-slate-600 border-slate-200" },
   bronze: { label: "Bronz", cls: "bg-orange-100 text-orange-700 border-orange-200" },
 };
+
+const TIER_BAR: Record<string, string> = {
+  vip: "bg-violet-500",
+  gold: "bg-amber-500",
+  silver: "bg-slate-400",
+  bronze: "bg-orange-400",
+  none: "bg-slate-300",
+};
+
+/** Geçen döneme göre değişim (%). Önceki dönem yoksa/sıfırsa null. */
+function deltaPct(cur: number, prev: number | undefined): number | null {
+  if (prev == null || prev <= 0) return null;
+  return ((cur - prev) / prev) * 100;
+}
 
 export function NebimCustomers({
   filters,
@@ -131,21 +149,31 @@ export function NebimCustomers({
         </Card>
       ) : (
         <>
-          {/* KPI şeridi */}
+          {/* KPI şeridi — geçen dönemle kıyaslı */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            <Kpi icon={Users} label="Müşteri" value={String(data.kpi.customers)} />
+            <Kpi
+              icon={Users}
+              label="Müşteri"
+              value={String(data.kpi.customers)}
+              delta={deltaPct(data.kpi.customers, data.prev?.customers)}
+            />
             <Kpi
               icon={Wallet}
               label="Müşteri Cirosu"
               value={intTL(data.kpi.net_total)}
               accent="text-indigo-700"
+              delta={deltaPct(data.kpi.net_total, data.prev?.net_total)}
             />
             <Kpi
               icon={UserPlus}
               label="Yeni Müşteri"
               value={String(data.kpi.new_customers)}
               accent="text-emerald-700"
-              sub="ilk alışverişi bu dönemde"
+              sub={
+                data.kpi.customers
+                  ? `müşterilerin %${((data.kpi.new_customers / data.kpi.customers) * 100).toFixed(0)}'i`
+                  : "ilk alışverişi bu dönemde"
+              }
             />
             <Kpi
               icon={Repeat}
@@ -158,8 +186,170 @@ export function NebimCustomers({
               label="Ort. Harcama"
               value={intTL(data.kpi.avg_spend)}
               accent="text-violet-700"
+              delta={deltaPct(data.kpi.avg_spend, data.prev?.avg_spend)}
             />
           </div>
+
+          {/* Sadakat piramidi + konsantrasyon */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <Card className="lg:col-span-2 overflow-hidden">
+              <CardContent className="p-0">
+                <div className="px-4 py-3 border-b border-border/50 flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-lg bg-violet-500/10 text-violet-600 flex items-center justify-center">
+                    <Crown className="h-4 w-4" />
+                  </div>
+                  <span className="font-semibold text-sm">Sadakat Piramidi</span>
+                  <span className="ml-auto text-[11px] text-muted-foreground">
+                    dönem harcamasına göre bant · ciro payı
+                  </span>
+                </div>
+                <div className="p-4 space-y-2.5">
+                  {data.tiers.map((t) => (
+                    <div key={t.key} className="flex items-center gap-3">
+                      <span
+                        className={`w-16 shrink-0 text-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                          TIER_STYLE[t.key]?.cls ??
+                          "bg-slate-50 text-slate-600 border-slate-200"
+                        }`}
+                      >
+                        {t.label}
+                      </span>
+                      <span className="w-20 shrink-0 text-xs text-muted-foreground tabular-nums">
+                        {t.count} kişi
+                      </span>
+                      <div className="flex-1 h-2.5 rounded-full bg-muted/60 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${TIER_BAR[t.key] ?? "bg-slate-400"}`}
+                          style={{ width: `${Math.min(t.share_pct, 100)}%` }}
+                        />
+                      </div>
+                      <span className="w-28 shrink-0 text-right text-xs tabular-nums font-semibold">
+                        {intTL(t.net)}
+                      </span>
+                      <span className="w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                        %{t.share_pct.toFixed(1)}
+                      </span>
+                      <span className="w-24 shrink-0 text-right text-[10px] text-muted-foreground tabular-nums hidden sm:block">
+                        ort. {intTL(t.avg)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="overflow-hidden">
+              <CardContent className="p-0">
+                <div className="px-4 py-3 border-b border-border/50 flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-lg bg-indigo-500/10 text-indigo-600 flex items-center justify-center">
+                    <PieChart className="h-4 w-4" />
+                  </div>
+                  <span className="font-semibold text-sm">Ciro Konsantrasyonu</span>
+                </div>
+                <div className="p-4 space-y-3">
+                  {(
+                    [
+                      ["İlk 10 müşteri", data.concentration.top10],
+                      ["İlk 50 müşteri", data.concentration.top50],
+                      ["İlk 100 müşteri", data.concentration.top100],
+                    ] as Array<[string, number]>
+                  ).map(([label, v]) => (
+                    <div key={label}>
+                      <div className="flex items-baseline justify-between mb-1">
+                        <span className="text-xs text-muted-foreground">{label}</span>
+                        <span className="text-sm font-bold tabular-nums">
+                          %{v.toFixed(1)}
+                        </span>
+                      </div>
+                      <div className="h-2 rounded-full bg-muted/60 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-indigo-500"
+                          style={{ width: `${Math.min(v, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  <p className="text-[10px] text-muted-foreground pt-1 leading-relaxed">
+                    Cironun ne kadarı en çok harcayan müşterilerden geliyor.
+                    Yüksek oran = az sayıda müşteriye bağımlılık.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Geri kazanılacaklar — uykuda değerli müşteriler */}
+          {data.dormant.length > 0 ? (
+            <Card className="overflow-hidden border-amber-200">
+              <CardContent className="p-0">
+                <div className="px-4 py-3 border-b border-amber-200/70 bg-amber-50/50 flex items-start gap-2 flex-wrap">
+                  <div className="h-7 w-7 rounded-lg bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0">
+                    <UserMinus className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-semibold text-sm text-amber-900">
+                      Geri Kazanılacaklar — Uykuda Değerli Müşteriler
+                    </div>
+                    <div className="text-[11px] text-amber-800/70">
+                      Toplam ₺25.000+ harcamış ama 90+ gündür alışveriş yapmamış
+                      müşteriler (tüm geçmiş) — aranacaklar listesi
+                    </div>
+                  </div>
+                  <div className="ml-auto text-right">
+                    <div className="text-lg font-bold tabular-nums text-amber-700">
+                      {data.dormant.length}
+                    </div>
+                    <div className="text-[11px] text-amber-800/70">müşteri</div>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">
+                        <th className="text-left font-medium px-4 py-2">Müşteri</th>
+                        <th className="text-right font-medium px-4 py-2">
+                          Toplam Harcama
+                        </th>
+                        <th className="text-right font-medium px-4 py-2">Fiş</th>
+                        <th className="text-left font-medium px-4 py-2">
+                          Son Alışveriş
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.dormant.map((d) => (
+                        <tr
+                          key={`${d.code ?? ""}|${d.name}`}
+                          className="border-t border-border/40 hover:bg-amber-50/40"
+                        >
+                          <td className="px-4 py-2">
+                            <div className="font-medium">{d.name}</div>
+                            {d.code ? (
+                              <div className="text-[10px] text-muted-foreground">
+                                {d.code}
+                              </div>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums font-semibold">
+                            {fmt(d.lifetime_net)}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
+                            {d.invoices}
+                          </td>
+                          <td className="px-4 py-2">
+                            <span className="tabular-nums">{fmtDate(d.last_date)}</span>
+                            <span className="ml-2 rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[10px] font-semibold">
+                              {d.days_since} gün önce
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
           {/* Top müşteriler tablosu */}
           <Card className="overflow-hidden">
@@ -449,13 +639,18 @@ function Kpi({
   value,
   sub,
   accent,
+  delta,
 }: {
   icon: typeof Users;
   label: string;
   value: string;
   sub?: string;
   accent?: string;
+  /** Geçen döneme göre % değişim — ok + etiketle gösterilir (renk tek başına değil). */
+  delta?: number | null;
 }) {
+  const up = delta != null && delta >= 0;
+  const DeltaIcon = up ? TrendingUp : TrendingDown;
   return (
     <Card>
       <CardContent className="p-4">
@@ -464,7 +659,20 @@ function Kpi({
           {label}
         </div>
         <div className={`mt-1 text-xl font-bold tabular-nums ${accent ?? ""}`}>{value}</div>
-        {sub ? <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div> : null}
+        {delta != null ? (
+          <div
+            className={`mt-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+              up ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+            }`}
+          >
+            <DeltaIcon className="h-3 w-3" />
+            {up ? "+" : ""}
+            {delta.toFixed(1).replace(".", ",")}%
+            <span className="font-normal opacity-70">geçen dönem</span>
+          </div>
+        ) : sub ? (
+          <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>
+        ) : null}
       </CardContent>
     </Card>
   );

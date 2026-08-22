@@ -79,6 +79,21 @@ export type NebimCustomersResult = {
   };
   rows: NebimCustomerRow[];
   total_customers: number;
+  /** Bir önceki eşit uzunluktaki dönem (trend okları). Tüm-zamanda null. */
+  prev: { customers: number; net_total: number; avg_spend: number } | null;
+  /** Sadakat piramidi — bant bazında müşteri sayısı, ciro ve ciro payı. */
+  tiers: Array<{
+    key: string; label: string; count: number; net: number;
+    share_pct: number; avg: number;
+  }>;
+  /** Ciro konsantrasyonu (Pareto): en çok harcayan N müşterinin ciro payı. */
+  concentration: { top10: number; top50: number; top100: number };
+  /** Geri kazanılacaklar: yüksek yaşam-boyu harcaması olan ama uzun süredir
+   *  gelmeyen müşteriler (dönem filtresinden BAĞIMSIZ, tüm geçmiş). */
+  dormant: Array<{
+    code: string | null; name: string; lifetime_net: number;
+    invoices: number; last_date: string; days_since: number;
+  }>;
 };
 
 /**
@@ -105,6 +120,10 @@ async function computeCustomers(
     },
     rows: [],
     total_customers: 0,
+    prev: null,
+    tiers: [],
+    concentration: { top10: 0, top50: 0, top100: 0 },
+    dormant: [],
   };
   const base = await buildWhere(ctx, {
     store_id: input.store_id,
@@ -212,6 +231,121 @@ async function computeCustomers(
   rows.sort((a, b) => b.net - a.net);
 
   const count = rows.length;
+
+  // ── Sadakat piramidi (bant bazında müşteri/ciro payı) ───────────────
+  const tierAgg = new Map<string, { count: number; net: number }>();
+  for (const r of rows) {
+    const k = r.tier ?? "none";
+    const t = tierAgg.get(k) ?? { count: 0, net: 0 };
+    t.count += 1; t.net += r.net;
+    tierAgg.set(k, t);
+  }
+  const TIER_LABELS: Array<{ key: string; label: string }> = [
+    ...LOYALTY_TIERS.map((t) => ({ key: t.key as string, label: t.label })),
+    { key: "none", label: "Standart" },
+  ];
+  const tiers = TIER_LABELS.map(({ key: k, label }) => {
+    const t = tierAgg.get(k) ?? { count: 0, net: 0 };
+    return {
+      key: k, label, count: t.count, net: t.net,
+      share_pct: netTotal > 0 ? (t.net / netTotal) * 100 : 0,
+      avg: t.count ? t.net / t.count : 0,
+    };
+  }).filter((t) => t.count > 0);
+
+  // ── Konsantrasyon (Pareto): ilk N müşterinin ciro payı ──────────────
+  const topSum = (n: number) =>
+    rows.slice(0, n).reduce((acc, r) => acc + r.net, 0);
+  const concentration = {
+    top10: netTotal > 0 ? (topSum(10) / netTotal) * 100 : 0,
+    top50: netTotal > 0 ? (topSum(50) / netTotal) * 100 : 0,
+    top100: netTotal > 0 ? (topSum(100) / netTotal) * 100 : 0,
+  };
+
+  // ── Önceki eşit dönem (trend okları) ────────────────────────────────
+  let prev: NebimCustomersResult["prev"] = null;
+  if (input.date_from && input.date_to) {
+    const dFrom = new Date(`${input.date_from}T00:00:00.000Z`);
+    const dTo = new Date(`${input.date_to}T00:00:00.000Z`);
+    const days = Math.round((dTo.getTime() - dFrom.getTime()) / 86400000) + 1;
+    // Dönem sürüyorsa (ör. ayın 19'undayız) kıyas ADİL olmalı: önceki dönemin
+    // de yalnız aynı gün sayısı alınır — yoksa tam ay ↔ yarım ay kıyaslanır
+    // ve sahte bir düşüş görünür.
+    const nowUtc = new Date();
+    nowUtc.setUTCHours(0, 0, 0, 0);
+    const effTo = dTo.getTime() > nowUtc.getTime() ? nowUtc : dTo;
+    const shiftMs = days * 86400000;
+    const prevFrom = new Date(dFrom.getTime() - shiftMs);
+    const prevTo = new Date(effTo.getTime() - shiftMs);
+    const pg = await ctx.prisma.nebimSaleLine.groupBy({
+      by: ["customer_code", "customer_name"],
+      where: {
+        ...(base.store_id ? { store_id: base.store_id } : {}),
+        customer_name: { not: null },
+        invoice_date: { gte: prevFrom, lte: prevTo },
+      },
+      _sum: { net_amount: true },
+    });
+    let pNet = 0, pCount = 0;
+    for (const g of pg) {
+      if (isGenericCustomer(g.customer_name)) continue;
+      pNet += Number(g._sum.net_amount ?? 0);
+      pCount += 1;
+    }
+    prev = {
+      customers: pCount,
+      net_total: pNet,
+      avg_spend: pCount ? pNet / pCount : 0,
+    };
+  }
+
+  // ── Geri kazanılacaklar: yaşam-boyu değerli ama uykuda müşteriler ───
+  // Dönem filtresinden bağımsız (tüm geçmiş), mağaza kapsamı korunur.
+  const DORMANT_DAYS = 90;
+  const DORMANT_MIN_NET = 25_000; // Gümüş bandı ve üzeri
+  const lifetime = await ctx.prisma.nebimSaleLine.groupBy({
+    by: ["customer_code", "customer_name"],
+    where: {
+      ...(base.store_id ? { store_id: base.store_id } : {}),
+      customer_name: { not: null },
+    },
+    _sum: { net_amount: true },
+    _max: { invoice_date: true },
+  });
+  const lifeInv = await ctx.prisma.nebimSaleLine.groupBy({
+    by: ["customer_code", "customer_name", "invoice_ref"],
+    where: {
+      ...(base.store_id ? { store_id: base.store_id } : {}),
+      customer_name: { not: null },
+    },
+  });
+  const lifeInvCount = new Map<string, number>();
+  for (const g of lifeInv) {
+    const k = key(g.customer_code, g.customer_name);
+    lifeInvCount.set(k, (lifeInvCount.get(k) ?? 0) + 1);
+  }
+  const todayUtc = new Date();
+  todayUtc.setUTCHours(0, 0, 0, 0);
+  const dormant = lifetime
+    .filter((g) => !isGenericCustomer(g.customer_name))
+    .map((g) => {
+      const last = g._max.invoice_date;
+      const daysSince = last
+        ? Math.round((todayUtc.getTime() - last.getTime()) / 86400000)
+        : 0;
+      return {
+        code: g.customer_code,
+        name: g.customer_name ?? "—",
+        lifetime_net: Number(g._sum.net_amount ?? 0),
+        invoices: lifeInvCount.get(key(g.customer_code, g.customer_name)) ?? 0,
+        last_date: iso(last),
+        days_since: daysSince,
+      };
+    })
+    .filter((d) => d.lifetime_net >= DORMANT_MIN_NET && d.days_since >= DORMANT_DAYS)
+    .sort((a, b) => b.lifetime_net - a.lifetime_net)
+    .slice(0, 12);
+
   return {
     kpi: {
       customers: count,
@@ -225,6 +359,10 @@ async function computeCustomers(
     },
     rows: rows.slice(0, 100),
     total_customers: count,
+    prev,
+    tiers,
+    concentration,
+    dormant,
   };
 }
 
