@@ -167,13 +167,13 @@ export function NebimScorecard({
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                      Net Gelir <span className="normal-case">(KDV dahil)</span>
+                      Net Gelir <span className="normal-case">(KDV hariç)</span>
                     </div>
                     <div className="text-2xl font-bold tabular-nums mt-0.5">
-                      {fmt2(c.net)}
+                      {fmt2(c.net_ex_vat)}
                     </div>
                     <div className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
-                      KDV hariç: <span className="font-semibold text-foreground/80">{fmt2(c.net_ex_vat)}</span>
+                      KDV dahil: <span className="font-semibold text-foreground/80">{fmt2(c.net)}</span>
                     </div>
                   </div>
                   <div>
@@ -192,7 +192,8 @@ export function NebimScorecard({
                   </div>
                 </div>
                 <div className="text-[11px] text-muted-foreground -mt-2">
-                  {c.invoices} fiş · ort. sepet {fmt0(c.avg_basket)}
+                  {c.invoices} fiş · ort. sepet {fmt0(c.avg_basket_ex_vat)}{" "}
+                  <span className="text-[10px]">(KDV hariç)</span>
                 </div>
 
                 {/* Hedef bloğu — sadece tam ay dönemde. Tıklamalar kart

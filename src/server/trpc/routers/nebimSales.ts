@@ -1455,7 +1455,7 @@ export const nebimSalesRouter = router({
           store_id: string; store: string; code: string | null;
           net: number; net_ex_vat: number; gross_units: number;
           return_units: number; net_units: number; invoices: number;
-          upt: number; avg_basket: number;
+          upt: number; avg_basket: number; avg_basket_ex_vat: number;
           target: number | null; realized_pct: number | null;
           forecast: number | null; forecast_pct: number | null;
         }>,
@@ -1572,6 +1572,8 @@ export const nebimSalesRouter = router({
             invoices,
             upt: invoices ? gross / invoices : 0,
             avg_basket: invoices ? net / invoices : 0,
+            // Ort. sepet vergisiz de verilir — kartta KDV hariç gösterilir.
+            avg_basket_ex_vat: invoices ? netExVat / invoices : 0,
             target,
             realized_pct:
               target && target > 0 ? (netExVat / target) * 100 : null,
