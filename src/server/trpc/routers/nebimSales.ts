@@ -512,6 +512,47 @@ const TRY_FMT = new Intl.NumberFormat("tr-TR", {
 });
 const money = (v: number) => `₺${TRY_FMT.format(v)}`;
 
+type SummerReceipt = {
+  ids: string[];
+  pairs: number;
+  net: number;
+  expected: number;
+  /** Fiş toplamı merdivene oturuyor mu? */
+  ok: boolean;
+};
+
+/**
+ * Yaz kampanyası fişlerini merdivene karşı denetler. Kampanya fiyatı FİŞ
+ * düzeyinde oluştuğu için satır bazlı bakmak yanıltıcıdır — hem şüpheli
+ * motoru hem outlet sızma raporu bu tek tanımı kullanır.
+ */
+async function auditSummerReceipts(
+  ctx: { prisma: PrismaClient },
+  where: Prisma.NebimSaleLineWhereInput
+): Promise<Map<string, SummerReceipt>> {
+  const lines = await ctx.prisma.nebimSaleLine.findMany({
+    where: { ...where, campaign: SUMMER_CAMPAIGN },
+    select: { id: true, invoice_ref: true, qty: true, net_amount: true },
+  });
+  const byRef = new Map<string, SummerReceipt>();
+  for (const l of lines) {
+    let o = byRef.get(l.invoice_ref);
+    if (!o) {
+      o = { ids: [], pairs: 0, net: 0, expected: 0, ok: false };
+      byRef.set(l.invoice_ref, o);
+    }
+    o.ids.push(l.id);
+    o.pairs += Math.abs(Number(l.qty ?? 0));
+    o.net += Number(l.net_amount ?? 0);
+  }
+  for (const o of Array.from(byRef.values())) {
+    o.pairs = Math.round(o.pairs);
+    o.expected = summerLadderTotal(o.pairs);
+    o.ok = Math.abs(o.net - o.expected) <= LADDER_TOLERANCE;
+  }
+  return byRef;
+}
+
 /**
  * Dalga aksiyonu + yaz kampanyası denetimi.
  *
@@ -537,31 +578,18 @@ async function computeActionAudit(
   if (!since) return { exemptIds, violations };
 
   // ── A) Yaz kampanyası: fiş toplamı merdivene oturuyor mu? ──────────
-  const campLines = await ctx.prisma.nebimSaleLine.findMany({
-    where: { ...base, campaign: SUMMER_CAMPAIGN, invoice_date: { gte: since } },
-    select: { id: true, invoice_ref: true, qty: true, net_amount: true },
+  const receipts = await auditSummerReceipts(ctx, {
+    ...base,
+    invoice_date: { gte: since },
   });
-  const byRef = new Map<string, { ids: string[]; pairs: number; net: number }>();
-  for (const l of campLines) {
-    let o = byRef.get(l.invoice_ref);
-    if (!o) {
-      o = { ids: [], pairs: 0, net: 0 };
-      byRef.set(l.invoice_ref, o);
-    }
-    o.ids.push(l.id);
-    o.pairs += Math.abs(Number(l.qty ?? 0));
-    o.net += Number(l.net_amount ?? 0);
-  }
-  for (const o of Array.from(byRef.values())) {
-    const pairs = Math.round(o.pairs);
-    const expected = summerLadderTotal(pairs);
-    if (Math.abs(o.net - expected) <= LADDER_TOLERANCE) {
-      exemptIds.push(...o.ids);
+  for (const r of Array.from(receipts.values())) {
+    if (r.ok) {
+      exemptIds.push(...r.ids);
     } else {
       const note =
-        `Yaz kampanyası fişi ${pairs} çift → beklenen ${money(expected)}, ` +
-        `fiş toplamı ${money(o.net)} (fark ${money(o.net - expected)})`;
-      for (const id of o.ids) violations.set(id, { reason: "campaign_total", note });
+        `Yaz kampanyası fişi ${r.pairs} çift → beklenen ${money(r.expected)}, ` +
+        `fiş toplamı ${money(r.net)} (fark ${money(r.net - r.expected)})`;
+      for (const id of r.ids) violations.set(id, { reason: "campaign_total", note });
     }
   }
 
@@ -1403,6 +1431,14 @@ export const nebimSalesRouter = router({
       const stockBarcodes = Array.from(new Set(stockItems.map((s) => s.barcode)));
       const stockSet = new Set(stockBarcodes);
 
+      // Merdivene oturan yaz kampanyası fişleri — sızma sayımından düşer.
+      const summerReceipts = await auditSummerReceipts(ctx, base);
+      const summerOkRefs = new Set(
+        Array.from(summerReceipts.entries())
+          .filter(([, r]) => r.ok)
+          .map(([ref]) => ref)
+      );
+
       const [rows, storeRows] = await Promise.all([
         ctx.prisma.nebimSaleLine.findMany({
           where: {
@@ -1490,9 +1526,13 @@ export const nebimSalesRouter = router({
           disc_pct: avi > 0 ? (disc / avi) * 100 : 0,
           stock_match: stockMatch,
         };
+        // Yaz kampanyası outlet ürünlerini de kapsar: fiş merdivene oturuyorsa
+        // buradaki "indirim" kampanyanın kendisidir, sızma DEĞİLDİR.
+        const summerOk =
+          r.campaign === SUMMER_CAMPAIGN && summerOkRefs.has(r.invoice_ref);
         if (isGirneStore(r.store_id)) {
           girne.push({ ...common, overlap: r.item_code != null && lmCodes.has(r.item_code) });
-        } else if (disc > 0.01 && !mgmt) {
+        } else if (disc > 0.01 && !mgmt && !summerOk) {
           leaks.push({
             ...common,
             store: sName,
