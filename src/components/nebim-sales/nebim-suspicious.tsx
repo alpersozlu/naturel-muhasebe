@@ -39,6 +39,8 @@ type Item = {
   net_amount: number | null;
   discount_pct: number | null;
   reason: string;
+  /** Aksiyon/kampanya ihlallerinde beklenen-vs-satılan açıklaması. */
+  note: string | null;
 };
 
 export function NebimSuspicious({ filters }: { filters: NebimSalesSelection }) {
@@ -86,16 +88,28 @@ export function NebimSuspicious({ filters }: { filters: NebimSalesSelection }) {
                 fiyat outlet (1.499,99 / 1.999,99 / 2.499,99 / 2.999,99) değil. (Ceket =
                 kategorisiz sadece model adı; BLİNK bakım ürünleri tam fiyat normaldir.)
               </p>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                <b>Dalga aksiyonu:</b> yüklenen kırmızı etiket listesindeki ürünler
+                beklenen fiyatına satıldıysa şüpheli sayılmaz — sapanlar
+                &quot;aksiyon fiyatı tutmuyor&quot; olarak beklenen/satılan farkıyla
+                listelenir. <b>Büyük Yaz İndirimi</b> kademeli çift kampanyasında
+                (1 çift 1.499,99 · 2 çift 2.799,99 · 3 çift 3.899,99 · 4 çift
+                4.799,99 · 5+ çift +1.099,99/çift) denetim <b>fiş toplamı</b>
+                üzerinden yapılır; satır birim fiyatının sapması normaldir.
+              </p>
             </div>
           </div>
 
           {summary ? (
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
               <Stat label="Toplam Şüpheli" value={String(summary.total)} accent />
+              <Stat label="Aksiyon Fiyatı Tutmuyor" value={String(summary.action_price)} />
+              <Stat label="Kampanya Fişi Tutmuyor" value={String(summary.campaign_total)} />
               <Stat label="Kural Dışı İndirim" value={String(summary.weird)} />
               <Stat label="Haziran %40" value={String(summary.june40)} />
               <Stat label="Ceket (40/50 dışı)" value={String(summary.jacket)} />
               <Stat label="Tam Fiyat (outlet değil)" value={String(summary.fullprice)} />
+              <Stat label="Aksiyona Uyduğu İçin Muaf" value={String(summary.exempted)} />
             </div>
           ) : null}
 
@@ -195,21 +209,27 @@ export function NebimSuspicious({ filters }: { filters: NebimSalesSelection }) {
 function SuspiciousRow({ r }: { r: Item }) {
   const pct = r.discount_pct;
   const reasonCls =
-    r.reason === "fullprice"
-      ? "bg-amber-50 text-amber-700 border-amber-200"
-      : r.reason === "june40"
-        ? "bg-violet-50 text-violet-700 border-violet-200"
-        : r.reason === "jacket"
-          ? "bg-sky-50 text-sky-700 border-sky-200"
-          : "bg-rose-50 text-rose-700 border-rose-200";
+    r.reason === "action_price" || r.reason === "campaign_total"
+      ? "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200"
+      : r.reason === "fullprice"
+        ? "bg-amber-50 text-amber-700 border-amber-200"
+        : r.reason === "june40"
+          ? "bg-violet-50 text-violet-700 border-violet-200"
+          : r.reason === "jacket"
+            ? "bg-sky-50 text-sky-700 border-sky-200"
+            : "bg-rose-50 text-rose-700 border-rose-200";
   const reasonText =
-    r.reason === "fullprice"
-      ? "Tam fiyat — indirim yok"
-      : r.reason === "june40"
-        ? `Haziran'da %${pct == null ? "40" : Math.round(pct)} (olmamalı)`
-        : r.reason === "jacket"
-          ? `Ceket %${pct == null || pct < 0.5 ? "0" : Math.round(pct)} — %40/%50 olmalı`
-          : `İndirim %${pct == null ? "?" : Math.round(pct)} (kural dışı)`;
+    r.reason === "action_price"
+      ? "Aksiyon fiyatı tutmuyor"
+      : r.reason === "campaign_total"
+        ? "Kampanya fişi tutmuyor"
+        : r.reason === "fullprice"
+          ? "Tam fiyat — indirim yok"
+          : r.reason === "june40"
+            ? `Haziran'da %${pct == null ? "40" : Math.round(pct)} (olmamalı)`
+            : r.reason === "jacket"
+              ? `Ceket %${pct == null || pct < 0.5 ? "0" : Math.round(pct)} — %40/%50 olmalı`
+              : `İndirim %${pct == null ? "?" : Math.round(pct)} (kural dışı)`;
   return (
     <tr className="border-b border-border/50 hover:bg-rose-50/30 transition-colors">
       {/* Sebep */}
@@ -220,6 +240,11 @@ function SuspiciousRow({ r }: { r: Item }) {
           <ShieldAlert className="h-3 w-3 shrink-0" />
           {reasonText}
         </span>
+        {r.note ? (
+          <div className="mt-1 text-[10px] leading-snug text-muted-foreground">
+            {r.note}
+          </div>
+        ) : null}
         {r.campaign ? (
           <div className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
             <Megaphone className="h-3 w-3 text-orange-400 shrink-0" />

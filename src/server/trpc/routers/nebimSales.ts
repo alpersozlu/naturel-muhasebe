@@ -470,6 +470,162 @@ const NO_40_PERIODS: Array<{ gte: Date; lt: Date }> = [
   { gte: new Date("2026-06-01T00:00:00.000Z"), lt: new Date("2026-07-01T00:00:00.000Z") },
 ];
 
+/**
+ * "BÜYÜK YAZ İNDİRİMİ" — kademeli ÇİFT kampanyası (Nebim'de bu kampanya adıyla
+ * işaretlenir). Fiyat SATIR bazında değil FİŞ bazında oluşur: fişteki kampanyalı
+ * çift sayısı ne ise toplam o merdivene oturur. Bu yüzden satır bazlı birim
+ * fiyat ₺1.499,99'un altına/üstüne düşebilir — kural ihlali DEĞİLDİR.
+ *   1 çift 1.499,99 · 2 çift 2.799,99 · 3 çift 3.899,99 · 4 çift 4.799,99
+ *   5+ çift: 4.799,99 + (N−4) × 1.099,99
+ * Tutarlar KDV DAHİL (fiş toplamı `net_amount` ile karşılaştırılır).
+ */
+const SUMMER_CAMPAIGN = "TASFIYE 1499 SABIT FIYAT KAMPANYASI";
+const SUMMER_LADDER_BASE = [0, 1499.99, 2799.99, 3899.99, 4799.99] as const;
+const SUMMER_EXTRA_PAIR = 1099.99;
+
+/** N çift için beklenen KDV DAHİL fiş toplamı. */
+function summerLadderTotal(pairs: number): number {
+  const n = Math.max(0, Math.round(pairs));
+  if (n === 0) return 0;
+  if (n <= 4) return SUMMER_LADDER_BASE[n]!;
+  return SUMMER_LADDER_BASE[4]! + (n - 4) * SUMMER_EXTRA_PAIR;
+}
+
+/**
+ * Aksiyon/kampanya fiyatı tutturma toleransı (₺, KDV dahil). Kuruş dağıtımı ve
+ * yuvarlamayı yutar; gerçek fiyat sapmasını yakalar.
+ */
+const ACTION_PRICE_TOLERANCE = 25;
+/** Fiş bazlı merdiven daha kesin oturur — orada dar tolerans yeter. */
+const LADDER_TOLERANCE = 1;
+
+type ActionAudit = {
+  /** Aksiyon/kampanya kuralına UYAN satırlar — şüpheliden düşer. */
+  exemptIds: string[];
+  /** Kurala UYMAYAN satırlar — şüpheliye açıklamayla eklenir. */
+  violations: Map<string, { reason: "action_price" | "campaign_total"; note: string }>;
+};
+
+const TRY_FMT = new Intl.NumberFormat("tr-TR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+const money = (v: number) => `₺${TRY_FMT.format(v)}`;
+
+/**
+ * Dalga aksiyonu + yaz kampanyası denetimi.
+ *
+ * İki ayrı kural tipi vardır ve KARŞILAŞTIRMA DÜZLEMİ farklıdır:
+ *  A) "BÜYÜK YAZ İNDİRİMİ" — FİŞ bazında kademeli çift merdiveni. Satır birim
+ *     fiyatı ₺1.499,99'dan sapabilir; bakılacak olan fişin toplamıdır.
+ *  B) "Kırmızı etiket" (NebimActionPrice) — SATIR bazında sabit birim fiyat.
+ *
+ * Her iki tarafta da tutan satırlar şüpheliden muaf tutulur, tutmayanlar
+ * açıklamalı olarak şüpheliye eklenir. Aksiyon öncesi dönem etkilenmez.
+ */
+async function computeActionAudit(
+  ctx: { prisma: PrismaClient },
+  base: Prisma.NebimSaleLineWhereInput
+): Promise<ActionAudit> {
+  const exemptIds: string[] = [];
+  const violations: ActionAudit["violations"] = new Map();
+
+  const firstAction = await ctx.prisma.nebimActionPrice.aggregate({
+    _min: { effective_from: true },
+  });
+  const since = firstAction._min.effective_from;
+  if (!since) return { exemptIds, violations };
+
+  // ── A) Yaz kampanyası: fiş toplamı merdivene oturuyor mu? ──────────
+  const campLines = await ctx.prisma.nebimSaleLine.findMany({
+    where: { ...base, campaign: SUMMER_CAMPAIGN, invoice_date: { gte: since } },
+    select: { id: true, invoice_ref: true, qty: true, net_amount: true },
+  });
+  const byRef = new Map<string, { ids: string[]; pairs: number; net: number }>();
+  for (const l of campLines) {
+    let o = byRef.get(l.invoice_ref);
+    if (!o) {
+      o = { ids: [], pairs: 0, net: 0 };
+      byRef.set(l.invoice_ref, o);
+    }
+    o.ids.push(l.id);
+    o.pairs += Math.abs(Number(l.qty ?? 0));
+    o.net += Number(l.net_amount ?? 0);
+  }
+  for (const o of Array.from(byRef.values())) {
+    const pairs = Math.round(o.pairs);
+    const expected = summerLadderTotal(pairs);
+    if (Math.abs(o.net - expected) <= LADDER_TOLERANCE) {
+      exemptIds.push(...o.ids);
+    } else {
+      const note =
+        `Yaz kampanyası fişi ${pairs} çift → beklenen ${money(expected)}, ` +
+        `fiş toplamı ${money(o.net)} (fark ${money(o.net - expected)})`;
+      for (const id of o.ids) violations.set(id, { reason: "campaign_total", note });
+    }
+  }
+
+  // ── B) Kırmızı etiket: satır birim fiyatı aksiyon fiyatı mı? ───────
+  const actions = await ctx.prisma.nebimActionPrice.findMany({
+    select: {
+      store_id: true, item_code: true, color_code: true,
+      expected_price: true, effective_from: true, group_label: true,
+    },
+  });
+  if (actions.length === 0) return { exemptIds, violations };
+
+  const byKey = new Map<string, typeof actions>();
+  for (const a of actions) {
+    const k = `${a.store_id}|${a.item_code}|${a.color_code}`;
+    const list = byKey.get(k);
+    if (list) list.push(a);
+    else byKey.set(k, [a]);
+  }
+
+  const lines = await ctx.prisma.nebimSaleLine.findMany({
+    where: {
+      ...base,
+      invoice_date: { gte: since },
+      item_code: { in: Array.from(new Set(actions.map((a) => a.item_code))) },
+    },
+    select: {
+      id: true, store_id: true, item_code: true, color_code: true,
+      qty: true, net_amount: true, invoice_date: true, campaign: true,
+    },
+  });
+
+  for (const l of lines) {
+    // Yaz kampanyasına girmiş satır A'da karara bağlandı — burada tekrar bakma.
+    if (l.campaign === SUMMER_CAMPAIGN) continue;
+    const list = byKey.get(`${l.store_id}|${l.item_code}|${l.color_code}`);
+    if (!list) continue;
+    // Satış gününde yürürlükte olan EN GÜNCEL aksiyon geçerlidir.
+    let rule: (typeof actions)[number] | null = null;
+    for (const a of list) {
+      if (a.effective_from.getTime() > l.invoice_date.getTime()) continue;
+      if (!rule || a.effective_from.getTime() > rule.effective_from.getTime()) rule = a;
+    }
+    if (!rule) continue;
+
+    const qty = Math.abs(Number(l.qty ?? 0)) || 1;
+    const unit = Number(l.net_amount ?? 0) / qty;
+    const expected = Number(rule.expected_price);
+    const diff = unit - expected;
+    if (Math.abs(diff) <= ACTION_PRICE_TOLERANCE) {
+      exemptIds.push(l.id);
+    } else {
+      violations.set(l.id, {
+        reason: "action_price",
+        note:
+          `${rule.group_label} aksiyonu → beklenen ${money(expected)}, ` +
+          `satılan ${money(unit)} (fark ${money(diff)})`,
+      });
+    }
+  }
+
+  return { exemptIds, violations };
+}
+
 const DISCOUNT_BAND_LABEL: Record<string, string> = {
   discounted: "İndirimli (hepsi)",
   none: "İndirimsiz",
@@ -781,7 +937,10 @@ export const nebimSalesRouter = router({
       const empty = {
         items: [] as unknown[],
         nextCursor: null as string | null,
-        summary: { total: 0, weird: 0, fullprice: 0, june40: 0, jacket: 0 },
+        summary: {
+          total: 0, weird: 0, fullprice: 0, june40: 0, jacket: 0,
+          action_price: 0, campaign_total: 0, exempted: 0,
+        },
         by_salesperson: [] as Array<{ name: string; count: number }>,
       };
       let allowedStoreIds: string[] | null = null;
@@ -865,9 +1024,23 @@ export const nebimSalesRouter = router({
         AND: [categoryWhere, { discount_pct: FORTY_BAND }, { invoice_date: p }],
       }));
 
+      // Dalga aksiyonu / yaz kampanyası: kurala uyanlar şüpheliden düşer,
+      // uymayanlar ayrı sebep koduyla şüpheliye girer.
+      const audit = await computeActionAudit(ctx, base);
+      const violationIds = Array.from(audit.violations.keys());
+      const notExempt: Prisma.NebimSaleLineWhereInput =
+        audit.exemptIds.length > 0 ? { id: { notIn: audit.exemptIds } } : {};
+
       const where: Prisma.NebimSaleLineWhereInput = {
         ...base,
-        OR: [jacketCond, weirdCond, fullpriceCond, ...june40Conds],
+        OR: [
+          jacketCond,
+          weirdCond,
+          fullpriceCond,
+          ...june40Conds,
+          ...(violationIds.length > 0 ? [{ id: { in: violationIds } }] : []),
+        ],
+        ...notExempt,
       };
 
       const [rows, weird, fullprice, june40, jacket, bySalesRaw] = await Promise.all([
@@ -882,10 +1055,10 @@ export const nebimSalesRouter = router({
           ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
           include: { store: { select: { name: true } } },
         }),
-        ctx.prisma.nebimSaleLine.count({ where: { ...base, ...weirdCond } }),
-        ctx.prisma.nebimSaleLine.count({ where: { ...base, ...fullpriceCond } }),
-        ctx.prisma.nebimSaleLine.count({ where: { ...base, OR: june40Conds } }),
-        ctx.prisma.nebimSaleLine.count({ where: { ...base, ...jacketCond } }),
+        ctx.prisma.nebimSaleLine.count({ where: { ...base, ...weirdCond, ...notExempt } }),
+        ctx.prisma.nebimSaleLine.count({ where: { ...base, ...fullpriceCond, ...notExempt } }),
+        ctx.prisma.nebimSaleLine.count({ where: { ...base, OR: june40Conds, ...notExempt } }),
+        ctx.prisma.nebimSaleLine.count({ where: { ...base, ...jacketCond, ...notExempt } }),
         ctx.prisma.nebimSaleLine.groupBy({
           by: ["salesperson_name"],
           where,
@@ -915,13 +1088,19 @@ export const nebimSalesRouter = router({
           amount_vi: r.amount_vi == null ? null : Number(r.amount_vi),
           net_amount: r.net_amount == null ? null : Number(r.net_amount),
           discount_pct: pct,
-          reason: isJacketRow(r.item_desc, r.item_code)
-            ? "jacket"
-            : pct != null && pct >= 38.5 && pct <= 41.5
-              ? "june40"
-              : pct == null || pct < 0.5
-                ? "fullprice"
-                : "weird",
+          // Aksiyon/kampanya ihlali diğer kuralları EZER: sebebi kesin bilinen
+          // tek durum budur (beklenen fiyat listeden gelir, tahmin değil).
+          reason:
+            audit.violations.get(r.id)?.reason ??
+            (isJacketRow(r.item_desc, r.item_code)
+              ? "jacket"
+              : pct != null && pct >= 38.5 && pct <= 41.5
+                ? "june40"
+                : pct == null || pct < 0.5
+                  ? "fullprice"
+                  : "weird"),
+          /** Yalnız aksiyon/kampanya ihlallerinde dolu — beklenen vs satılan. */
+          note: audit.violations.get(r.id)?.note ?? null,
         };
       });
 
@@ -929,15 +1108,26 @@ export const nebimSalesRouter = router({
         .map((g) => ({ name: g.salesperson_name ?? "—", count: g._count._all }))
         .sort((a, b) => b.count - a.count);
 
+      let actionPriceCount = 0;
+      let campaignTotalCount = 0;
+      for (const v of Array.from(audit.violations.values())) {
+        if (v.reason === "action_price") actionPriceCount += 1;
+        else campaignTotalCount += 1;
+      }
+
       return {
         items,
         nextCursor,
         summary: {
-          total: weird + fullprice + june40 + jacket,
+          total: weird + fullprice + june40 + jacket + violationIds.length,
           weird,
           fullprice,
           june40,
           jacket,
+          action_price: actionPriceCount,
+          campaign_total: campaignTotalCount,
+          /** Aksiyon/kampanya kuralına uyduğu için şüpheliden düşen satır. */
+          exempted: audit.exemptIds.length,
         },
         by_salesperson,
       };

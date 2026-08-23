@@ -152,6 +152,7 @@ model Store {
   merge_groups    DayMergeGroup[]
   nebim_sale_lines NebimSaleLine[]
   outlet_stock_items OutletStockItem[]
+  nebim_action_prices NebimActionPrice[]
   nebim_targets   NebimStoreTarget[]
   nebim_voucher_txns NebimVoucherTxn[]
 
@@ -189,6 +190,36 @@ model OutletStockItem {
   created_at DateTime @default(now())
 
   @@index([store_id, barcode])
+  @@index([batch])
+}
+
+// ─────────────────────────────────────────────────────────────
+// DALGA AKSİYON FİYATLARI (Derimod — "kırmızı etiket" listeleri)
+// Mağaza bazlı Excel'lerden gelir: model+renk için KDV DAHİL birim satış
+// fiyatı. Şüpheli-satış motoru bu fiyatta satılanları muaf tutar, sapanları
+// açıklamayla işaretler. Her dalga bir batch; aynı ürün sonraki dalgada
+// yeni fiyat alabilir (effective_from ile ayrışır).
+// NOT: "BÜYÜK YAZ İNDİRİMİ" kademeli çift kampanyası BURADA DEĞİL — o fiş
+// bazında çalışır ve kodda sabit merdiven olarak durur.
+// ─────────────────────────────────────────────────────────────
+
+model NebimActionPrice {
+  id             String   @id @default(uuid())
+  store_id       String
+  store          Store    @relation(fields: [store_id], references: [id])
+  item_code      String
+  color_code     String
+  product_name   String?
+  group_label    String // "%70 DUVAR" | "%60 DUVAR"
+  list_price     Decimal? @db.Decimal(14, 2) // yeni üst (etiket) fiyat
+  expected_price Decimal  @db.Decimal(14, 2) // beklenen birim satış — KDV DAHİL
+  effective_from DateTime @db.Date
+  batch          String // örn "dalga-2026-08-04"
+  created_at     DateTime @default(now())
+
+  @@unique([store_id, item_code, color_code, effective_from])
+  @@index([store_id, item_code, color_code])
+  @@index([effective_from])
   @@index([batch])
 }
 
