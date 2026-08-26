@@ -37,7 +37,8 @@ def main():
         conn.rollback()
         return
 
-    for t, kosul, p in (("prDiscountOfferLocation", "DiscountOfferCode=?", KMP),
+    for t, kosul, p in (("prDiscountOfferActiveLog", "DiscountOfferCode=?", KMP),
+                        ("prDiscountOfferLocation", "DiscountOfferCode=?", KMP),
                         ("prDiscountOfferRules", "DiscountOfferCode=?", KMP),
                         ("cdDiscountOfferDesc", "DiscountOfferCode=?", KMP),
                         ("cdDiscountOffer", "DiscountOfferCode=?", KMP),
