@@ -18,9 +18,14 @@ const optionalText = (max: number) =>
     .optional()
     .transform((v) => (v && v.length ? v : undefined));
 
-export const corporatePurchaseCreateSchema = z.object({
-  store_id: z.string().uuid(),
-  date: dateOnly,
+/**
+ * FORM alanları — `store_id` ve `date` BİLEREK yok. O ikisi karta prop olarak
+ * gelir ve submit anında eklenir. Forma konurlarsa RHF `defaultValues`'ı mount
+ * anında okuduğu için (reactive DEĞİL) mağaza sonradan seçilince form içindeki
+ * değer boş string kalır, resolver `Invalid UUID` ile patlar ve kayıt sessizce
+ * reddedilir. Aynı tuzak manual-invoice kartında da yaşandı.
+ */
+export const corporatePurchaseFormSchema = z.object({
   type: z.enum(CORPORATE_PURCHASE_TYPES),
   // Kurumsal için şirket adı — opsiyonel (boş bırakılabilir)
   company_name: optionalText(120),
@@ -38,6 +43,12 @@ export const corporatePurchaseCreateSchema = z.object({
   note: optionalText(300),
 });
 
+/** Sunucuya giden tam girdi = form alanları + mağaza/gün. */
+export const corporatePurchaseCreateSchema = corporatePurchaseFormSchema.extend({
+  store_id: z.string().uuid(),
+  date: dateOnly,
+});
+
 export const corporatePurchaseIdSchema = z.object({ id: z.string().uuid() });
 
 export const corporatePurchaseSetPaidSchema = z.object({
@@ -52,4 +63,8 @@ export const corporatePurchasesForStoreDateSchema = z.object({
 
 export type CorporatePurchaseCreateInput = z.infer<
   typeof corporatePurchaseCreateSchema
+>;
+/** Formun tuttuğu ham değerler (transform/default öncesi). */
+export type CorporatePurchaseFormInput = z.input<
+  typeof corporatePurchaseFormSchema
 >;

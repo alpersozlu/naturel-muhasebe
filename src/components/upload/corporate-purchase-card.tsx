@@ -8,8 +8,8 @@ import { formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
 import { trpc } from "@/lib/trpc";
 import {
-  corporatePurchaseCreateSchema,
-  type CorporatePurchaseCreateInput,
+  corporatePurchaseFormSchema,
+  type CorporatePurchaseFormInput,
 } from "@/lib/zod-schemas/corporate-purchase";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -53,8 +53,6 @@ export function CorporatePurchaseCard({
       toast.success("Alışveriş kaydedildi");
       invalidate();
       reset({
-        store_id: storeId,
-        date,
         type: "management",
         company_name: "",
         person_name: "",
@@ -81,13 +79,11 @@ export function CorporatePurchaseCard({
     reset,
     control,
     formState: { errors, isSubmitting },
-  } = useForm<CorporatePurchaseCreateInput>({
+  } = useForm<CorporatePurchaseFormInput>({
     resolver: zodResolver(
-      corporatePurchaseCreateSchema
-    ) as Resolver<CorporatePurchaseCreateInput>,
+      corporatePurchaseFormSchema
+    ) as Resolver<CorporatePurchaseFormInput>,
     defaultValues: {
-      store_id: storeId,
-      date,
       type: "management",
       company_name: "",
       person_name: "",
@@ -101,8 +97,15 @@ export function CorporatePurchaseCard({
   const type = useWatch({ control, name: "type" });
   const isCorporate = type === "corporate";
 
-  const onSubmit = (vals: CorporatePurchaseCreateInput) =>
-    create.mutateAsync({ ...vals, store_id: storeId, date });
+  // store_id ve date form alanı değil — prop olarak gelir, submit anında eklenir.
+  // Bu sayede prop değişimine bağlı stale form state sorunu yaşanmaz.
+  const onSubmit = (vals: CorporatePurchaseFormInput) => {
+    if (!storeId || !date) {
+      toast.error("Mağaza ve tarih seçilmedi");
+      return;
+    }
+    return create.mutateAsync({ ...vals, store_id: storeId, date });
+  };
 
   // Validation sessiz fail'i önle — ilk hatayı toast olarak göster
   const onInvalid = (errs: Record<string, { message?: string }>) => {

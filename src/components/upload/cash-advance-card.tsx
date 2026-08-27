@@ -8,8 +8,8 @@ import { formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
 import { trpc } from "@/lib/trpc";
 import {
-  cashAdvanceCreateSchema,
-  type CashAdvanceCreateInput,
+  cashAdvanceFormSchema,
+  type CashAdvanceFormInput,
 } from "@/lib/zod-schemas/cash-advance";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -81,8 +81,6 @@ export function CashAdvanceCard({
         employee_id: "",
         staff_role: undefined,
         staff_name: "",
-        store_id: storeId,
-        date,
       });
     },
     onError: (e) => toast.error(e.message),
@@ -102,11 +100,9 @@ export function CashAdvanceCard({
     reset,
     control,
     formState: { errors, isSubmitting },
-  } = useForm<CashAdvanceCreateInput>({
-    resolver: zodResolver(cashAdvanceCreateSchema) as Resolver<CashAdvanceCreateInput>,
+  } = useForm<CashAdvanceFormInput>({
+    resolver: zodResolver(cashAdvanceFormSchema) as Resolver<CashAdvanceFormInput>,
     defaultValues: {
-      store_id: storeId,
-      date,
       employee_id: "",
       amount: 0,
       currency: "TRY",
@@ -121,8 +117,15 @@ export function CashAdvanceCard({
   const category = useWatch({ control, name: "category" });
   const isAdvance = category === "bonus";
 
-  const onSubmit = (vals: CashAdvanceCreateInput) =>
-    create.mutateAsync({ ...vals, store_id: storeId, date });
+  // store_id ve date form alanı değil — prop olarak gelir, submit anında eklenir.
+  // Bu sayede prop değişimine bağlı stale form state sorunu yaşanmaz.
+  const onSubmit = (vals: CashAdvanceFormInput) => {
+    if (!storeId || !date) {
+      toast.error("Mağaza ve tarih seçilmedi");
+      return;
+    }
+    return create.mutateAsync({ ...vals, store_id: storeId, date });
+  };
 
   return (
     <Card className={disabled ? "opacity-50" : ""}>
