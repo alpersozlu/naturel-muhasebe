@@ -430,11 +430,7 @@ export function NebimCustomers({
                 </div>
                 {/* Arama — bu tablonun filtresi, o yüzden burada */}
                 <div className="relative ml-auto w-full sm:w-72">
-                  {searching ? (
-                    <Loader2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
-                  ) : (
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  )}
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     value={searchRaw}
                     onChange={(e) => setSearchRaw(e.target.value)}
@@ -449,6 +445,10 @@ export function NebimCustomers({
                     >
                       <X className="h-4 w-4" />
                     </button>
+                  ) : null}
+                  {/* Arama sürerken ince çizgi — ikon yerinde kalır, zıplama olmaz */}
+                  {searching ? (
+                    <span className="pointer-events-none absolute inset-x-3 bottom-0 h-px bg-foreground/50 animate-pulse" />
                   ) : null}
                 </div>
               </div>
