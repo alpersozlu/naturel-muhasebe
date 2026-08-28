@@ -4,6 +4,7 @@ import {
   Loader2, Percent, Users, Tag, ShieldAlert, CheckCircle2,
   CreditCard, Banknote,
 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { NebimScorecard } from "./nebim-scorecard";
@@ -57,14 +58,24 @@ export function NebimAnaliz({
     );
   }
 
+  const hasOutlet = !!outlet.data && outlet.data.months.length > 0;
+  const hasStaff = !!staff.data && staff.data.rows.length > 0;
+
   return (
     <div className="space-y-6">
+      <SectionNav hasOutlet={hasOutlet} hasStaff={hasStaff} />
+
       {/* Mağaza Karnesi — sunum kalitesinde mağaza kartları (hedef + tahmin).
           Karta tıklamak sayfa filtresindeki mağazayı seçer/kaldırır. */}
-      <NebimScorecard filters={filters} onChange={onChange} />
+      <section id={SECTION_IDS.karne} className={SECTION_ANCHOR}>
+        <NebimScorecard filters={filters} onChange={onChange} />
+      </section>
 
       {/* KPI */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <section
+        id={SECTION_IDS.ozet}
+        className={`${SECTION_ANCHOR} grid grid-cols-2 lg:grid-cols-4 gap-3`}
+      >
         <Kpi label="Net Toplam" value={fmt(data.kpi.net_total)} sub="KDV hariç · iadeler dahil" />
         <Kpi
           label="İadeler"
@@ -78,26 +89,131 @@ export function NebimAnaliz({
         />
         <Kpi label="Fiş Sayısı" value={String(data.kpi.invoices)} />
         <Kpi label="Satır Sayısı" value={String(data.kpi.lines)} />
-      </div>
+      </section>
 
       {/* İndirim Analizi — orijinal fiyat → satılan fiyat → indirim % */}
-      <IndirimAnaliz indirim={data.indirim} />
+      <section id={SECTION_IDS.indirim} className={SECTION_ANCHOR}>
+        <IndirimAnaliz indirim={data.indirim} />
+      </section>
 
       {/* Kredi Çeki — hareketler (tarih×mağaza) + açık çek kalanları */}
-      <NebimKrediCeki filters={filters} />
+      <section id={SECTION_IDS.kredi} className={SECTION_ANCHOR}>
+        <NebimKrediCeki filters={filters} />
+      </section>
 
       {/* Outlet Geliri (ay × mağaza) + kural-dışı outlet satışları */}
-      {outlet.data && outlet.data.months.length > 0 ? (
-        <>
+      {hasOutlet && outlet.data ? (
+        <section id={SECTION_IDS.outlet} className={`${SECTION_ANCHOR} space-y-6`}>
           <OutletGelir data={outlet.data} />
           <OutletBulgular data={outlet.data} />
-        </>
+        </section>
       ) : null}
 
       {/* Çalışan Satış KPI */}
-      {staff.data && staff.data.rows.length > 0 ? (
-        <CalisanKpi data={staff.data} />
+      {hasStaff && staff.data ? (
+        <section id={SECTION_IDS.calisan} className={SECTION_ANCHOR}>
+          <CalisanKpi data={staff.data} />
+        </section>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Analiz sayfası uzun — bölümler arası hızlı geçiş için yapışkan gezgin.
+ * Üstteki uygulama başlığı h-14 olduğundan bar `top-14`e yapışır; bölümlere
+ * verilen `scroll-mt` de bar + başlık yüksekliğini telafi eder ki hedef
+ * bölümün başlığı barın altında kalmasın.
+ */
+const SECTION_IDS = {
+  karne: "analiz-karne",
+  ozet: "analiz-ozet",
+  indirim: "analiz-indirim",
+  kredi: "analiz-kredi",
+  outlet: "analiz-outlet",
+  calisan: "analiz-calisan",
+} as const;
+
+const SECTION_ANCHOR = "scroll-mt-32";
+
+function SectionNav({
+  hasOutlet,
+  hasStaff,
+}: {
+  hasOutlet: boolean;
+  hasStaff: boolean;
+}) {
+  const items = useMemo(
+    () =>
+      [
+        { id: SECTION_IDS.karne, label: "Mağaza Karnesi" },
+        { id: SECTION_IDS.ozet, label: "Özet" },
+        { id: SECTION_IDS.indirim, label: "İndirim" },
+        { id: SECTION_IDS.kredi, label: "Kredi Çeki" },
+        ...(hasOutlet ? [{ id: SECTION_IDS.outlet, label: "Outlet" }] : []),
+        ...(hasStaff ? [{ id: SECTION_IDS.calisan, label: "Çalışan KPI" }] : []),
+      ] as const,
+    [hasOutlet, hasStaff]
+  );
+
+  const [active, setActive] = useState<string>(items[0]?.id ?? "");
+  // Tıklamayla giderken gözlemci ara bölümleri aktif etmesin.
+  const [pinned, setPinned] = useState<string | null>(null);
+
+  useEffect(() => {
+    const els = items
+      .map((i) => document.getElementById(i.id))
+      .filter((el): el is HTMLElement => el != null);
+    if (els.length === 0) return;
+
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const seen = new Map<string, boolean>();
+        for (const e of entries) seen.set(e.target.id, e.isIntersecting);
+        // Barın hemen altındaki ilk görünür bölüm aktiftir.
+        const first = items.find((i) => seen.get(i.id));
+        if (first) setActive((prev) => (pinned ? prev : first.id));
+      },
+      // Üst şerit (başlık + bar) kadar içeri al; alt sınırı yükseltince
+      // "en üstteki görünür bölüm" mantığı stabil çalışır.
+      { rootMargin: "-140px 0px -55% 0px", threshold: 0 }
+    );
+    els.forEach((el) => obs.observe(el));
+    return () => obs.disconnect();
+  }, [items, pinned]);
+
+  const go = useCallback((id: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    setActive(id);
+    setPinned(id);
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Yumuşak kaydırma bitene kadar gözlemciyi devre dışı bırak.
+    window.setTimeout(() => setPinned(null), 700);
+  }, []);
+
+  return (
+    <div className="sticky top-14 z-20 -mx-6 border-b border-border/60 bg-background/90 px-6 py-2.5 backdrop-blur">
+      <div className="flex gap-1 overflow-x-auto">
+        {items.map((i) => {
+          const on = active === i.id;
+          return (
+            <button
+              key={i.id}
+              type="button"
+              onClick={() => go(i.id)}
+              aria-current={on ? "true" : undefined}
+              className={`shrink-0 rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                on
+                  ? "bg-muted font-medium text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {i.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
