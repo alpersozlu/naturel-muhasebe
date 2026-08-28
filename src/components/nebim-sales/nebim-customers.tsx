@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { keepPreviousData } from "@tanstack/react-query";
 import {
   Loader2,
   Users,
@@ -76,7 +77,14 @@ export function NebimCustomers({
     date_to: filters.dateTo || undefined,
     search: search || undefined,
   };
-  const { data, isLoading } = trpc.nebimSales.customers.useQuery(input);
+  const { data, isLoading, isFetching } = trpc.nebimSales.customers.useQuery(
+    input,
+    // Arama harfi başına sorgu yenilenir; önceki sonucu ekranda tutmazsak
+    // bölüm unmount olup yükleniyor kartına düşer ve sayfa başa sıçrar.
+    { placeholderData: keepPreviousData }
+  );
+  // Yalnız ilk yüklemede tam ekran gösterge; aramada liste yerinde kalır.
+  const searching = isFetching && !isLoading;
   const exportMutation = trpc.nebimSales.exportCustomers.useMutation();
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -422,7 +430,11 @@ export function NebimCustomers({
                 </div>
                 {/* Arama — bu tablonun filtresi, o yüzden burada */}
                 <div className="relative ml-auto w-full sm:w-72">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  {searching ? (
+                    <Loader2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                  ) : (
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  )}
                   <Input
                     value={searchRaw}
                     onChange={(e) => setSearchRaw(e.target.value)}
@@ -440,7 +452,11 @@ export function NebimCustomers({
                   ) : null}
                 </div>
               </div>
-              <div className="overflow-x-auto">
+              <div
+                className={`overflow-x-auto transition-opacity ${
+                  searching ? "opacity-60" : ""
+                }`}
+              >
                 <table className="w-full min-w-[880px] border-collapse text-sm">
                   <thead>
                     <tr className="bg-slate-900 text-slate-100 text-[10px] uppercase tracking-wider">
