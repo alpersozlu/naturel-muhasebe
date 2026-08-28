@@ -1059,13 +1059,20 @@ export const nebimSalesRouter = router({
       const notExempt: Prisma.NebimSaleLineWhereInput =
         audit.exemptIds.length > 0 ? { id: { notIn: audit.exemptIds } } : {};
 
+      // İndirim BANDI kuralları yalnız kampanya etiketi OLMAYAN satırlarda
+      // anlamlı: Nebim'de kampanya seçiliyse fiyatı sistem belirler, personel
+      // eli değmez. Veri bunu doğruluyor — 12.076 indirimli satırın yalnız 14'ü
+      // kampanyasız. Kampanyalı satırları banda göre yargılamak, kampanya her
+      // çeşitlendiğinde (bu sezon %60/%70) listeyi yanlış alarma boğuyordu.
+      // Kampanya seçimi yanlışsa onu bant değil, aksiyon fiyatı denetimi yakalar.
+      const uncampaigned: Prisma.NebimSaleLineWhereInput = { campaign: null };
+
       const where: Prisma.NebimSaleLineWhereInput = {
         ...base,
         OR: [
-          jacketCond,
-          weirdCond,
+          { AND: [uncampaigned, { OR: [jacketCond, weirdCond, ...june40Conds] }] },
+          // Tam fiyat kampanyadan bağımsızdır: indirim hiç uygulanmamış demektir.
           fullpriceCond,
-          ...june40Conds,
           ...(violationIds.length > 0 ? [{ id: { in: violationIds } }] : []),
         ],
         ...notExempt,
@@ -1083,10 +1090,16 @@ export const nebimSalesRouter = router({
           ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
           include: { store: { select: { name: true } } },
         }),
-        ctx.prisma.nebimSaleLine.count({ where: { ...base, ...weirdCond, ...notExempt } }),
+        ctx.prisma.nebimSaleLine.count({
+          where: { ...base, ...uncampaigned, ...weirdCond, ...notExempt },
+        }),
         ctx.prisma.nebimSaleLine.count({ where: { ...base, ...fullpriceCond, ...notExempt } }),
-        ctx.prisma.nebimSaleLine.count({ where: { ...base, OR: june40Conds, ...notExempt } }),
-        ctx.prisma.nebimSaleLine.count({ where: { ...base, ...jacketCond, ...notExempt } }),
+        ctx.prisma.nebimSaleLine.count({
+          where: { ...base, ...uncampaigned, OR: june40Conds, ...notExempt },
+        }),
+        ctx.prisma.nebimSaleLine.count({
+          where: { ...base, ...uncampaigned, ...jacketCond, ...notExempt },
+        }),
         ctx.prisma.nebimSaleLine.groupBy({
           by: ["salesperson_name"],
           where,

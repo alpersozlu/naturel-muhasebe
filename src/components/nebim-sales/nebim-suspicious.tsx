@@ -82,11 +82,13 @@ export function NebimSuspicious({ filters }: { filters: NebimSalesSelection }) {
                 Şüpheli Satışlar — kontrol et
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Yönetim onayı (özel talep/açıklama) <b>olmayan</b> satışlardan kampanya
-                kuralına uymayanlar: indirim %20/%40/%50 dışı; <b>ceket %40–%50 dışı</b>
-                (1. ceket %40, 2. ceket %50); Haziran ayında %40; ya da hiç indirim yok ama
-                fiyat outlet (1.499,99 / 1.999,99 / 2.499,99 / 2.999,99) değil. (Ceket =
-                kategorisiz sadece model adı; BLİNK bakım ürünleri tam fiyat normaldir.)
+                Yönetim onayı (özel talep/açıklama) <b>olmayan</b> satışlar taranır.
+                İndirim bandı kuralları (%20/%40/%50 dışı; <b>ceket %40–%50 dışı</b>;
+                Haziran ayında %40) yalnız <b>Nebim&apos;de kampanya seçilmemiş</b>
+                satırlara uygulanır — kampanya seçiliyse fiyatı kasa belirler, personel
+                eli değmez. Ayrıca hiç indirim yok ama fiyat outlet (1.499,99 / 1.999,99
+                / 2.499,99 / 2.999,99) değilse listelenir. (Ceket = kategorisiz sadece
+                model adı; BLİNK bakım ürünleri tam fiyat normaldir.)
               </p>
               <p className="text-xs text-muted-foreground mt-1.5">
                 <b>Dalga aksiyonu:</b> yüklenen kırmızı etiket listesindeki ürünler
@@ -105,7 +107,7 @@ export function NebimSuspicious({ filters }: { filters: NebimSalesSelection }) {
               <Stat label="Toplam Şüpheli" value={String(summary.total)} accent />
               <Stat label="Aksiyon Fiyatı Tutmuyor" value={String(summary.action_price)} />
               <Stat label="Kampanya Fişi Tutmuyor" value={String(summary.campaign_total)} />
-              <Stat label="Kural Dışı İndirim" value={String(summary.weird)} />
+              <Stat label="Kampanyasız İndirim" value={String(summary.weird)} />
               <Stat label="Haziran %40" value={String(summary.june40)} />
               <Stat label="Ceket (40/50 dışı)" value={String(summary.jacket)} />
               <Stat label="Tam Fiyat (outlet değil)" value={String(summary.fullprice)} />
@@ -229,7 +231,7 @@ function SuspiciousRow({ r }: { r: Item }) {
             ? `Haziran'da %${pct == null ? "40" : Math.round(pct)} (olmamalı)`
             : r.reason === "jacket"
               ? `Ceket %${pct == null || pct < 0.5 ? "0" : Math.round(pct)} — %40/%50 olmalı`
-              : `İndirim %${pct == null ? "?" : Math.round(pct)} (kural dışı)`;
+              : `İndirim %${pct == null ? "?" : Math.round(pct)} — kampanya seçilmemiş`;
   return (
     <tr className="border-b border-border/50 hover:bg-rose-50/30 transition-colors">
       {/* Sebep */}
