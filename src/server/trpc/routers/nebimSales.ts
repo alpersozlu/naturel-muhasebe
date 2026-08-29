@@ -15,6 +15,10 @@ import {
   type NebimSalesExcelRow,
 } from "@/server/services/exports/excel/nebim-sales";
 import { buildNebimCustomersExcel } from "@/server/services/exports/excel/nebim-customers";
+import {
+  buildStoreMovement,
+  type StoreMovementSonuc,
+} from "@/server/services/nebim/store-movement";
 
 /** Outlet ürün birim fiyatları — bu fiyatlarda indirim yapılmaması normaldir. */
 const OUTLET_PRICES = [1499.99, 1999.99, 2499.99, 2999.99];
@@ -1715,6 +1719,37 @@ export const nebimSalesRouter = router({
    * yan yana), tarih filtresine uyar. Dönem TAM AY ise aylık hedef +
    * gerçekleşme % + ay-sonu tahmini (lineer projeksiyon) + tahmini HGO döner.
    */
+  /**
+   * MAĞAZA HAREKET ÖZETİ — Nebim'in basılı raporunun ekran karşılığı.
+   * Seçili tarih/aralık ve mağaza için satış (normal/iade/toplam) + ödeme
+   * (nakit / kart tipi bazında / kredi çeki) kırılımı döner.
+   */
+  storeMovement: adminProcedure
+    .input(nebimAnalizSchema)
+    .query(async ({ ctx, input }): Promise<StoreMovementSonuc> => {
+      const where = await buildWhere(ctx, {
+        store_id: input.store_id,
+        date_from: input.date_from,
+        date_to: input.date_to,
+      });
+      if (!where) {
+        return {
+          date_from: input.date_from ?? null,
+          date_to: input.date_to ?? null,
+          stores: [],
+          grand: {
+            total: { qty: 0, amount_vi: 0, discount: 0, tax_base: 0, vat: 0, net: 0 },
+            cash: 0,
+            card: 0,
+          },
+        };
+      }
+      return buildStoreMovement(ctx.prisma, where, {
+        date_from: input.date_from,
+        date_to: input.date_to,
+      });
+    }),
+
   storeScorecard: adminProcedure
     .input(nebimAnalizSchema)
     .query(async ({ ctx, input }) => {

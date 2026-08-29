@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ListOrdered, BarChart3, ShieldAlert, Users } from "lucide-react";
+import { ListOrdered, BarChart3, ShieldAlert, Users, Printer } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { trpc } from "@/lib/trpc";
 import { ExportExcelButton } from "@/components/analytics/export-button";
@@ -14,6 +14,7 @@ import { NebimList } from "@/components/nebim-sales/nebim-list";
 import { NebimAnaliz } from "@/components/nebim-sales/nebim-analiz";
 import { NebimSuspicious } from "@/components/nebim-sales/nebim-suspicious";
 import { NebimCustomers } from "@/components/nebim-sales/nebim-customers";
+import { NebimHareketOzeti } from "@/components/nebim-sales/nebim-hareket-ozeti";
 
 function defaultSelection(): NebimSalesSelection {
   const now = new Date();
@@ -31,11 +32,12 @@ function defaultSelection(): NebimSalesSelection {
   };
 }
 
-type Tab = "list" | "analiz" | "customers" | "suspicious";
+type Tab = "list" | "analiz" | "hareket" | "customers" | "suspicious";
 
 const TABS: { key: Tab; label: string; icon: typeof ListOrdered }[] = [
   { key: "list", label: "Liste", icon: ListOrdered },
   { key: "analiz", label: "Analiz", icon: BarChart3 },
+  { key: "hareket", label: "Hareket Özeti", icon: Printer },
   { key: "customers", label: "Müşteriler", icon: Users },
   { key: "suspicious", label: "Şüpheli Satış", icon: ShieldAlert },
 ];
@@ -97,7 +99,7 @@ export default function NebimSalesPage() {
         value={sel}
         onChange={setSel}
         hideStore={tab === "analiz" || tab === "list"}
-        hideReturns={tab === "customers" || tab === "suspicious"}
+        hideReturns={tab === "customers" || tab === "suspicious" || tab === "hareket"}
         hideDiscount={tab !== "list"}
       />
 
@@ -105,6 +107,8 @@ export default function NebimSalesPage() {
         <NebimList filters={sel} onChange={setSel} />
       ) : tab === "analiz" ? (
         <NebimAnaliz filters={sel} onChange={setSel} />
+      ) : tab === "hareket" ? (
+        <NebimHareketOzeti filters={sel} />
       ) : tab === "customers" ? (
         <NebimCustomers filters={sel} />
       ) : (
