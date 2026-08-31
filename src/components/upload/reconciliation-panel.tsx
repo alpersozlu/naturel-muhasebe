@@ -72,6 +72,15 @@ export function ReconciliationPanel({
     onError: (e) => toast.error(e.message),
   });
 
+  const lockDay = trpc.dailyRecord.approveAndLock.useMutation({
+    onSuccess: () => {
+      toast.success("Gün kilitlendi — artık değişiklik yapılamaz");
+      utils.dailyRecord.reconciliation.invalidate({ store_id: storeId, date });
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const saveNotes = trpc.dailyRecord.saveReconciliationNotes.useMutation({
     onSuccess: () => {
       toast.success("Notlar kaydedildi");
@@ -376,6 +385,60 @@ export function ReconciliationPanel({
                 )}
                 <span>Doğrula</span>
               </button>
+            ) : null}
+
+            {/* Kilitleme — doğrulandıktan sonra, gün kapanışı.
+                Kilidi yalnız yönetici açabilir. */}
+            {!isLocked && data.daily_record_id && data.has_summary ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    confirm(
+                      "Günü kilitlemek üzeresin.\n\nKilitledikten sonra bu güne " +
+                        "belge ekleyemez, değiştiremez veya silemezsin. Kilidi " +
+                        "yalnızca yönetici açabilir.\n\nDevam edilsin mi?"
+                    )
+                  ) {
+                    lockDay.mutate({ id: data.daily_record_id! });
+                  }
+                }}
+                disabled={lockDay.isPending || approve.isPending}
+                className="flex items-center justify-center gap-2 rounded-2xl border-2 border-slate-900 text-slate-900 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed font-semibold px-5 py-3 transition-colors"
+              >
+                {lockDay.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Lock className="h-4 w-4" />
+                )}
+                <span>Günü Kilitle</span>
+              </button>
+            ) : null}
+
+            {isLocked && data.locked_at ? (
+              <div className="rounded-2xl bg-slate-100 px-4 py-3 text-center">
+                <div className="flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
+                  <Lock className="h-3 w-3" />
+                  Kilitli
+                </div>
+                <div className="mt-1 text-xs text-slate-700 tabular-nums">
+                  {new Date(data.locked_at).toLocaleString("tr-TR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </div>
+                {data.locked_by_name ? (
+                  <div className="text-[11px] text-slate-500">
+                    {data.locked_by_name}
+                  </div>
+                ) : null}
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Kilidi yalnız yönetici açabilir
+                </div>
+              </div>
             ) : null}
           </div>
         </div>

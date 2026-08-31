@@ -143,6 +143,7 @@ export function ZReportDetails({
   approval?: {
     passed: boolean;
     reasons: string[];
+    warnings?: string[];
     combined: number;
     cc_floor: number | null;
     cc_total?: number;
@@ -219,6 +220,14 @@ export function ZReportDetails({
                 satış {fmt(approval.total_sales ?? 0)} ₺
               </div>
             )}
+            {/* Onayı engellemeyen ama dikkat isteyen durumlar */}
+            {approval.warnings && approval.warnings.length > 0 ? (
+              <ul className="mt-1.5 space-y-0.5 list-disc list-inside text-amber-700">
+                {approval.warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         </div>
       ) : null}

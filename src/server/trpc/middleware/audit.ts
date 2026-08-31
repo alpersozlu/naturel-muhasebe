@@ -1,4 +1,4 @@
-import { adminProcedure } from "../trpc";
+import { adminProcedure, protectedProcedure } from "../trpc";
 
 type AuditAction =
   | "create"
@@ -48,7 +48,23 @@ function extractEntityId(data: unknown): string | null {
  *   create: brandAudited.input(...).mutation(...)
  */
 export function withAudit(entityType: string) {
-  return adminProcedure.use(async ({ ctx, next, path, type }) => {
+  return auditOn(adminProcedure, entityType);
+}
+
+/**
+ * Aynı denetim kaydı, ama ADMIN şartı olmadan. Mağaza kapsamındaki
+ * kullanıcıların (müdür/kasiyer) yaptığı ve iz bırakması gereken işlemler
+ * için — yetki kontrolünü prosedürün kendisi yapar (assertCanAccessStore).
+ */
+export function withAuditProtected(entityType: string) {
+  return auditOn(protectedProcedure, entityType);
+}
+
+function auditOn<T extends typeof adminProcedure | typeof protectedProcedure>(
+  base: T,
+  entityType: string
+) {
+  return base.use(async ({ ctx, next, path, type }) => {
     const result = await next();
     if (type !== "mutation" || !result.ok) return result;
 

@@ -6,29 +6,35 @@ import type { PrismaClient } from "@prisma/client";
  *
  *   Toplam Z = Z.net_sales_try + Σ(ManualInvoice.amount_try)
  *
- *   Alt sınır (Z bu rakamın ALTINA inemez):
- *     - Nakit varsa: Toplam Z ≥ Visa × 1.05
- *     - Nakit yoksa: Toplam Z ≥ Visa  (eşit olabilir)
+ *   KESİN alt sınır (asla onaylanmaz):
+ *     - Toplam Z ≥ Visa   → Z, Visa'nın ALTINDA olamaz. İstisnası yoktur.
+ *
+ *   UYARI eşiği (onayı engellemez):
+ *     - Nakit varsa Toplam Z'in Visa × 1.05'i geçmesi beklenir. Z ile Visa
+ *       eşit/çok yakınsa kayıt yine de onaylanır ama uyarı düşer — nakit
+ *       satış varken Z'in Visa'ya eşit çıkması olağan değildir, kontrol
+ *       edilmesi istenir.
  *
  *   Üst sınır:
  *     - Toplam Z ≤ StoreSummary.sales_total_try  (toplam satıştan fazla olamaz)
  *
  * KK eşik kaynağı: aynı daily_record altındaki PARSED/CONFIRMED POS
  * sliplerinin net_amount_try toplamı.
- *
- * En kritik kural: Z hiçbir zaman Visa'nın ALTINDA olmamalı.
- * Z = Visa + Nakit olmalı (yaklaşık), Z + Cash = Total Sales.
  */
 
 export type ZApprovalCheck = {
   passed: boolean;
-  reasons: string[]; // boş ise tüm kurallar geçti
+  reasons: string[]; // ENGELLEYİCİ — boş ise onaylanabilir
+  /** Onayı engellemeyen ama gösterilmesi gereken uyarılar */
+  warnings: string[];
   combined: number; // Z + manual invoices
   cc_total: number;
-  /** Alt sınır: Visa veya Visa × 1.05 (nakit varsa) */
+  /** KESİN alt sınır = Visa. Bunun altı asla onaylanmaz. */
+  cc_hard_floor: number | null;
+  /** Beklenen alt sınır: nakit varsa Visa × 1.05, yoksa Visa. */
   cc_floor: number | null;
   total_sales: number | null;
-  /** Nakit > 0 → 5% cushion uygulanıyor mu */
+  /** Nakit > 0 → 5% cushion BEKLENİYOR (zorunlu değil) */
   cash_present: boolean;
 };
 
@@ -71,11 +77,12 @@ export async function checkZApproval(
     .filter((p) => p.upload.status === "parsed" || p.upload.status === "confirmed")
     .reduce((s, p) => s + num(p.net_amount_try), 0);
 
-  // Nakit varsa Toplam Z'in alt sınırı Visa × 1.05; yoksa direkt Visa.
   const cashSales = z.daily_record.store_summary
     ? num(z.daily_record.store_summary.cash_sales_try)
     : 0;
   const cashPresent = cashSales > 0.01;
+  // KESİN sınır her zaman Visa'dır. %5 payı yalnız BEKLENTİdir (uyarı).
+  const cc_hard_floor = cc_total > 0 ? cc_total : null;
   const cc_floor =
     cc_total > 0 ? (cashPresent ? cc_total * 1.05 : cc_total) : null;
 
@@ -84,22 +91,27 @@ export async function checkZApproval(
     : null;
 
   const reasons: string[] = [];
+  const warnings: string[] = [];
 
-  // 1. Alt sınır kontrolü — Z, Visa'nın altında olamaz.
-  if (cc_floor !== null && combined < cc_floor) {
-    if (cashPresent) {
-      reasons.push(
-        `Toplam Z (${TRY_FMT.format(combined)} ₺) Visa'nın %5 üstünde olmalı — gerekli en az: ${TRY_FMT.format(
-          cc_floor
-        )} ₺ (Visa ${TRY_FMT.format(cc_total)} ₺ × 1.05).`
-      );
-    } else {
-      reasons.push(
-        `Toplam Z (${TRY_FMT.format(combined)} ₺) Visa'nın altında olamaz — Visa: ${TRY_FMT.format(
-          cc_total
-        )} ₺. Nakit olmadığı için Z en az Visa kadar olmalı.`
-      );
-    }
+  // 1. KESİN alt sınır — Z, Visa'nın altında olamaz (istisnasız).
+  if (cc_hard_floor !== null && combined < cc_hard_floor) {
+    reasons.push(
+      `Toplam Z (${TRY_FMT.format(combined)} ₺) Visa'nın ALTINDA olamaz — Visa: ${TRY_FMT.format(
+        cc_total
+      )} ₺. Bu kuralın istisnası yoktur.`
+    );
+  } else if (cc_floor !== null && combined < cc_floor) {
+    // Visa ile Visa×1.05 arasında: onaylanır, ama nakit varken Z'in Visa'ya
+    // bu kadar yakın olması beklenmez — uyarı düşür.
+    warnings.push(
+      `Nakit satış var ama Toplam Z (${TRY_FMT.format(
+        combined
+      )} ₺) Visa'ya çok yakın. Beklenen en az ${TRY_FMT.format(
+        cc_floor
+      )} ₺ (Visa ${TRY_FMT.format(
+        cc_total
+      )} ₺ × 1.05). Onaylandı — nakit satışın Z'e işlendiğini kontrol et.`
+    );
   } else if (cc_floor === null) {
     reasons.push(
       "Henüz POS fişi yüklenmedi — Z alt sınırı (Visa eşiği) hesaplanamıyor. POS fişlerini yükleyince tekrar değerlendirilecek."
@@ -122,8 +134,10 @@ export async function checkZApproval(
   return {
     passed: reasons.length === 0,
     reasons,
+    warnings,
     combined,
     cc_total,
+    cc_hard_floor,
     cc_floor,
     total_sales,
     cash_present: cashPresent,

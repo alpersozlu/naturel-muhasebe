@@ -8,7 +8,7 @@ import {
   setMaviGiftVoucherSchema,
   setCumulativePrevSchema,
 } from "@/lib/zod-schemas/verification";
-import { withAudit } from "../middleware/audit";
+import { withAudit, withAuditProtected } from "../middleware/audit";
 import { assertCanAccessStore, isAdmin } from "@/lib/auth/permissions";
 import {
   computeDay,
@@ -17,6 +17,9 @@ import {
 import { computeNebimDaySummary } from "@/server/services/nebim/day-summary";
 
 const dailyAdmin = withAudit("DailyRecord");
+// Kilitleme mağaza kullanıcılarına da açık — yetki kontrolü prosedürün içinde
+// (assertCanAccessStore). Kilidi AÇMAK yalnız admin'de kalır.
+const dailyScoped = withAuditProtected("DailyRecord");
 
 export const dailyRecordRouter = router({
   /**
@@ -67,7 +70,7 @@ export const dailyRecordRouter = router({
       });
     }),
 
-  approveAndLock: dailyAdmin
+  approveAndLock: dailyScoped
     .input(dailyRecordIdSchema)
     .mutation(async ({ ctx, input }) => {
       const dr = await ctx.prisma.dailyRecord.findUnique({
@@ -81,10 +84,10 @@ export const dailyRecordRouter = router({
       if (!dr) throw new TRPCError({ code: "NOT_FOUND" });
       await assertCanAccessStore(ctx.user, dr.store_id);
 
-      if (!isAdmin(ctx.user)) {
+      if (dr.status === "locked") {
         throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Kilitleme sadece admin yetkisinde (Doğrulama Sistemi)",
+          code: "BAD_REQUEST",
+          message: "Bu gün zaten kilitli.",
         });
       }
       if (!dr.store_summary) {
@@ -168,6 +171,7 @@ export const dailyRecordRouter = router({
         include: {
           uploads: { select: { id: true, type: true, status: true } },
           store_summary: true,
+          approved_by_user: { select: { full_name: true } },
           z_reports: { select: { id: true } },
           pos_slips: {
             select: {
@@ -328,6 +332,9 @@ export const dailyRecordRouter = router({
         failed_count: failedCount,
         daily_record_status: dr.status,
         daily_record_id: dr.id,
+        // Kilit izi — panelde "kim, ne zaman kilitledi" gösterilir
+        locked_at: dr.locked_at,
+        locked_by_name: dr.approved_by_user?.full_name ?? null,
         reconciliation_notes: dr.reconciliation_notes,
         reconciliation_notes_at: dr.reconciliation_notes_at,
         nebim_summary: nebimSummary,
