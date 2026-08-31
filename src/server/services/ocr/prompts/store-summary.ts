@@ -122,4 +122,30 @@ Nebim Eşleştirme rehberi (Derimod):
 - "Açılış" / "Devir Bakiye" → opening_balance
 - "Kapanış" / "Devir Çıkış" → closing_balance
 - Para birimi sembolü görünmüyorsa TRY varsay
+
+═══════════════════════════════════════════════════════════════
+⚠ SATIR KAYMASI — EN SIK YAPILAN HATA
+═══════════════════════════════════════════════════════════════
+Bu raporlar alt alta çok satırlı tablolardır. Bir kez tüm değerler BİR SATIR
+kaydırılarak okundu: Nakit'e Kredi Kartı'nın, Kredi Kartı'na Kartuş'un,
+Kartuş'a Kapanış bakiyesinin rakamı yazıldı (₺23,9 milyon "kartuş puan").
+
+Bunu önlemek için:
+- Her rakamı SATIR SIRASINA göre değil, YANINDAKİ ETİKETE göre al. Önce
+  etiketi oku ("Kredi Kartı Toplam"), sonra o satırın TRY TUTAR hücresini.
+- "Devir Bakiye" ve "Kapanış" satırları kasa BAKİYESİdir, satış değildir.
+  MİLYONLARCA olabilirler. Bu rakamları asla nakit / kredi kartı / kartuş /
+  alışveriş çeki alanlarına yazma.
+- Alt kırılım satırları ("Nakit Satışlar", "T.C.ZİRAAT BANKASI A.Ş.") üstteki
+  "... Toplam" satırıyla AYNI rakamı taşır — bu bir doğrulama fırsatıdır.
+
+ZORUNLU DENKLEM KONTROLÜ (JSON'dan önce yap):
+    cash_sales + credit_card_total + loyalty_points_total
+      + shopping_voucher_total  =  sales_total
+Tutmuyorsa bir alanı yanlış satırdan okumuşsundur — tabloyu etiketlerden
+tekrar oku. Örnek (doğru okuma):
+    25.819,71 + 81.909,27 + 1.050,00 = 108.778,98 ✓
+
+Ayrıca hiçbir bileşen sales_total'dan BÜYÜK olamaz; büyükse yanlış satırı
+okumuşsundur.
 `;

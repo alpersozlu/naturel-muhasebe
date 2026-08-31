@@ -416,6 +416,30 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
           `yanlış okunmuş. Görseli daha net çekip tekrar yükleyin.`
       );
     }
+
+    // Bileşenler toplamı satışı vermeli. Tutmuyorsa OCR bir satır kaymış
+    // demektir (bir kez nakit/kart/kartuş bir satır aşağı okundu). Yalnız
+    // hepsi okunabildiyse kontrol et — eksik alan varsa denklem kurulamaz.
+    const parts = [
+      parsed.cash_sales,
+      parsed.credit_card_total,
+      parsed.loyalty_points_total,
+      parsed.shopping_voucher_total,
+    ];
+    if (parts.every((v) => v != null)) {
+      const sum = parts.reduce<number>((a, v) => a + (v ?? 0), 0);
+      // Kuruş yuvarlaması ve küçük OCR sapmaları için pay bırak.
+      const tolerance = Math.max(1, salesTotal * 0.01);
+      if (Math.abs(sum - salesTotal) > tolerance) {
+        throw new Error(
+          `Mağaza Özeti okunamadı: Nakit + Kredi Kartı + Kartuş + Alışveriş ` +
+            `Çeki = ${fmtMoneyTr(sum)} ₺, ama Satış Toplam ` +
+            `${fmtMoneyTr(salesTotal)} ₺. Rakamlar birbirini tutmuyor — ` +
+            `muhtemelen bir satır yanlış okundu. Görseli daha net çekip ` +
+            `tekrar yükleyin.`
+        );
+      }
+    }
   }
 
   await prisma.storeSummary.upsert({
