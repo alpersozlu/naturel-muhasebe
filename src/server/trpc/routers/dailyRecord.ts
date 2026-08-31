@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { assertPriorDaysLocked } from "@/server/services/daily-record";
 import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
 import {
@@ -448,6 +449,13 @@ export const dailyRecordRouter = router({
     .input(setReportedCashSchema)
     .mutation(async ({ ctx, input }) => {
       await assertCanAccessStore(ctx.user, input.store_id);
+      // Önceki günler kilitlenmeden yeni güne kayıt girilemez.
+      await assertPriorDaysLocked(
+        ctx.prisma,
+        ctx.user,
+        input.store_id,
+        input.date
+      );
       const dateObj = new Date(`${input.date}T00:00:00.000Z`);
 
       // DailyRecord yoksa oluştur (lazy)
@@ -506,6 +514,13 @@ export const dailyRecordRouter = router({
     .input(setGiftVoucherSchema)
     .mutation(async ({ ctx, input }) => {
       await assertCanAccessStore(ctx.user, input.store_id);
+      // Önceki günler kilitlenmeden yeni güne kayıt girilemez.
+      await assertPriorDaysLocked(
+        ctx.prisma,
+        ctx.user,
+        input.store_id,
+        input.date
+      );
       const dateObj = new Date(`${input.date}T00:00:00.000Z`);
 
       const dr = await ctx.prisma.dailyRecord.upsert({
@@ -564,6 +579,13 @@ export const dailyRecordRouter = router({
     .input(setMaviGiftVoucherSchema)
     .mutation(async ({ ctx, input }) => {
       await assertCanAccessStore(ctx.user, input.store_id);
+      // Önceki günler kilitlenmeden yeni güne kayıt girilemez.
+      await assertPriorDaysLocked(
+        ctx.prisma,
+        ctx.user,
+        input.store_id,
+        input.date
+      );
       const dateObj = new Date(`${input.date}T00:00:00.000Z`);
 
       const dr = await ctx.prisma.dailyRecord.upsert({

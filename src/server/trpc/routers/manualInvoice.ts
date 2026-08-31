@@ -6,7 +6,10 @@ import {
   manualInvoicesForStoreDateSchema,
 } from "@/lib/zod-schemas/manual-invoice";
 import { assertCanAccessStore, isAdmin } from "@/lib/auth/permissions";
-import { getOrCreateDailyRecord } from "@/server/services/daily-record";
+import {
+  getOrCreateDailyRecord,
+  assertPriorDaysLocked,
+} from "@/server/services/daily-record";
 
 export const manualInvoiceRouter = router({
   /** Liste — bir mağazanın belirli günü için tüm el faturaları. */
@@ -31,6 +34,13 @@ export const manualInvoiceRouter = router({
     .input(manualInvoiceCreateSchema)
     .mutation(async ({ ctx, input }) => {
       await assertCanAccessStore(ctx.user, input.store_id);
+      // Önceki günler kilitlenmeden yeni güne kayıt girilemez.
+      await assertPriorDaysLocked(
+        ctx.prisma,
+        ctx.user,
+        input.store_id,
+        input.date
+      );
       const dr = await getOrCreateDailyRecord(ctx.prisma, input.store_id, input.date);
       if (dr.status === "locked") {
         throw new TRPCError({

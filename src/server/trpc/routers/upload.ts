@@ -7,7 +7,10 @@ import {
   uploadsForStoreDateSchema,
 } from "@/lib/zod-schemas/upload";
 import { assertCanAccessStore } from "@/lib/auth/permissions";
-import { getOrCreateDailyRecord } from "@/server/services/daily-record";
+import {
+  getOrCreateDailyRecord,
+  assertPriorDaysLocked,
+} from "@/server/services/daily-record";
 import {
   buildUploadPath,
   uploadBufferToStorage,
@@ -31,6 +34,13 @@ export const uploadRouter = router({
     .mutation(async ({ ctx, input }) => {
       await assertCanAccessStore(ctx.user, input.store_id);
 
+      // Önceki günler kilitlenmeden yeni güne kayıt girilemez.
+      await assertPriorDaysLocked(
+        ctx.prisma,
+        ctx.user,
+        input.store_id,
+        input.date
+      );
       const dr = await getOrCreateDailyRecord(ctx.prisma, input.store_id, input.date);
 
       if (dr.status === "locked") {

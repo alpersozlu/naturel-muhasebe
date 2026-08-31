@@ -7,7 +7,10 @@ import {
   corporatePurchasesForStoreDateSchema,
 } from "@/lib/zod-schemas/corporate-purchase";
 import { assertCanAccessStore } from "@/lib/auth/permissions";
-import { getOrCreateDailyRecord } from "@/server/services/daily-record";
+import {
+  getOrCreateDailyRecord,
+  assertPriorDaysLocked,
+} from "@/server/services/daily-record";
 
 export const corporatePurchaseRouter = router({
   /** Bir mağaza+gün için kurumsal/yönetim alışverişleri. */
@@ -30,6 +33,13 @@ export const corporatePurchaseRouter = router({
     .input(corporatePurchaseCreateSchema)
     .mutation(async ({ ctx, input }) => {
       await assertCanAccessStore(ctx.user, input.store_id);
+      // Önceki günler kilitlenmeden yeni güne kayıt girilemez.
+      await assertPriorDaysLocked(
+        ctx.prisma,
+        ctx.user,
+        input.store_id,
+        input.date
+      );
       const dr = await getOrCreateDailyRecord(
         ctx.prisma,
         input.store_id,
