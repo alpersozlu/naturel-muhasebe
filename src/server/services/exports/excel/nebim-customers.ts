@@ -47,7 +47,7 @@ export async function buildNebimCustomersExcel(opts: {
   let row = writeHeader(ws, {
     title: "Derimod Müşteri Analizi (NEBIM)",
     subtitle:
-      `${period} · ${opts.kpi.customers} müşteri · Ciro ${opts.kpi.net_total.toFixed(2)} ₺ (KDV hariç) · ` +
+      `${period} · ${opts.kpi.customers} müşteri · Ciro ${opts.kpi.net_total.toFixed(2)} ₺ (KDV dahil) · ` +
       `Yeni ${opts.kpi.new_customers} · Tekrar %${opts.kpi.repeat_pct.toFixed(1)}`,
     columnCount: 10,
   });
@@ -84,7 +84,7 @@ export async function buildNebimCustomersExcel(opts: {
       { header: "Müşteri", key: "name", width: 30 },
       { header: "Kod", key: "code", width: 14 },
       { header: "Sadakat", key: "tier", width: 10 },
-      { header: "Net (₺, KDV hariç)", key: "net", width: 18, format: "money" },
+      { header: "Net (₺, KDV dahil)", key: "net", width: 18, format: "money" },
       { header: "Fiş", key: "invoices", width: 8, format: "int" },
       { header: "Adet", key: "units", width: 8, format: "int" },
       { header: "Ort. Sepet (₺)", key: "basket", width: 16, format: "money" },

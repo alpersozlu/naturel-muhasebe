@@ -114,7 +114,7 @@ export function NebimCustomers({
       ) : (
         <>
           <div className="mb-2 text-right text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-            Tutarlar KDV hariç
+            Tutarlar KDV dahil — müşterinin ödediği
           </div>
 
           {/* Özet şerit — tek kart, ince bölmeler, sakin tipografi */}
@@ -466,7 +466,7 @@ export function NebimCustomers({
                       <th className="text-right font-semibold px-3 py-2.5">
                         Net TL
                         <span className="block font-normal normal-case tracking-normal text-[9px] opacity-70">
-                          KDV hariç
+                          KDV dahil
                         </span>
                       </th>
                       <th className="text-right font-semibold px-3 py-2.5">Fiş</th>
@@ -647,7 +647,7 @@ function CustomerDetail({ code, name }: { code: string | null; name: string }) {
       {/* Aylık harcama (tüm zaman, son 12 ay) */}
       <div>
         <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
-          Aylık Harcama · KDV hariç (tüm geçmiş: {fmt(data.totals.net)} ·{" "}
+          Aylık Harcama · KDV dahil (tüm geçmiş: {fmt(data.totals.net)} ·{" "}
           {data.totals.invoices} fiş · {fmtDate(data.totals.first_date)} →{" "}
           {fmtDate(data.totals.last_date)})
         </div>

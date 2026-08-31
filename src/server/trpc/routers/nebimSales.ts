@@ -164,7 +164,7 @@ async function computeCustomers(
     ctx.prisma.nebimSaleLine.groupBy({
       by: ["customer_code", "customer_name"],
       where: named,
-      _sum: { tax_base: true, qty: true },
+      _sum: { net_amount: true, qty: true },
       _count: { _all: true },
       _min: { invoice_date: true },
       _max: { invoice_date: true },
@@ -184,7 +184,7 @@ async function computeCustomers(
     }),
     ctx.prisma.nebimSaleLine.aggregate({
       where: { ...base, customer_name: null },
-      _sum: { tax_base: true },
+      _sum: { net_amount: true },
     }),
   ]);
 
@@ -210,7 +210,7 @@ async function computeCustomers(
   let genericNet = 0, genericCount = 0;
   const rows: NebimCustomerRow[] = [];
   for (const g of groups) {
-    const net = Number(g._sum.tax_base ?? 0); // KDV hariç
+    const net = Number(g._sum.net_amount ?? 0); // KDV DAHİL — müşterinin ödediği
     // Jenerik/turist kartları gerçek kişi değil — listeden ve KPI'lardan hariç.
     if (isGenericCustomer(g.customer_name)) {
       genericNet += net;
@@ -296,12 +296,12 @@ async function computeCustomers(
         customer_name: { not: null },
         invoice_date: { gte: prevFrom, lte: prevTo },
       },
-      _sum: { tax_base: true },
+      _sum: { net_amount: true },
     });
     let pNet = 0, pCount = 0;
     for (const g of pg) {
       if (isGenericCustomer(g.customer_name)) continue;
-      pNet += Number(g._sum.tax_base ?? 0);
+      pNet += Number(g._sum.net_amount ?? 0);
       pCount += 1;
     }
     prev = {
@@ -350,7 +350,7 @@ async function computeCustomers(
   // ── Geri kazanılacaklar: yaşam-boyu değerli ama uykuda müşteriler ───
   // Dönem filtresinden bağımsız (tüm geçmiş), mağaza kapsamı korunur.
   const DORMANT_DAYS = 90;
-  // Gümüş bandı ve üzeri. LOYALTY_TIERS ile aynı bazda (KDV hariç) okunur.
+  // Gümüş bandı ve üzeri. LOYALTY_TIERS ile aynı bazda (KDV DAHİL) okunur.
   const DORMANT_MIN_NET = 25_000;
   const lifetime = await ctx.prisma.nebimSaleLine.groupBy({
     by: ["customer_code", "customer_name"],
@@ -358,7 +358,7 @@ async function computeCustomers(
       ...(base.store_id ? { store_id: base.store_id } : {}),
       customer_name: { not: null },
     },
-    _sum: { tax_base: true },
+    _sum: { net_amount: true },
     _max: { invoice_date: true },
   });
   const lifeInv = await ctx.prisma.nebimSaleLine.groupBy({
@@ -385,7 +385,7 @@ async function computeCustomers(
       return {
         code: g.customer_code,
         name: g.customer_name ?? "—",
-        lifetime_net: Number(g._sum.tax_base ?? 0),
+        lifetime_net: Number(g._sum.net_amount ?? 0),
         invoices: lifeInvCount.get(key(g.customer_code, g.customer_name)) ?? 0,
         last_date: iso(last),
         days_since: daysSince,
@@ -402,7 +402,7 @@ async function computeCustomers(
       new_customers: newCustomers,
       repeat_pct: count ? (repeat / count) * 100 : 0,
       avg_spend: count ? netTotal / count : 0,
-      anonymous_net: Number(anonAgg._sum.tax_base ?? 0),
+      anonymous_net: Number(anonAgg._sum.net_amount ?? 0),
       generic_net: genericNet,
       generic_count: genericCount,
       new_applicable: periodStart != null,
@@ -1631,7 +1631,7 @@ export const nebimSalesRouter = router({
         where,
         select: {
           invoice_date: true, invoice_ref: true, item_desc: true, qty: true,
-          tax_base: true, is_return: true, payment_type: true,
+          net_amount: true, is_return: true, payment_type: true,
           store: { select: { name: true } },
         },
         orderBy: [{ invoice_date: "asc" }],
@@ -1645,7 +1645,7 @@ export const nebimSalesRouter = router({
       const allRefs = new Set<string>();
       let net = 0, units = 0;
       for (const l of lines) {
-        const n = Number(l.tax_base ?? 0); // KDV hariç
+        const n = Number(l.net_amount ?? 0); // KDV DAHİL
         const q = Number(l.qty ?? 0);
         net += n;
         allRefs.add(l.invoice_ref);
@@ -1693,7 +1693,7 @@ export const nebimSalesRouter = router({
             date: l.invoice_date.toISOString().slice(0, 10),
             ref: l.invoice_ref,
             desc: l.item_desc,
-            net: Number(l.tax_base ?? 0),
+            net: Number(l.net_amount ?? 0),
             is_return: l.is_return,
             store: (l.store?.name ?? "?").replace(/^DERIMOD\s*/i, ""),
           })),
@@ -1962,7 +1962,7 @@ export const nebimSalesRouter = router({
         size: r.size,
         salesperson_name: r.salesperson_name,
         qty: Number(r.qty),
-        net_amount: r.tax_base == null ? null : Number(r.tax_base), // KDV hariç
+        net_amount: r.net_amount == null ? null : Number(r.net_amount), // KDV dahil
       }));
       const net_total = items.reduce((s, i) => s + (i.net_amount ?? 0), 0);
       return { items, net_total };
