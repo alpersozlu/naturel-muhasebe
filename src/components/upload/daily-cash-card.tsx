@@ -9,6 +9,7 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 
 const TRY_FORMATTER = new Intl.NumberFormat("tr-TR", {
@@ -43,7 +44,7 @@ export function DailyCashCard({
   const disabled = !storeId || !date;
   const utils = trpc.useUtils();
 
-  const [amount, setAmount] = useState<string>("");
+  const [amount, setAmount] = useState<number | undefined>(undefined);
   const [note, setNote] = useState<string>("");
 
   const { data: existing, isLoading } = trpc.dailyRecord.getReportedCash.useQuery(
@@ -55,10 +56,10 @@ export function DailyCashCard({
   useEffect(() => {
     if (existing && existing.reported_cash_try !== null) {
       const n = num(existing.reported_cash_try);
-      setAmount(n.toString());
+      setAmount(n);
       setNote(existing.reported_cash_note ?? "");
     } else {
-      setAmount("");
+      setAmount(undefined);
       setNote("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -75,7 +76,7 @@ export function DailyCashCard({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const n = Number(amount.replace(",", "."));
+    const n = amount ?? NaN;
     if (!Number.isFinite(n) || n < 0) {
       toast.error("Geçerli bir tutar gir");
       return;
@@ -114,15 +115,11 @@ export function DailyCashCard({
               <span className="font-medium"> kalan nakit + masraflar</span> günün
               toplam nakdi olarak hesaplanır.
             </p>
-            <Input
+            <MoneyInput
               id="cash-amount"
-              type="number"
-              inputMode="decimal"
-              step="0.01"
-              min="0"
               placeholder="0,00"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={setAmount}
               disabled={disabled || save.isPending}
             />
           </div>

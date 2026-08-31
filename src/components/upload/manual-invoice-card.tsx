@@ -14,6 +14,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -176,14 +177,21 @@ export function ManualInvoiceCard({
               <Label htmlFor="mi-amount" className="text-xs">
                 Tutar <span className="text-rose-600">*</span>
               </Label>
-              <Input
-                id="mi-amount"
-                type="number"
-                step="0.01"
-                min="0.01"
-                placeholder="örn. 1500,00"
-                disabled={disabled}
-                {...register("amount", { valueAsNumber: true })}
+              <Controller
+                control={control}
+                name="amount"
+                render={({ field }) => (
+                  <MoneyInput
+                    id="mi-amount"
+                    placeholder="örn. 1.500,00"
+                    disabled={disabled}
+                    // amount şemada z.coerce.number() — INPUT tipi unknown.
+                    value={
+                      typeof field.value === "number" ? field.value : undefined
+                    }
+                    onChange={field.onChange}
+                  />
+                )}
               />
               {errors.amount ? (
                 <p className="text-xs text-destructive mt-1">

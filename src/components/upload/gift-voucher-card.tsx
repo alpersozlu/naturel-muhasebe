@@ -9,6 +9,7 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 
 const TRY_FORMATTER = new Intl.NumberFormat("tr-TR", {
@@ -44,7 +45,7 @@ export function GiftVoucherCard({
   const disabled = !storeId || !date;
   const utils = trpc.useUtils();
 
-  const [amount, setAmount] = useState<string>("");
+  const [amount, setAmount] = useState<number | undefined>(undefined);
   const [note, setNote] = useState<string>("");
 
   const { data: existing, isLoading } = trpc.dailyRecord.getGiftVoucher.useQuery(
@@ -55,10 +56,10 @@ export function GiftVoucherCard({
   useEffect(() => {
     if (existing && existing.gift_voucher_try !== null) {
       const n = num(existing.gift_voucher_try);
-      setAmount(n.toString());
+      setAmount(n);
       setNote(existing.gift_voucher_note ?? "");
     } else {
-      setAmount("");
+      setAmount(undefined);
       setNote("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -75,7 +76,7 @@ export function GiftVoucherCard({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const n = Number(amount.replace(",", "."));
+    const n = amount ?? NaN;
     if (!Number.isFinite(n) || n < 0) {
       toast.error("Geçerli bir tutar gir");
       return;
@@ -108,15 +109,11 @@ export function GiftVoucherCard({
             <Label htmlFor="gift-amount" className="text-xs">
               Tutar (TL)
             </Label>
-            <Input
+            <MoneyInput
               id="gift-amount"
-              type="number"
-              inputMode="decimal"
-              step="0.01"
-              min="0"
               placeholder="0,00"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={setAmount}
               disabled={disabled || save.isPending}
             />
           </div>
