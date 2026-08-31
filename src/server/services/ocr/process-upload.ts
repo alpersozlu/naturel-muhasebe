@@ -78,6 +78,14 @@ function swapDayAndTwoDigitYear(iso: string): string | null {
  * Uyuşmuyorsa gün/yıl takası denenir; o da tutmuyorsa hata verilir.
  * Dönen değer: kullanılacak (gerekirse düzeltilmiş) tarih.
  */
+/** Hata mesajlarında tutarı Türkçe biçimde göster. */
+function fmtMoneyTr(v: number): string {
+  return v.toLocaleString("tr-TR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 async function assertDateMatch(
   dailyRecordId: string,
   docDate: string | null,
@@ -382,6 +390,34 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     period_start: periodStart,
     period_end: periodEnd,
   };
+  // ── Akıl kontrolü: bileşenler toplam satışı aşamaz ──────────────────
+  // Kartuş puan / nakit / kart hepsi satışın İÇİNDEDİR. OCR bir rakamı
+  // yanlış sütundan okuduğunda (bir kez ₺23,9 milyon kartuş puanı okundu,
+  // gün cirosu ₺108 bindi) bu sessizce kaydedilip Kar/Zarar tablosunu
+  // anlamsız hale getiriyordu. Böyle bir değeri kabul etmek yerine reddet:
+  // kullanıcı belgeyi yeniden yükler ya da elle düzeltir.
+  const salesTotal = parsed.sales_total;
+  if (salesTotal != null && salesTotal > 0) {
+    const overs: string[] = [];
+    const check = (label: string, v: number | null | undefined) => {
+      // Küçük yuvarlama farkları için %1 pay bırak.
+      if (v != null && v > salesTotal * 1.01) {
+        overs.push(`${label} ${fmtMoneyTr(v)} ₺`);
+      }
+    };
+    check("Kartuş Puan", parsed.loyalty_points_total);
+    check("Nakit", parsed.cash_sales);
+    check("Kredi Kartı", parsed.credit_card_total);
+    check("Alışveriş Çeki", parsed.shopping_voucher_total);
+    if (overs.length > 0) {
+      throw new Error(
+        `Mağaza Özeti okunamadı: ${overs.join(", ")} toplam satıştan ` +
+          `(${fmtMoneyTr(salesTotal)} ₺) büyük — bu mümkün değil, bir rakam ` +
+          `yanlış okunmuş. Görseli daha net çekip tekrar yükleyin.`
+      );
+    }
+  }
+
   await prisma.storeSummary.upsert({
     where: { upload_id: upload.id },
     update: fields,
