@@ -13,6 +13,7 @@ const expenseCategoryEnum = z.enum([
   "supplies",
   "food",
   "marketing",
+  "labor",
   "other",
 ]);
 

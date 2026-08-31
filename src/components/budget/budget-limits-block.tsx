@@ -49,6 +49,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   supplies: "Sarf Malzeme",
   food: "Yemek",
   marketing: "Pazarlama",
+  labor: "İşçi Parası",
   other: "Diğer",
 };
 
@@ -430,6 +431,7 @@ function BudgetLimitDialog({
             | "supplies"
             | "food"
             | "marketing"
+            | "labor"
             | "other")
         : undefined;
     const payload = {

@@ -100,7 +100,7 @@ export function DailyCashCard({
         <div className="text-xs text-muted-foreground mb-3">
           {disabled
             ? "Önce mağaza ve tarih seç"
-            : "Dekont yoksa elden sayılan toplam nakit (zorunlu giriş)"}
+            : "Masraflar ödendikten sonra kasada KALAN nakit (zorunlu giriş)"}
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -108,6 +108,12 @@ export function DailyCashCard({
             <Label htmlFor="cash-amount" className="text-xs">
               Tutar (TL)
             </Label>
+            <p className="text-[11px] text-muted-foreground mb-1 leading-snug">
+              Elindeki nakdi say ve olduğu gibi yaz. Nakitten masraf ödendiyse
+              sorun değil — masrafları ayrıca girersin, mutabakatta
+              <span className="font-medium"> kalan nakit + masraflar</span> günün
+              toplam nakdi olarak hesaplanır.
+            </p>
             <Input
               id="cash-amount"
               type="number"

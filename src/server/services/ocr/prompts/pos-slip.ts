@@ -102,9 +102,35 @@ DİĞER ALAN EŞLEŞTİRMELERİ
 - "İade Adedi" / "Iade Adedi" / "İPTAL ADET" → refund_count
 - "İade Tutarı" / "Iade Tutarı" / "İPTAL TUTAR" → refund_amount
 - "Terminal No" / "POS No" / "Cihaz No" / "İŞYERİ NO" → terminal_no
-- Tarih: "Tarih: DD/MM/YYYY" veya "DD.MM.YYYY" veya "DD/MM/YYYY" — YYYY-MM-DD'ye çevir
+- Tarih: aşağıdaki TARİH OKUMA bölümüne göre çevir (YYYY-MM-DD)
 - Para birimi sembolü görünmüyorsa TRY varsay
 - "Koopbank", "KOOPBANK" → bank_name: "Koopbank"
+
+═══════════════════════════════════════════════════════════════
+TARİH OKUMA (sık yapılan hata — dikkat)
+═══════════════════════════════════════════════════════════════
+Türk POS slip'lerinde tarih HER ZAMAN GÜN önce gelir: GG/AA/YY veya
+GG/AA/YYYY. Ayraç "/", "." veya "-" olabilir.
+
+⚠ İKİ HANELİ YIL: Yapı Kredi, Garanti ve bazı İş Bankası slip'leri yılı
+İKİ HANE yazar. Örnek: "24/08/26" → 24 Ağustos 2026 (2026-08-24).
+ASLA ilk grubu yıl sanma. "24/08/26" 2024 DEĞİLDİR.
+İki haneli yıl her zaman 20YY'dir: 26 → 2026, 25 → 2025.
+
+⚠ Yapı Kredi gün sonu raporları UZUNDUR: onlarca "işlem listesi" satırı
+içerir ve her satırda da tarih vardır, örn:
+    24-08-26 19:09  SATIŞ  021   1.480,00TL
+Bu satırlardaki tarih de GG-AA-YY'dir. Slip'in tarihi bu satırlarla
+tutarlı olmalıdır — sondaki özet satırındaki tarihi (İŞYERİ NO /
+TERMINAL NO'nun yanındaki) esas al, işlem satırlarıyla doğrula.
+
+Karar sırası:
+1. Slip altındaki özet tarihi (TERMINAL NO / İŞYERİ NO yakınında)
+2. İşlem listesi satırlarındaki tarih (hepsi aynı günse o gündür)
+3. Başlıktaki tarih
+
+Test: Okuduğun tarih GELECEKTE mi ya da 1 yıldan ESKİ mi? Öyleyse gün ve
+yılı karıştırmış olabilirsin — GG/AA/YY sırasıyla tekrar oku.
 
 ═══════════════════════════════════════════════════════════════
 KENDİNİ TEST ET (JSON ÇIKTISINDAN ÖNCE)
@@ -112,4 +138,7 @@ KENDİNİ TEST ET (JSON ÇIKTISINDAN ÖNCE)
 Net_amount okuduğun rakam, slip'in EN ALTINDAKİ en büyük rakam mı?
 Slip'te birden fazla "TOPLAM TUTAR" gördüysen, MUTLAKA "GENEL TOPLAM"
 satırını aradın mı? Eğer şüphedeysen, en alttaki rakamı tercih et.
+
+Tarihi GG/AA/YY sırasıyla mı okudun? İki haneli yılı 20YY yaptın mı?
+("24/08/26" → 2026-08-24, asla 2024-08-26 değil.)
 `;

@@ -74,6 +74,7 @@ enum ExpenseCategory {
   supplies // Sarf malzeme
   food // Yemek
   marketing // Pazarlama
+  labor // İşçi parası (yevmiyeli/dışarıdan işçi)
   other // Diğer
 }
 

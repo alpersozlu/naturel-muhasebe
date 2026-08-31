@@ -23,6 +23,7 @@ export const expenseFilterSchema = analyticsFilterSchema.extend({
       "supplies",
       "food",
       "marketing",
+      "labor",
       "other",
     ])
     .optional(),

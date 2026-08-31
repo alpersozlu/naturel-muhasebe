@@ -53,11 +53,36 @@ function normalizeName(s: string): string {
  * Hard date enforcement: belge tarihi seçili güne eşleşmek zorunda.
  * Belge tarihi okunamazsa veya farklıysa hata fırlatır → upload "failed" olur.
  */
+/**
+ * Gün ↔ iki-haneli-yıl takası. Türk POS slipleri tarihi GG/AA/YY yazar
+ * ("24/08/26" = 24 Ağustos 2026), ama OCR bazen ilk grubu yıl sanıp
+ * 2024-08-26 döndürüyor. Takas edilmiş hali beklenen güne oturuyorsa bu bir
+ * okuma hatasıdır — belgeyi reddetmek yerine düzeltiriz.
+ * 2024-08-26 → 2026-08-24
+ */
+function swapDayAndTwoDigitYear(iso: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return null;
+  const [, year, month, day] = m as unknown as [string, string, string, string];
+  // Yalnız 20xx için anlamlı; gün 01–31 aralığında kalmalı.
+  if (!year.startsWith("20")) return null;
+  const swappedDay = year.slice(2);
+  const swappedYear = `20${day}`;
+  const d = Number(swappedDay);
+  if (d < 1 || d > 31) return null;
+  return `${swappedYear}-${month}-${swappedDay}`;
+}
+
+/**
+ * Belge tarihinin yüklendiği günle aynı olduğunu doğrular.
+ * Uyuşmuyorsa gün/yıl takası denenir; o da tutmuyorsa hata verilir.
+ * Dönen değer: kullanılacak (gerekirse düzeltilmiş) tarih.
+ */
 async function assertDateMatch(
   dailyRecordId: string,
   docDate: string | null,
   docLabel: string
-): Promise<void> {
+): Promise<string> {
   if (docDate === null) {
     throw new Error(
       `${docLabel} tarihi okunamadı — manuel kontrol gerekli. Lütfen tarihi okunaklı olan bir görsel yükleyin.`
@@ -69,12 +94,17 @@ async function assertDateMatch(
   });
   const expectedIso = dr ? dr.date.toISOString().slice(0, 10) : null;
   if (expectedIso && docDate !== expectedIso) {
+    if (swapDayAndTwoDigitYear(docDate) === expectedIso) {
+      // GG/AA/YY yanlış çözümlenmiş — sessizce düzelt, belgeyi reddetme.
+      return expectedIso;
+    }
     throw new Error(
       `${docLabel} ${fmtDateTr(docDate)} tarihli, ama ${fmtDateTr(
         expectedIso
       )} gününe yüklenmeye çalışıldı. Doğru güne yükleyin.`
     );
   }
+  return docDate;
 }
 
 /**
@@ -140,7 +170,11 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
         "Bu bir POS gün sonu raporu gibi görünmüyor. Lütfen geçerli bir POS gün sonu slipini yükleyin."
     );
   }
-  await assertDateMatch(upload.daily_record_id, parsed.date, "POS slibi");
+  parsed.date = await assertDateMatch(
+    upload.daily_record_id,
+    parsed.date,
+    "POS slibi"
+  );
 
   // Fingerprint over content-defining fields. If two photos of the
   // same slip get uploaded, they all collapse to the same fingerprint.

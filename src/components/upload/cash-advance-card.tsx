@@ -14,6 +14,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -37,6 +38,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   supplies: "Sarf Malzeme",
   food: "Yemek",
   marketing: "Pazarlama",
+  labor: "İşçi Parası",
   other: "Diğer",
 };
 
@@ -144,12 +146,21 @@ export function CashAdvanceCard({
               <Label htmlFor="amount" className="text-xs">
                 Tutar
               </Label>
-              <Input
-                id="amount"
-                type="number"
-                step="0.01"
-                disabled={disabled}
-                {...register("amount", { valueAsNumber: true })}
+              <Controller
+                control={control}
+                name="amount"
+                render={({ field }) => (
+                  <MoneyInput
+                    id="amount"
+                    placeholder="0"
+                    disabled={disabled}
+                    // amount şemada z.coerce.number() — form INPUT tipi unknown.
+                    value={
+                      typeof field.value === "number" ? field.value : undefined
+                    }
+                    onChange={field.onChange}
+                  />
+                )}
               />
               {errors.amount ? (
                 <p className="text-xs text-destructive mt-1">{errors.amount.message}</p>
