@@ -38,12 +38,22 @@ export default async function AppLayout({
 }) {
   const session = await getSession();
   const hdrs = headers();
-  const pathname = hdrs.get("x-pathname") ?? "/";
+  // Başlık okunamazsa yolu BİLMİYORUZ demektir. Böyle bir durumda yönlendirme
+  // yapmak /upload'ın kendisini de vurup sonsuz döngü kurar; bu yüzden
+  // yönlendirmeyi atlarız. Veri güvenliği burada değil, tRPC katmanında:
+  // mağaza kapsamı her prosedürde ayrıca zorlanır.
+  const rawPath = hdrs.get("x-pathname");
+  const pathname = rawPath ?? "/";
   const { locale, path } = stripLocale(pathname);
 
   // Admin dışı kullanıcı izinli olmayan bir rotaya girerse → /upload'a yönlendir.
   // Sidebar gizlemenin ötesinde URL'i direkt girene karşı koruma (default-deny).
-  if (session && session.role !== "admin" && !isAllowedForNonAdmin(path)) {
+  if (
+    rawPath &&
+    session &&
+    session.role !== "admin" &&
+    !isAllowedForNonAdmin(path)
+  ) {
     redirect(`/${locale}/upload`);
   }
 

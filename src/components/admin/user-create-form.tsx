@@ -50,7 +50,12 @@ export function UserCreateForm() {
   });
 
   const storeAssignable = role !== "admin" && role !== "sales_rep";
-  const canSubmit = email.trim().length > 3 && password.length >= 8;
+  // Müdür/kasiyer mağazasız oluşturulursa hiçbir mağazaya erişemez —
+  // sessiz çıkmaz yerine gönderimi engelle.
+  const storeRequired = storeAssignable;
+  const storeMissing = storeRequired && storeId === NO_STORE;
+  const canSubmit =
+    email.trim().length > 3 && password.length >= 8 && !storeMissing;
 
   const submit = () => {
     create.mutate({
@@ -109,19 +114,31 @@ export function UserCreateForm() {
             </Field>
           </div>
 
-          <Field label="Mağaza (sadece müdür/kasiyer için)">
+          <Field
+            label={
+              storeRequired
+                ? "Mağaza (zorunlu — kullanıcı yalnız bunu görür)"
+                : "Mağaza (sadece müdür/kasiyer için)"
+            }
+          >
             <Select
               value={storeId}
               onValueChange={setStoreId}
               disabled={!storeAssignable}
             >
-              <SelectTrigger>
-                <SelectValue />
+              <SelectTrigger
+                className={storeMissing ? "border-destructive" : undefined}
+              >
+                <SelectValue placeholder="Mağaza seç" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NO_STORE}>
-                  — Tüm mağazalar (yönetim / bölgesel) —
-                </SelectItem>
+                {/* "Tüm mağazalar" yalnız mağaza kapsamı OLMAYAN roller için
+                    anlamlı; müdür/kasiyerde bu seçim erişimsiz hesap üretir. */}
+                {!storeRequired ? (
+                  <SelectItem value={NO_STORE}>
+                    — Tüm mağazalar (yönetim / bölgesel) —
+                  </SelectItem>
+                ) : null}
                 {(stores ?? []).map((s) => (
                   <SelectItem key={s.id} value={s.id}>
                     {s.name}
@@ -129,6 +146,17 @@ export function UserCreateForm() {
                 ))}
               </SelectContent>
             </Select>
+            {storeMissing ? (
+              <p className="text-xs text-destructive mt-1">
+                Mağaza müdürü ve kasiyer için mağaza seçilmeli — seçilmezse
+                kullanıcı giriş yapar ama hiçbir mağazaya erişemez.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground mt-1">
+                Bu kullanıcı yalnız &quot;Yükle ve Analiz Et&quot; sayfasına
+                girebilir ve orada yalnız bu mağazayı seçebilir.
+              </p>
+            )}
           </Field>
 
           <Button

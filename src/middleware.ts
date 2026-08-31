@@ -61,10 +61,22 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL(`/${locale}/admin`, request.url));
   }
 
-  // Path'i header'a yaz ki AppLayout role-based redirect yapabilsin
+  // Path'i header'a yaz ki AppLayout role-based redirect yapabilsin.
+  // AppLayout `headers()` ile İSTEK başlıklarını okur; yanıt başlığına yazmak
+  // tek başına yeterli değil. İstek başlığını da geçir — okunamazsa layout
+  // yolu "/" sanıp admin-dışı kullanıcıyı sonsuz yönlendirmeye sokabilir.
   response.headers.set("x-pathname", pathname);
 
-  return response;
+  // intl bir yönlendirme döndürdüyse ona DOKUNMA — ezersek locale
+  // yönlendirmesi kırılır.
+  if (response.status >= 300 && response.status < 400) return response;
+
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-pathname", pathname);
+  const withPath = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.forEach((v, k) => withPath.headers.set(k, v));
+  for (const c of response.cookies.getAll()) withPath.cookies.set(c);
+  return withPath;
 }
 
 export const config = {
