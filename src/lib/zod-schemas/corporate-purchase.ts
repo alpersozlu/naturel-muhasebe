@@ -37,7 +37,11 @@ export const corporatePurchaseFormSchema = z.object({
     .max(120),
   // coerce: input string ("1899.97") de gelse number'a çevrilir —
   // RHF valueAsNumber kırılganlığına bağımlı kalma.
-  amount: z.coerce.number().positive("Tutar 0'dan büyük olmalı"),
+  // Boş bırakılınca coerce NaN üretir; mesajı Türkçeleştir (yoksa
+  // ekranda Zod'un "Invalid input" metni çıkıyor).
+  amount: z.coerce
+    .number({ error: "Tutar girilmeli" })
+    .positive("Tutar 0'dan büyük olmalı"),
   currency: z.enum(SUPPORTED_CURRENCIES).default("TRY"),
   is_paid: z.boolean().default(false),
   note: optionalText(300),

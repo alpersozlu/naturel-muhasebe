@@ -1,10 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useForm, Controller, useWatch, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { Building2, Loader2, Trash2, Check, Clock } from "lucide-react";
+import {
+  Building2,
+  Loader2,
+  Trash2,
+  Check,
+  Clock,
+  Upload,
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
 import { trpc } from "@/lib/trpc";
@@ -54,6 +61,52 @@ export function CorporatePurchaseCard({
   };
 
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const dragCounter = useRef(0);
+  const receiptInputRef = useRef<HTMLInputElement>(null);
+
+  const ACCEPTED = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+  const takeFile = (files: FileList | null) => {
+    const f = files?.[0];
+    if (!f) return;
+    if (!ACCEPTED.includes(f.type)) {
+      toast.error("Yalnız JPG, PNG, WEBP veya PDF yükleyebilirsin");
+      return;
+    }
+    setReceiptFile(f);
+  };
+  const openReceiptPicker = () => {
+    if (!disabled) receiptInputRef.current?.click();
+  };
+  const onDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (disabled) return;
+    dragCounter.current += 1;
+    if (e.dataTransfer.items?.length) setDragActive(true);
+  };
+  const onDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (disabled) return;
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0) {
+      setDragActive(false);
+      dragCounter.current = 0;
+    }
+  };
+  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!disabled) e.dataTransfer.dropEffect = "copy";
+  };
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current = 0;
+    setDragActive(false);
+    if (!disabled) takeFile(e.dataTransfer.files);
+  };
 
   const create = trpc.corporatePurchase.create.useMutation({
     onSuccess: () => {
@@ -299,18 +352,66 @@ export function CorporatePurchaseCard({
               <Label htmlFor="cp-receipt" className="text-xs">
                 Alışveriş Fişi <span className="text-rose-500">*</span>
               </Label>
-              <input
-                id="cp-receipt"
-                type="file"
-                accept="image/jpeg,image/png,image/webp,application/pdf"
-                disabled={disabled}
-                onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
-                className="mt-1 block w-full text-xs file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-xs file:font-medium hover:file:bg-muted/70"
-              />
+              <div
+                role="button"
+                tabIndex={disabled ? -1 : 0}
+                onClick={openReceiptPicker}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openReceiptPicker();
+                  }
+                }}
+                onDragEnter={onDragEnter}
+                onDragLeave={onDragLeave}
+                onDragOver={onDragOver}
+                onDrop={onDrop}
+                className={`mt-1 rounded-xl border-2 border-dashed p-4 text-center transition-all outline-none ${
+                  disabled
+                    ? "border-border bg-muted/20 cursor-not-allowed"
+                    : dragActive
+                      ? "border-primary bg-primary/5 cursor-copy"
+                      : receiptFile
+                        ? "border-emerald-300 bg-emerald-50/40 cursor-pointer"
+                        : "border-border hover:border-primary/50 cursor-pointer focus-visible:ring-2 focus-visible:ring-primary/40"
+                }`}
+              >
+                <input
+                  ref={receiptInputRef}
+                  id="cp-receipt"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  className="hidden"
+                  onChange={(e) => takeFile(e.target.files)}
+                />
+                {receiptFile ? (
+                  <div className="flex items-center justify-center gap-2 text-sm text-emerald-700">
+                    <Check className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{receiptFile.name}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReceiptFile(null);
+                      }}
+                      className="text-muted-foreground hover:text-destructive shrink-0"
+                      aria-label="Fişi kaldır"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Upload className="h-4 w-4" />
+                    {dragActive
+                      ? "Bırak — fiş eklenecek"
+                      : "Sürükle bırak veya seçmek için tıkla"}
+                  </div>
+                )}
+              </div>
               <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
-                {receiptFile
-                  ? `Seçildi: ${receiptFile.name}`
-                  : "Bilgi fişinin fotoğrafı zorunlu. Fişteki \"Ödenecek Tutar\" girdiğin tutarla aynı olmalı — tutmazsa kayıt oluşmaz."}
+                Fişteki &quot;Ödenecek Tutar&quot; girdiğin tutarla aynı olmalı —
+                tutmazsa kayıt oluşmaz.
               </p>
             </div>
           ) : null}
