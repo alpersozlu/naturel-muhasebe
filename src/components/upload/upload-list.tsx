@@ -18,6 +18,7 @@ import {
   ScanLine,
   Sparkles,
   ShieldCheck,
+  Building2,
 } from "lucide-react";
 import type {
   UploadType,
@@ -98,6 +99,12 @@ const TYPE_META: Record<
     icon: ShieldCheck,
     color: "text-indigo-600",
     bg: "bg-indigo-50",
+  },
+  corporate_receipt: {
+    label: "Kurumsal Alışveriş Fişi",
+    icon: Building2,
+    color: "text-violet-600",
+    bg: "bg-violet-50",
   },
 };
 

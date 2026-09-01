@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { ingestCorporateReceipt } from "@/server/services/ocr/corporate-receipt-ingest";
 import { router, protectedProcedure } from "../trpc";
 import {
   corporatePurchaseCreateSchema,
@@ -51,10 +52,43 @@ export const corporatePurchaseRouter = router({
           message: "Bu gün kilitli, alışveriş eklenemez",
         });
       }
+      // ── Bilgi fişi zorunluluğu (yalnız Mavi mağazaları) ───────────────
+      // Yönetim/kurumsal alışverişte kasadan para çıkmadığı için tek kanıt
+      // fişin kendisidir: girilen tutar fişteki "Ödenecek Tutar" ile
+      // örtüşmek zorunda.
+      const store = await ctx.prisma.store.findUnique({
+        where: { id: input.store_id },
+        select: { brand: { select: { name: true } } },
+      });
+      const isMavi = (store?.brand.name ?? "")
+        .toLocaleLowerCase("tr")
+        .includes("mavi");
+
+      let receiptUploadId: string | null = null;
+      if (isMavi) {
+        if (!input.receipt_base64 || !input.receipt_mime_type) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Mavi mağazalarında alışveriş fişi (bilgi fişi) yüklemek zorunludur.",
+          });
+        }
+        receiptUploadId = await ingestCorporateReceipt({
+          prisma: ctx.prisma,
+          userId: ctx.user.id,
+          storeId: input.store_id,
+          dailyRecordId: dr.id,
+          amount: input.amount,
+          base64: input.receipt_base64,
+          mimeType: input.receipt_mime_type,
+        });
+      }
+
       // TODO: çoklu para birimi desteklenirse FX dönüşümü; şimdilik TRY varsayımı.
       const amount_try = input.amount;
       return ctx.prisma.corporatePurchase.create({
         data: {
+          upload_id: receiptUploadId,
           daily_record_id: dr.id,
           type: input.type,
           // Şirket adı yalnızca kurumsal için anlamlı

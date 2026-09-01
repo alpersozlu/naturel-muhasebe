@@ -146,7 +146,11 @@ export default function UploadPage() {
         <GiftVoucherCard storeId={sel.storeId} date={sel.date} />
         <ManualInvoiceCard storeId={sel.storeId} date={sel.date} />
         <CashAdvanceCard storeId={sel.storeId} date={sel.date} />
-        <CorporatePurchaseCard storeId={sel.storeId} date={sel.date} />
+        <CorporatePurchaseCard
+          storeId={sel.storeId}
+          date={sel.date}
+          requireReceipt={isMavi}
+        />
         {/* Mavi Hediye Çeki — SADECE Derimod mağazaları */}
         {isDerimod ? (
           <MaviGiftVoucherCard storeId={sel.storeId} date={sel.date} />

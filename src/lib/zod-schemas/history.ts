@@ -16,6 +16,7 @@ export const historyFilterSchema = z.object({
       "cash_advance",
       "z_report",
       "dealer_daily_report",
+      "corporate_receipt",
     ])
     .optional(),
   status: z

@@ -10,6 +10,7 @@ export const uploadTypeEnum = z.enum([
   "cash_advance",
   "z_report",
   "dealer_daily_report",
+  "corporate_receipt",
 ]);
 
 /**

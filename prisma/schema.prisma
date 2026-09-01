@@ -31,6 +31,7 @@ enum UploadType {
   cash_advance
   z_report
   dealer_daily_report // Mavi SAP / Derimod Nebim — bayi gün sonu raporu (xlsx)
+  corporate_receipt // Kurumsal/yönetim alışverişinin bilgi fişi (Mavi'de zorunlu)
 }
 
 enum UploadStatus {
@@ -368,6 +369,7 @@ model Upload {
   bank_receipt        BankReceipt?
   expense             Expense?
   z_report            ZReport?
+  corporate_purchase  CorporatePurchase?
   dealer_daily_report DealerDailyReport?
 
   @@index([daily_record_id])
@@ -575,6 +577,11 @@ model CorporatePurchase {
   currency     Currency @default(TRY)
   amount_try   Decimal  @db.Decimal(14, 2)
   fx_rate_used Decimal? @db.Decimal(10, 4)
+
+  // Alışverişin bilgi fişi. Mavi mağazalarında ZORUNLU: girilen tutarın
+  // fişteki "Ödenecek Tutar" ile örtüştüğü yüklemede doğrulanır.
+  upload_id String? @unique
+  upload    Upload? @relation(fields: [upload_id], references: [id])
 
   // Borç kapandı mı? false = borç (ödenmemiş), true = ödendi.
   // Reconciliation'ı ETKİLEMEZ (fiziksel para o gün girmediği için kayıt her

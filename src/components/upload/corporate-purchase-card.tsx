@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useForm, Controller, useWatch, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -33,9 +34,12 @@ const TRY_FORMATTER = new Intl.NumberFormat("tr-TR", {
 export function CorporatePurchaseCard({
   storeId,
   date,
+  requireReceipt = false,
 }: {
   storeId: string;
   date: string;
+  /** Mavi mağazaları: bilgi fişi zorunlu, tutar fişten doğrulanır. */
+  requireReceipt?: boolean;
 }) {
   const disabled = !storeId || !date;
   const utils = trpc.useUtils();
@@ -49,9 +53,12 @@ export function CorporatePurchaseCard({
     utils.corporatePurchase.listForStoreDate.invalidate({ store_id: storeId, date });
   };
 
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+
   const create = trpc.corporatePurchase.create.useMutation({
     onSuccess: () => {
       toast.success("Alışveriş kaydedildi");
+      setReceiptFile(null);
       invalidate();
       reset({
         type: "management",
@@ -100,12 +107,32 @@ export function CorporatePurchaseCard({
 
   // store_id ve date form alanı değil — prop olarak gelir, submit anında eklenir.
   // Bu sayede prop değişimine bağlı stale form state sorunu yaşanmaz.
-  const onSubmit = (vals: CorporatePurchaseFormInput) => {
+  const fileToBase64 = (f: File) =>
+    new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(",")[1] ?? "");
+      r.onerror = () => reject(new Error("Dosya okunamadı"));
+      r.readAsDataURL(f);
+    });
+
+  const onSubmit = async (vals: CorporatePurchaseFormInput) => {
     if (!storeId || !date) {
       toast.error("Mağaza ve tarih seçilmedi");
       return;
     }
-    return create.mutateAsync({ ...vals, store_id: storeId, date });
+    if (requireReceipt && !receiptFile) {
+      toast.error("Alışveriş fişini yükle — tutar fişten doğrulanacak");
+      return;
+    }
+    const receipt = receiptFile
+      ? {
+          receipt_base64: await fileToBase64(receiptFile),
+          receipt_mime_type:
+            receiptFile.type as "image/jpeg" | "image/png" | "image/webp" | "application/pdf",
+          receipt_filename: receiptFile.name,
+        }
+      : {};
+    return create.mutateAsync({ ...vals, ...receipt, store_id: storeId, date });
   };
 
   // Validation sessiz fail'i önle — ilk hatayı toast olarak göster
@@ -265,6 +292,28 @@ export function CorporatePurchaseCard({
               {...register("note")}
             />
           </div>
+
+          {/* Bilgi fişi — Mavi'de zorunlu; tutar fişten doğrulanır */}
+          {requireReceipt ? (
+            <div>
+              <Label htmlFor="cp-receipt" className="text-xs">
+                Alışveriş Fişi <span className="text-rose-500">*</span>
+              </Label>
+              <input
+                id="cp-receipt"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                disabled={disabled}
+                onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+                className="mt-1 block w-full text-xs file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-xs file:font-medium hover:file:bg-muted/70"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+                {receiptFile
+                  ? `Seçildi: ${receiptFile.name}`
+                  : "Bilgi fişinin fotoğrafı zorunlu. Fişteki \"Ödenecek Tutar\" girdiğin tutarla aynı olmalı — tutmazsa kayıt oluşmaz."}
+              </p>
+            </div>
+          ) : null}
 
           <Button type="submit" disabled={disabled || isSubmitting} className="w-full">
             {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Kaydet"}

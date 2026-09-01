@@ -41,6 +41,13 @@ export const corporatePurchaseFormSchema = z.object({
   currency: z.enum(SUPPORTED_CURRENCIES).default("TRY"),
   is_paid: z.boolean().default(false),
   note: optionalText(300),
+  // Bilgi fişi — Mavi mağazalarında ZORUNLU (sunucu markadan karar verir).
+  // Fişteki "Ödenecek Tutar" girilen tutarla karşılaştırılır.
+  receipt_base64: z.string().min(1).optional(),
+  receipt_mime_type: z
+    .enum(["image/jpeg", "image/png", "image/webp", "application/pdf"])
+    .optional(),
+  receipt_filename: z.string().max(200).optional(),
 });
 
 /** Sunucuya giden tam girdi = form alanları + mağaza/gün. */
