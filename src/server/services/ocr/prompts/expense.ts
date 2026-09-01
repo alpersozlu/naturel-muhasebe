@@ -70,4 +70,20 @@ Tutar eşleştirme:
 - "KDV ORANI" / "KDV %" → vat_rate
 - "Fatura Tarihi" → expense_date
 - "Sayın" / "Mal Sahibi" / "ÜNVAN" → vendor
+
+═══════════════════════════════════════════════════════════════
+NOKTA VURUŞLU (DOT-MATRIX) ÇIKTILARDA RAKAM AYIRT ETME
+═══════════════════════════════════════════════════════════════
+KKTC'deki birçok toptancı faturası nokta vuruşlu yazıcıdan çıkar ve soluktur.
+Bu yazıda rakamlar birbirine çok benzer — en sık karışanlar:
+    3 ↔ 8   (8'in sol tarafı kapalıdır, 3'ün açık)
+    6 ↔ 5   (6'nın altı kapalı halka, 5'in üstü düz çizgi)
+    0 ↔ 8   ·   1 ↔ 7
+Bir rakamdan emin değilsen, aynı rakamın belgenin BAŞKA yerindeki yazımıyla
+karşılaştır (tarih, fatura no, tutarlar aynı yazı tipindedir).
+
+TARİHTE ÖZELLİKLE DİKKAT: ay ve yıl tek rakam yanlış okununca belge yanlış
+güne düşer. "24.08.2026" ile "24.03.2026" arasındaki tek fark bir rakamdır.
+Okuduğun tarih bugünden çok uzaksa (gelecekte ya da 1 yıldan eski) muhtemelen
+bir rakamı yanlış okudun — o haneye tekrar bak.
 `;
