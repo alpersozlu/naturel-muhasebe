@@ -113,10 +113,12 @@ export async function processUpload(uploadId: string): Promise<void> {
     data: { status: "processing", error_message: null },
   });
 
-  const buffer = await downloadUpload(upload);
-  if (!buffer) return;
-
   try {
+    const buffer = await downloadUpload(upload);
+    if (!buffer) {
+      // Eskiden sessizce dönüyordu → kayıt sonsuza kadar "processing" kalıyordu.
+      throw new Error("Dosya depodan indirilemedi. Lütfen tekrar yükleyin.");
+    }
     if (upload.type === "pos_slip") await runPosSlip(upload, buffer);
     else if (upload.type === "store_summary") await runStoreSummary(upload, buffer);
     else if (upload.type === "bank_receipt") await runBankReceipt(upload, buffer);

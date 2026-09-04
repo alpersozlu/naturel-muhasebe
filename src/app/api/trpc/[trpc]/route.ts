@@ -4,7 +4,9 @@ import { createContext } from "@/server/trpc/context";
 
 // OCR async olduğu için bu route normalde hızlıdır, ama upload + storage
 // yazma için biraz pay bırakıyoruz. Vercel Pro plan'da max 60s'e çıkarabilir.
-export const maxDuration = 30;
+// OCR bu fonksiyonun içinde waitUntil ile koşar; süre dolunca fonksiyon
+// öldürülür ve yükleme "processing"de kalır. 60 her Vercel planında geçerli.
+export const maxDuration = 60;
 
 const handler = (req: Request) =>
   fetchRequestHandler({

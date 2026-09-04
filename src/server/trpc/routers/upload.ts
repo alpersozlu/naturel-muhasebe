@@ -21,6 +21,9 @@ import { processUpload } from "@/server/services/ocr/process-upload";
 import { checkZApproval } from "@/server/services/verification/z-rule";
 import { waitUntil } from "@vercel/functions";
 
+/** OCR'ın makul üst sınırının (maxDuration=60s) çok üstü — canlı işi vurmaz. */
+const STALE_PROCESSING_MS = 5 * 60 * 1000;
+
 export const uploadRouter = router({
   /**
    * Create an upload:
@@ -126,6 +129,26 @@ export const uploadRouter = router({
         where: { store_id_date: { store_id: input.store_id, date: day } },
       });
       if (!dr) return [];
+
+      // Arka plandaki OCR, fonksiyon süre sınırına takılınca sessizce ölür ve
+      // catch bloğu hiç çalışmaz; kayıt "processing"de asılı kalır. Bu liste
+      // her 3 sn'de bir çekildiği için ölü kayıtları burada süpürüyoruz:
+      // maxDuration'ın çok üstünde bir yaş, canlı bir işi yakalamaz.
+      const staleBefore = new Date(Date.now() - STALE_PROCESSING_MS);
+      await ctx.prisma.upload.updateMany({
+        where: {
+          daily_record_id: dr.id,
+          status: { in: ["processing", "pending"] },
+          uploaded_at: { lt: staleBefore },
+        },
+        data: {
+          status: "failed",
+          error_message:
+            "İşlem zaman aşımına uğradı — belge okunurken süre sınırı doldu. " +
+            "Lütfen tekrar yükleyin; olmazsa görseli biraz daha küçük çekin.",
+        },
+      });
+
       return ctx.prisma.upload.findMany({
         where: { daily_record_id: dr.id },
         orderBy: { uploaded_at: "desc" },
