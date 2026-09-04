@@ -155,6 +155,7 @@ async function downloadUpload(upload: Upload): Promise<Buffer | null> {
 
 async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
   const { raw, parsed } = await parsePosSlip({ buffer, mimeType: upload.mime_type });
+  await stashRaw(upload.id, raw);
 
   if (!parsed.is_pos_slip) {
     throw new Error(
@@ -192,9 +193,9 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
   // bozar — kabul etme.
   if (sections.every((sec) => sec.net_amount == null)) {
     throw new Error(
-      "POS slibinden tutar okunamadı. Slip birden fazla banka içeriyorsa " +
-        "(Optimum + Yapı Kredi) en alttaki ÖZET RAPORU bölümü net görünecek " +
-        "şekilde tekrar çekin."
+      "POS slibinden tutar okunamadı. Slibi TEK BAŞINA, dik ve yakından çekin " +
+        "(karede başka belge olmasın); birden fazla banka içeriyorsa " +
+        "(Optimum + Yapı Kredi) en alttaki ÖZET RAPORU bölümü de görünsün."
     );
   }
 
@@ -283,6 +284,7 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     buffer,
     mimeType: upload.mime_type,
   });
+  await stashRaw(upload.id, raw);
   if (!parsed.is_store_summary) {
     throw new Error(
       parsed.rejection_reason ??
@@ -566,6 +568,7 @@ async function runBankReceipt(upload: Upload, buffer: Buffer): Promise<void> {
     buffer,
     mimeType: upload.mime_type,
   });
+  await stashRaw(upload.id, raw);
   if (!parsed.is_bank_receipt) {
     throw new Error(
       parsed.rejection_reason ??
@@ -598,6 +601,7 @@ async function runBankReceipt(upload: Upload, buffer: Buffer): Promise<void> {
 
 async function runExpense(upload: Upload, buffer: Buffer): Promise<void> {
   const { raw, parsed } = await parseExpense({ buffer, mimeType: upload.mime_type });
+  await stashRaw(upload.id, raw);
   if (!parsed.is_expense) {
     throw new Error(
       parsed.rejection_reason ??
@@ -652,6 +656,7 @@ async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {
     buffer,
     mimeType: upload.mime_type,
   });
+  await stashRaw(upload.id, raw);
 
   if (!parsed.is_z_report) {
     throw new Error(
@@ -864,6 +869,19 @@ async function runDealerDailyReport(upload: Upload, buffer: Buffer): Promise<voi
   });
 
   await markParsed(upload.id, { totals: report.totals }, day);
+}
+
+/**
+ * Persist the model's output BEFORE any validation, so a rejected upload
+ * (date mismatch, equation, wrong store) still shows what was read. Without
+ * this the 31.08.2026 Mağusa POS slip had to be re-run locally to learn the
+ * model had copied the prompt's worked example instead of reading the photo.
+ */
+async function stashRaw(uploadId: string, raw: unknown): Promise<void> {
+  await prisma.upload.update({
+    where: { id: uploadId },
+    data: { raw_ocr_json: raw as Prisma.InputJsonValue },
+  });
 }
 
 async function markParsed(

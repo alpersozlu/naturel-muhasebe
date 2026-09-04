@@ -38,3 +38,36 @@ export const posSlipOcrSchema = z.object({
 });
 
 export type PosSlipOcr = z.infer<typeof posSlipOcrSchema>;
+
+/**
+ * The shape the model is constrained to emit (structured output). Same idea
+ * as the store summary: `check_notes` first as the only scratchpad, no
+ * regex / min / int constraints (the constrained decoder rejects them);
+ * `posSlipOcrSchema` re-validates strictly afterwards.
+ */
+const posSlipSectionOutputSchema = z.object({
+  bank_name: z.string(),
+  terminal_no: z.string().nullable(),
+  sales_count: z.number().nullable(),
+  sales_amount: z.number().nullable(),
+  refund_count: z.number().nullable(),
+  refund_amount: z.number().nullable(),
+  net_amount: z.number().nullable(),
+});
+
+export const posSlipOutputSchema = z.object({
+  check_notes: z.string(),
+  is_pos_slip: z.boolean(),
+  rejection_reason: z.string().nullable(),
+  bank_name: z.string().nullable(),
+  terminal_no: z.string().nullable(),
+  date: z.string().nullable(),
+  date_raw: z.string().nullable(),
+  sales_count: z.number().nullable(),
+  sales_amount: z.number().nullable(),
+  refund_count: z.number().nullable(),
+  refund_amount: z.number().nullable(),
+  net_amount: z.number().nullable(),
+  currency: z.enum(["TRY", "USD", "EUR", "GBP"]),
+  sections: z.array(posSlipSectionOutputSchema),
+});
