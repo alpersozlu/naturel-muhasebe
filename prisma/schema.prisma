@@ -364,7 +364,7 @@ model Upload {
   date_mismatch    Boolean      @default(false) // slip_date != daily_record.date
   duplicate_of_id  String? // Bu upload bir başkasının kopyası ise FK
 
-  pos_slip            PosSlip?
+  pos_slips           PosSlip[]
   store_summary       StoreSummary?
   bank_receipt        BankReceipt?
   expense             Expense?
@@ -384,7 +384,10 @@ model Upload {
 
 model PosSlip {
   id              String      @id @default(uuid())
-  upload_id       String      @unique
+  // Bir yükleme birden fazla banka kapanışı taşıyabilir: ortak terminal
+  // (Koopbank Optimum + Yapı Kredi) tek uzun slip basar, her banka ayrı
+  // gün sonu verir. O yüzden upload_id TEKİL DEĞİL — banka başına bir satır.
+  upload_id       String
   upload          Upload      @relation(fields: [upload_id], references: [id], onDelete: Cascade)
   daily_record_id String
   daily_record    DailyRecord @relation(fields: [daily_record_id], references: [id])
@@ -412,6 +415,9 @@ model PosSlip {
   @@index([daily_record_id])
   @@index([bank_name])
   @@index([daily_record_id, content_fingerprint])
+
+  @@unique([upload_id, bank_name])
+  @@index([upload_id])
 }
 
 model StoreSummary {

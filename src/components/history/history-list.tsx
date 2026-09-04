@@ -333,7 +333,7 @@ export function HistoryList({ filters }: { filters: HistorySelection }) {
 
 type HistoryItem = {
   type: UploadType;
-  pos_slip: { bank_name: string | null; net_amount_try: unknown } | null;
+  pos_slips: Array<{ bank_name: string | null; net_amount_try: unknown }>;
   store_summary: { sales_total_try: unknown } | null;
   bank_receipt: { bank_name: string | null; amount_try: unknown } | null;
   expense: { vendor: string | null; amount_try: unknown; category: string } | null;
@@ -346,11 +346,15 @@ function describe(u: HistoryItem): {
   unit: string | null;
   extra: string | null;
 } {
-  if (u.type === "pos_slip" && u.pos_slip) {
+  if (u.type === "pos_slip" && u.pos_slips.length > 0) {
+    // Ortak terminal slibi birden fazla banka taşıyabilir: toplamı ve
+    // bankaların hepsini göster.
+    const total = u.pos_slips.reduce((s, p) => s + Number(p.net_amount_try ?? 0), 0);
+    const banks = u.pos_slips.map((p) => p.bank_name ?? "?").join(" + ");
     return {
-      amount: fmtMoney(u.pos_slip.net_amount_try),
-      unit: "Net Tutar",
-      extra: u.pos_slip.bank_name,
+      amount: fmtMoney(total),
+      unit: u.pos_slips.length > 1 ? `Net Tutar · ${u.pos_slips.length} banka` : "Net Tutar",
+      extra: banks,
     };
   }
   if (u.type === "store_summary" && u.store_summary) {

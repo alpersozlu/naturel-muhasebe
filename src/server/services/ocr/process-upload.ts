@@ -167,65 +167,111 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
     parsed.date_raw
   );
 
-  // Fingerprint over content-defining fields. If two photos of the
-  // same slip get uploaded, they all collapse to the same fingerprint.
-  const fingerprint = parsed.bank_name
-    ? createHash("sha256")
-        .update(
-          [
-            parsed.bank_name ?? "",
-            parsed.terminal_no ?? "",
-            parsed.date ?? "",
-            String(parsed.net_amount ?? ""),
-            String(parsed.sales_count ?? ""),
-          ].join("|")
-        )
-        .digest("hex")
-    : null;
+  // Bir slip = bir ya da daha fazla banka kapanışı. Ortak terminal (Koopbank
+  // Optimum + Yapı Kredi) tek uzun slip basar; her banka ayrı gün sonu
+  // verir ve ayrı PosSlip satırı olur. Model `sections` doldurmadıysa tekil
+  // alanlar tek bankalı slip demektir.
+  const sections =
+    parsed.sections && parsed.sections.length > 0
+      ? parsed.sections
+      : [
+          {
+            bank_name: parsed.bank_name ?? "",
+            terminal_no: parsed.terminal_no,
+            sales_count: parsed.sales_count,
+            sales_amount: parsed.sales_amount,
+            refund_count: parsed.refund_count,
+            refund_amount: parsed.refund_amount,
+            net_amount: parsed.net_amount,
+          },
+        ];
 
-  // 🛡️ Fraud guard #2: content replay. Same slip captured as a
-  // different photo (different file hash) but identical OCR fields.
-  if (fingerprint) {
-    const dup = await prisma.posSlip.findFirst({
-      where: {
-        daily_record_id: upload.daily_record_id,
-        content_fingerprint: fingerprint,
-        NOT: { upload_id: upload.id },
-      },
-      select: { upload_id: true },
-    });
-    if (dup) {
-      await prisma.upload.update({
-        where: { id: upload.id },
-        data: {
-          status: "failed",
-          duplicate_of_id: dup.upload_id,
-          error_message:
-            "Bu slip'in içeriği bu güne zaten kayıtlı — aynı banka, terminal, tutar. Önce mevcut kaydı silin.",
-        },
-      });
-      return;
-    }
+  // Hiçbir bankada tutar yoksa bu bir "0" kaydı olur ve mutabakatı sessizce
+  // bozar — kabul etme.
+  if (sections.every((sec) => sec.net_amount == null)) {
+    throw new Error(
+      "POS slibinden tutar okunamadı. Slip birden fazla banka içeriyorsa " +
+        "(Optimum + Yapı Kredi) en alttaki ÖZET RAPORU bölümü net görünecek " +
+        "şekilde tekrar çekin."
+    );
   }
 
-  const fields = {
-    bank_name: parsed.bank_name,
-    terminal_no: parsed.terminal_no,
-    slip_date: parsed.date ? new Date(`${parsed.date}T00:00:00.000Z`) : null,
-    sales_count: parsed.sales_count,
-    sales_amount: parsed.sales_amount,
-    refund_count: parsed.refund_count,
-    refund_amount: parsed.refund_amount,
-    net_amount: parsed.net_amount,
-    currency: parsed.currency,
-    net_amount_try: parsed.currency === "TRY" ? parsed.net_amount : null,
-    content_fingerprint: fingerprint,
-  };
-  await prisma.posSlip.upsert({
-    where: { upload_id: upload.id },
-    update: fields,
-    create: { upload_id: upload.id, daily_record_id: upload.daily_record_id, ...fields },
-  });
+  const seenBanks = new Set<string>();
+  for (const sec of sections) {
+    const bankName = sec.bank_name || null;
+    // Aynı slipte aynı banka iki kez çıkarsa (model tekrar etmişse) ilkini tut.
+    const bankKey = bankName ?? "";
+    if (seenBanks.has(bankKey)) continue;
+    seenBanks.add(bankKey);
+
+    // Fingerprint over content-defining fields. If two photos of the
+    // same slip get uploaded, they all collapse to the same fingerprint.
+    const fingerprint = bankName
+      ? createHash("sha256")
+          .update(
+            [
+              bankName,
+              sec.terminal_no ?? "",
+              parsed.date ?? "",
+              String(sec.net_amount ?? ""),
+              String(sec.sales_count ?? ""),
+            ].join("|")
+          )
+          .digest("hex")
+      : null;
+
+    // 🛡️ Fraud guard #2: content replay. Same slip captured as a
+    // different photo (different file hash) but identical OCR fields.
+    if (fingerprint) {
+      const dup = await prisma.posSlip.findFirst({
+        where: {
+          daily_record_id: upload.daily_record_id,
+          content_fingerprint: fingerprint,
+          NOT: { upload_id: upload.id },
+        },
+        select: { upload_id: true },
+      });
+      if (dup) {
+        await prisma.upload.update({
+          where: { id: upload.id },
+          data: {
+            status: "failed",
+            duplicate_of_id: dup.upload_id,
+            error_message:
+              `Bu slip'in ${bankName} bölümü bu güne zaten kayıtlı — aynı banka, terminal, tutar. Önce mevcut kaydı silin.`,
+          },
+        });
+        return;
+      }
+    }
+
+    const fields = {
+      bank_name: bankName,
+      terminal_no: sec.terminal_no,
+      slip_date: parsed.date ? new Date(`${parsed.date}T00:00:00.000Z`) : null,
+      sales_count: sec.sales_count,
+      sales_amount: sec.sales_amount,
+      refund_count: sec.refund_count,
+      refund_amount: sec.refund_amount,
+      net_amount: sec.net_amount,
+      currency: parsed.currency,
+      net_amount_try: parsed.currency === "TRY" ? sec.net_amount : null,
+      content_fingerprint: fingerprint,
+    };
+    // Prisma bileşik unique'i nullable kolonla (bank_name) `where` içinde
+    // kabul etmez; findFirst + create/update ile aynı sonucu alıyoruz.
+    const existing = await prisma.posSlip.findFirst({
+      where: { upload_id: upload.id, bank_name: bankName },
+      select: { id: true },
+    });
+    if (existing) {
+      await prisma.posSlip.update({ where: { id: existing.id }, data: fields });
+    } else {
+      await prisma.posSlip.create({
+        data: { upload_id: upload.id, daily_record_id: upload.daily_record_id, ...fields },
+      });
+    }
+  }
 
   await markParsed(upload.id, raw, parsed);
 }

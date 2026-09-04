@@ -34,7 +34,7 @@ Eğer POS gün sonu DEĞİLSE:
   "bank_name": null, "terminal_no": null, "date": null, "date_raw": null,
   "sales_count": null, "sales_amount": null,
   "refund_count": null, "refund_amount": null,
-  "net_amount": null, "currency": "TRY"
+  "net_amount": null, "currency": "TRY", "sections": []
 }
 
 Eğer POS gün sonu İSE:
@@ -50,8 +50,69 @@ Eğer POS gün sonu İSE:
   "refund_count": "tam sayı veya null",
   "refund_amount": "ondalık sayı veya null",
   "net_amount": "ondalık sayı veya null",
-  "currency": "TRY | USD | EUR | GBP (TRY varsayılan)"
+  "currency": "TRY | USD | EUR | GBP (TRY varsayılan)",
+  "sections": [
+    {
+      "bank_name": "string",
+      "terminal_no": "string veya null",
+      "sales_count": "tam sayı veya null",
+      "sales_amount": "ondalık sayı veya null",
+      "refund_count": "tam sayı veya null",
+      "refund_amount": "ondalık sayı veya null",
+      "net_amount": "ondalık sayı veya null"
+    }
+  ]
 }
+"sections": slipte KAÇ BANKANIN gün sonu varsa o kadar eleman. Tek bankalı
+slipte tek elemanlı bir dizi ver (tekil alanlarla aynı değerler).
+
+═══════════════════════════════════════════════════════════════
+⚠ ÇOK BANKALI SLİP — ORTAK TERMİNAL (Koopbank Optimum + Yapı Kredi)
+═══════════════════════════════════════════════════════════════
+KKTC'de bazı mağazalarda TEK POS cihazı iki bankaya birden çalışır. Gün
+sonunda cihaz UZUN TEK BİR SLİP basar ve bu slip İKİ AYRI gün sonu içerir.
+Bunu tek banka gibi okuyup toplamı null/0 bırakmak EN BÜYÜK HATADIR —
+bu slipten İKİ banka sonucu çıkmalıdır.
+
+Slip yukarıdan aşağıya şöyledir:
+  1) "KOOPBANK — GRUP KAPAMA RAPORU": Koopbank/Optimum işlemleri, "ONLINE
+     İŞLEMLER", "TOPLAM ADET", "GENEL TOPLAM 8.200,00 TL",
+     "KOOPBANK GRUP KAPAMA BAŞARILI"
+  2) "optimum" logosu ve "RAPOR SONU" — Optimum bloğu burada BİTER
+  3) Yapı Kredi bloğu: "DETAY İŞLEMLER LİSTESİ", "PEŞİN İŞLEMLER",
+     "KART BAZINDA DETAYLAR", ardından grup kapama: "İŞLEM SAYISI 003",
+     "TOPLAM 8.295,00TL", "GRUP BAŞARILI"
+  4) "YapıKredi" logosu ve "TÜM GÜN SONU / GRUP KAPAMA ÖZET RAPORU":
+     her banka AYRI satır grubunda —
+        KOOPBANK-HEPİ ..... İŞLEM YOK           (atla; işlem yoksa banka yok)
+        KOOPBANK  GÜN SONU BAŞARILI  İŞLEM SAYISI 002  T.TUTAR 8.200,00TL
+        YAPI KREDİ GÜN SONU BAŞARILI İŞLEM SAYISI 003  T.TUTAR 8.295,00TL
+
+NE YAPACAKSIN:
+- "sections" dizisine HER banka için ayrı eleman koy: {bank_name:"Koopbank",
+  ... net_amount: 8200}, {bank_name:"Yapı Kredi", ... net_amount: 8295}.
+- Rakamları ÖNCE 4) ÖZET RAPORU'ndan al (en güvenilir, her banka açıkça
+  etiketli). Sonra her bankanın kendi bloğundaki GENEL TOPLAM / TOPLAM ile
+  DOĞRULA; uyuşmuyorsa özet raporunu esas al.
+- "İŞLEM YOK" yazan banka satırını sections'a KOYMA.
+- İki bankanın terminal numarası aynı olabilir (ortak cihaz) — normaldir.
+- Tekil alanları (bank_name, net_amount...) İLK bankayla doldur; ama asıl
+  çıktı "sections"tır. ASLA iki bankayı toplayıp tek net_amount yazma.
+
+TARİH ve TERMİNAL bu slipte ÜÇ yerde basılıdır — null bırakma:
+- ÖZET RAPORU başlığının hemen altında: "24/08/26   19:48:17" → date_raw
+  "24/08/26", date "2026-08-24"
+- Koopbank bloğunun başında: "TARİH:24/08/2026 SAAT:19:48:29" ve
+  "POS NO:98057189"
+- Yapı Kredi grup kapama bloğunda: "24/08/26  19:48:38" ve
+  "TERMİNAL NO: 98057189"
+Terminal numarası her bankanın "TERMİNAL NO" / "POS NO" satırındadır; ortak
+cihazda hepsi aynıdır (örn. 98057189). Her section'ın terminal_no alanına ve
+tekil terminal_no'ya bu numarayı yaz.
+
+Bu yapıyı tanımanın ipuçları: aynı slipte hem "KOOPBANK" hem "YAPI KREDİ"
+(ya da "optimum" ve "YapıKredi" logoları) geçiyorsa; "ÖZET RAPORU" başlığı
+altında birden fazla "GÜN SONU BAŞARILI" satırı varsa.
 
 ═══════════════════════════════════════════════════════════════
 NET TUTAR OKUMA STRATEJİSİ (en kritik alan — yanlış okumak büyük hata)

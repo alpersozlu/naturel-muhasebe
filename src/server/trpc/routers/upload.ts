@@ -131,7 +131,7 @@ export const uploadRouter = router({
         orderBy: { uploaded_at: "desc" },
         include: {
           uploaded_by_user: { select: { email: true, full_name: true } },
-          pos_slip: true,
+          pos_slips: true,
           store_summary: true,
           bank_receipt: true,
           expense: true,

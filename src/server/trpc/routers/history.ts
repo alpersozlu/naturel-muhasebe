@@ -81,7 +81,7 @@ export const historyRouter = router({
         include: {
           uploaded_by_user: { select: { full_name: true, email: true } },
           daily_record: { include: { store: { include: { brand: true } } } },
-          pos_slip: { select: { bank_name: true, net_amount_try: true } },
+          pos_slips: { select: { bank_name: true, net_amount_try: true } },
           store_summary: { select: { sales_total_try: true } },
           bank_receipt: { select: { bank_name: true, amount_try: true } },
           expense: { select: { vendor: true, amount_try: true, category: true } },

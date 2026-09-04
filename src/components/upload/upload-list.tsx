@@ -143,7 +143,7 @@ type UploadRow = {
   uploaded_by_user: { full_name: string | null; email: string };
   date_mismatch?: boolean;
   error_message?: string | null;
-  pos_slip?: PosSlip | null;
+  pos_slips?: PosSlip[];
   store_summary?: StoreSummary | null;
   bank_receipt?: BankReceipt | null;
   expense?: Expense | null;
@@ -394,10 +394,14 @@ function getHeroAmount(
   upload: UploadRow
 ): { value: number; unit: string } | null {
   if (upload.status !== "parsed" && upload.status !== "confirmed") return null;
-  if (upload.pos_slip) {
+  if (upload.pos_slips && upload.pos_slips.length > 0) {
+    // Birden fazla banka → toplam; birim satırı kaç banka olduğunu söyler
+    const slips = upload.pos_slips;
+    const total = slips.reduce((s, p) => s + num(p.net_amount), 0);
+    const cur = slips[0]?.currency ?? "TRY";
     return {
-      value: num(upload.pos_slip.net_amount),
-      unit: `${upload.pos_slip.currency ?? "TRY"} · Net`,
+      value: total,
+      unit: slips.length > 1 ? `${cur} · Net · ${slips.length} banka` : `${cur} · Net`,
     };
   }
   if (upload.store_summary) {
@@ -440,16 +444,29 @@ function ParsedFields({
   upload: UploadRow;
   expectedDate?: string;
 }) {
-  if (upload.pos_slip) {
-    const p = upload.pos_slip;
-    const dateStr = p.slip_date
-      ? new Date(p.slip_date).toLocaleDateString("tr-TR")
-      : "—";
+  if (upload.pos_slips && upload.pos_slips.length > 0) {
+    // Her banka kendi satırında: ortak terminal slibinde iki banka görünür,
+    // tek bankalı slipte tek satır.
     return (
-      <div className="grid grid-cols-3 gap-4 w-full">
-        <MiniField label="Banka" value={p.bank_name ?? "—"} />
-        <MiniField label="Tarih" value={dateStr} />
-        <MiniField label="Terminal" value={p.terminal_no ?? "—"} />
+      <div className="w-full space-y-2">
+        {upload.pos_slips.map((p) => {
+          const dateStr = p.slip_date
+            ? new Date(p.slip_date).toLocaleDateString("tr-TR")
+            : "—";
+          return (
+            <div key={p.id} className="grid grid-cols-4 gap-4 w-full">
+              <MiniField label="Banka" value={p.bank_name ?? "—"} />
+              <MiniField label="Tarih" value={dateStr} />
+              <MiniField label="Terminal" value={p.terminal_no ?? "—"} />
+              <MiniField
+                label="Net"
+                value={`${TRY_FMT.format(num(p.net_amount))} ₺${
+                  p.sales_count != null ? ` · ${p.sales_count} işlem` : ""
+                }`}
+              />
+            </div>
+          );
+        })}
       </div>
     );
   }
