@@ -449,27 +449,55 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     }
 
     // Bileşenler toplamı satışı vermeli. Tutmuyorsa OCR bir satır kaymış
-    // demektir (bir kez nakit/kart/kartuş bir satır aşağı okundu). Yalnız
-    // hepsi okunabildiyse kontrol et — eksik alan varsa denklem kurulamaz.
-    const parts = [
-      parsed.cash_sales,
-      parsed.credit_card_total,
-      parsed.loyalty_points_total,
-      parsed.shopping_voucher_total,
-    ];
-    if (parts.every((v) => v != null)) {
-      const sum = parts.reduce<number>((a, v) => a + (v ?? 0), 0);
-      // Kuruş yuvarlaması ve küçük OCR sapmaları için pay bırak.
-      const tolerance = Math.max(1, salesTotal * 0.01);
+    // demektir (bir kez nakit/kart/kartuş bir satır aşağı okundu).
+    // Kuruş yuvarlaması ve küçük OCR sapmaları için pay bırak.
+    const tolerance = Math.max(1, salesTotal * 0.01);
+    if (parsed.report_format === "nebim") {
+      // Nebim'de Kartuş Puan ve Alışveriş Çeki YOKTUR (hep null) — eski
+      // "hepsi doluysa kontrol et" kuralı bu yüzden Derimod'da hiç
+      // çalışmıyordu ve Nakit=0 / Normal-satırı-toplam gibi okumalar sessizce
+      // kaydediliyordu (25.08.2026 S02'de 3 denemede 3 farklı sonuç ölçüldü).
+      // Denklem: Nakit + Kredi Kartı + Kredi Çeki neti = Toplam satırı Net.
+      const sum =
+        (parsed.cash_sales ?? 0) +
+        (parsed.credit_card_total ?? 0) +
+        (parsed.credit_voucher_total ?? 0);
       if (Math.abs(sum - salesTotal) > tolerance) {
         throw new Error(
-          `Mağaza Özeti okunamadı: Nakit + Kredi Kartı + Kartuş + Alışveriş ` +
-            `Çeki = ${fmtMoneyTr(sum)} ₺, ama Satış Toplam ` +
-            `${fmtMoneyTr(salesTotal)} ₺. Rakamlar birbirini tutmuyor — ` +
-            `muhtemelen bir satır yanlış okundu. Görseli daha net çekip ` +
-            `tekrar yükleyin.`
+          `Mağaza Özeti okunamadı: Ödemeler tablosundan Nakit + Kredi Kartı ` +
+            `(+ Kredi Çeki) = ${fmtMoneyTr(sum)} ₺ okundu, ama Satış tablosunda ` +
+            `Toplam satırının Net Tutar'ı ${fmtMoneyTr(salesTotal)} ₺. ` +
+            `Rakamlar birbirini tutmuyor — bir satır yanlış okunmuş olabilir ` +
+            `(Kasa bakiyeleri satış değildir). Görseli daha net çekip tekrar ` +
+            `yükleyin.`
         );
       }
+    } else {
+      // IT POS: yalnız hepsi okunabildiyse kontrol et — eksik alan varsa
+      // denklem kurulamaz.
+      const parts = [
+        parsed.cash_sales,
+        parsed.credit_card_total,
+        parsed.loyalty_points_total,
+        parsed.shopping_voucher_total,
+      ];
+      if (parts.every((v) => v != null)) {
+        const sum = parts.reduce<number>((a, v) => a + (v ?? 0), 0);
+        if (Math.abs(sum - salesTotal) > tolerance) {
+          throw new Error(
+            `Mağaza Özeti okunamadı: Nakit + Kredi Kartı + Kartuş + Alışveriş ` +
+              `Çeki = ${fmtMoneyTr(sum)} ₺, ama Satış Toplam ` +
+              `${fmtMoneyTr(salesTotal)} ₺. Rakamlar birbirini tutmuyor — ` +
+              `muhtemelen bir satır yanlış okundu. Görseli daha net çekip ` +
+              `tekrar yükleyin.`
+          );
+        }
+      }
+    }
+
+    // Derimod: aynı Nebim tablolarından gelen köprü satırlarıyla çapraz kontrol.
+    if (dr && dr.store.brand.name.toLowerCase().includes("derimod") && periodStart && periodEnd) {
+      await assertNebimNetMatch(dr.store_id, periodStart, periodEnd, salesTotal);
     }
   }
 
@@ -479,6 +507,58 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     create: { upload_id: upload.id, daily_record_id: upload.daily_record_id, ...fields },
   });
   await markParsed(upload.id, raw, parsed);
+}
+
+/**
+ * Derimod cross-check: the printed "Mağaza Hareket Özeti" and the bridge's
+ * NebimSaleLine rows are the same Nebim data, so the period's net matches to
+ * the kuruş (verified on S02 07.08, 24.08, 25.08 and 01.09.2026). The one
+ * misread this catches that the payments equation cannot: taking the
+ * "Normal" row (returns not yet deducted) as the total — payments also sum
+ * to that figure, so the equation still balances.
+ *
+ * Enforced only when the bridge re-pulled the day AFTER it closed (a row
+ * updated on or after the next day; the scheduled 10:00 run always is). An
+ * intra-day pull is partial and must not block the upload; no rows at all
+ * means the bridge has not reached that day yet.
+ */
+async function assertNebimNetMatch(
+  storeId: string,
+  periodStart: Date,
+  periodEnd: Date,
+  ocrSales: number
+): Promise<void> {
+  const lines = await prisma.nebimSaleLine.findMany({
+    where: { store_id: storeId, invoice_date: { gte: periodStart, lte: periodEnd } },
+    select: { net_amount: true, is_return: true, updated_at: true },
+  });
+  if (lines.length === 0) return;
+  let total = 0;
+  let normalOnly = 0;
+  let lastPull = 0;
+  for (const l of lines) {
+    const n = l.net_amount ? l.net_amount.toNumber() : 0;
+    total += n;
+    if (!l.is_return) normalOnly += n;
+    lastPull = Math.max(lastPull, l.updated_at.getTime());
+  }
+  const dayAfterPeriod = periodEnd.getTime() + 24 * 60 * 60 * 1000;
+  if (lastPull < dayAfterPeriod) return;
+
+  const tolerance = Math.max(2, Math.abs(total) * 0.005);
+  if (Math.abs(total - ocrSales) <= tolerance) return;
+  const readNormalRow =
+    Math.abs(normalOnly - ocrSales) <= tolerance &&
+    Math.abs(normalOnly - total) > tolerance;
+  const hint = readNormalRow
+    ? ` Okunan rakam iadesiz "Normal" satırının neti; Satış tablosunda ` +
+      `"Toplam" satırının Net Tutar'ı alınmalı.`
+    : "";
+  throw new Error(
+    `Mağaza Özeti okunamadı: Satış Toplam ${fmtMoneyTr(ocrSales)} ₺ okundu, ` +
+      `ama Nebim'e göre bu dönemin neti ${fmtMoneyTr(total)} ₺.${hint} ` +
+      `Görseli daha net çekip tekrar yükleyin.`
+  );
 }
 
 async function runBankReceipt(upload: Upload, buffer: Buffer): Promise<void> {

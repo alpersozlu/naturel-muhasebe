@@ -57,7 +57,7 @@ export async function parseCorporateReceipt(opts: {
 
   const response = await client.messages.create({
     model: OCR_MODEL,
-    max_tokens: 1024,
+    max_tokens: 2048,
     system: CORPORATE_RECEIPT_SYSTEM_PROMPT,
     messages: [
       {

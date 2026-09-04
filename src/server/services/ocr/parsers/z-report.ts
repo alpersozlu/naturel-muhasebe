@@ -46,7 +46,7 @@ export async function parseZReport(opts: {
 
   const response = await client.messages.create({
     model: OCR_MODEL,
-    max_tokens: 1024,
+    max_tokens: 2048,
     system: Z_REPORT_SYSTEM_PROMPT,
     messages: [
       {

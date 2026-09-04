@@ -1,22 +1,16 @@
 import "server-only";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { getAnthropic, OCR_MODEL } from "@/lib/anthropic";
 import { preprocessImage } from "../preprocess";
 import {
   storeSummaryOcrSchema,
+  storeSummaryOutputSchema,
   type StoreSummaryOcr,
 } from "../schemas/store-summary";
 import {
   STORE_SUMMARY_SYSTEM_PROMPT,
   STORE_SUMMARY_USER_PROMPT,
 } from "../prompts/store-summary";
-
-function extractJson(raw: string): string {
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenced && fenced[1]) return fenced[1].trim();
-  const m = raw.match(/\{[\s\S]*\}/);
-  if (m) return m[0];
-  return raw.trim();
-}
 
 export async function parseStoreSummary(opts: {
   buffer: Buffer;
@@ -55,9 +49,13 @@ export async function parseStoreSummary(opts: {
         },
       } as const);
 
-  const response = await client.messages.create({
+  // Structured output: the decoder is constrained to `storeSummaryOutputSchema`,
+  // so the model cannot narrate its steps in prose first. Measured before this
+  // change: ~30 s and ~950 output tokens per store summary, occasionally
+  // overrunning max_tokens with no JSON at all. See the schema comment.
+  const response = await client.messages.parse({
     model: OCR_MODEL,
-    max_tokens: 1024,
+    max_tokens: 2048,
     system: STORE_SUMMARY_SYSTEM_PROMPT,
     messages: [
       {
@@ -66,6 +64,7 @@ export async function parseStoreSummary(opts: {
         content: [sourceBlock as any, { type: "text", text: STORE_SUMMARY_USER_PROMPT }],
       },
     ],
+    output_config: { format: zodOutputFormat(storeSummaryOutputSchema) },
   });
 
   const rawText = response.content
@@ -73,13 +72,12 @@ export async function parseStoreSummary(opts: {
     .map((c) => (c as { type: "text"; text: string }).text)
     .join("\n");
 
-  const jsonText = extractJson(rawText);
-  let raw: unknown;
-  try {
-    raw = JSON.parse(jsonText);
-  } catch {
+  const raw = response.parsed_output;
+  if (!raw) {
     throw new Error(`Claude returned non-JSON output: ${rawText.slice(0, 200)}`);
   }
+  // Strict re-validation (date regex, currency default); strips check_notes
+  // from `parsed` while `raw` keeps it for raw_ocr_json.
   const parsed = storeSummaryOcrSchema.parse(raw);
   return { raw, parsed, rawText };
 }

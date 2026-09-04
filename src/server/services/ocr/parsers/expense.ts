@@ -54,7 +54,7 @@ export async function parseExpense(opts: {
 
   const response = await client.messages.create({
     model: OCR_MODEL,
-    max_tokens: 1024,
+    max_tokens: 2048,
     system: EXPENSE_SYSTEM_PROMPT,
     messages: [
       {
