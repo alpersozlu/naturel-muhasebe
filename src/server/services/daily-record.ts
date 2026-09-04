@@ -57,6 +57,23 @@ export async function assertPriorDaysLocked(
         lt: new Date(`${date}T00:00:00.000Z`),
       },
       status: { not: "locked" },
+      // BOŞ gün kaydı kilit istemez. Bir yükleme başlatılıp silinince ya da
+      // kapalı bir güne (Derimod Mağusa pazarları) yanlışlıkla dokunulunca
+      // içi boş bir "draft" kalıyor; bunu kilitlemeye zorlamak müdürü hiç
+      // yaşanmamış bir gün için engellerdi (30.08.2026 Mağusa'da görüldü).
+      // "Dolu" = en az bir başarısız-olmayan yükleme, elle girilmiş bir
+      // belge, sayılmış nakit / çek tutarı ya da taslaktan çıkmış durum.
+      OR: [
+        { status: { not: "draft" } },
+        { uploads: { some: { status: { not: "failed" } } } },
+        { manual_invoices: { some: {} } },
+        { cash_advances: { some: {} } },
+        { corporate_purchases: { some: {} } },
+        { expenses: { some: {} } },
+        { reported_cash_try: { not: null } },
+        { gift_voucher_try: { not: null } },
+        { mavi_gift_voucher_try: { not: null } },
+      ],
     },
     orderBy: { date: "asc" },
     select: { date: true },

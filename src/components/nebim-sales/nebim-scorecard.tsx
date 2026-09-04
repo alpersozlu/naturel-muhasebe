@@ -267,7 +267,17 @@ export function NebimScorecard({
                               <span className="font-semibold text-foreground tabular-nums">
                                 {fmt0(c.forecast)}
                               </span>{" "}
-                              <span className="text-[10px]">(KDV hariç)</span>
+                              <span className="text-[10px]">
+                                (KDV hariç
+                                {/* Kapalı günü olan mağazada (Mağusa: pazar) projeksiyon
+                                    çalışma gününe göredir; okuyan bunu görsün. */}
+                                {!p.month_done &&
+                                c.open_days_in_month > 0 &&
+                                c.open_days_in_month !== p.days_in_month
+                                  ? ` · ${c.open_days_elapsed}/${c.open_days_in_month} çalışma günü, pazar kapalı`
+                                  : ""}
+                                )
+                              </span>
                             </span>
                             {fPct != null ? (
                               <span

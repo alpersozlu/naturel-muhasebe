@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { router, adminProcedure } from "../trpc";
+import { openDaysInMonth, storeCodeFromName } from "@/server/services/nebim/calendar";
 import {
   nebimSalesFilterSchema,
   nebimAnalizSchema,
@@ -1769,6 +1770,7 @@ export const nebimSalesRouter = router({
           upt: number; avg_basket: number; avg_basket_ex_vat: number;
           target: number | null; realized_pct: number | null;
           forecast: number | null; forecast_pct: number | null;
+          open_days_in_month: number; open_days_elapsed: number;
         }>,
       };
       if (!base) return empty;
@@ -1866,10 +1868,20 @@ export const nebimSalesRouter = router({
           const target = targetOf.get(s.id) ?? null;
           // Ay-sonu tahmini — VERGİSİZ (hedefler KDV hariç verilir):
           // biten ayda gerçekleşen; süren ayda lineer projeksiyon.
+          // Projeksiyon ÇALIŞMA gününe göre: Mağusa pazarları kapalı (bkz.
+          // services/nebim/calendar.ts), takvim günüyle çarpmak ay başında
+          // %10'a kadar şişiriyordu. Lefkoşa/Girne'de çalışma günü = takvim günü.
+          const code = a?.code ?? storeCodeFromName(s.name);
+          const openDaysInMonthN = isFullMonth
+            ? openDaysInMonth(code, year, month, daysInMonth)
+            : 0;
+          const openDaysElapsed = isFullMonth
+            ? openDaysInMonth(code, year, month, elapsedDays)
+            : 0;
           const forecast = monthDone
             ? netExVat
-            : isCurrentMonth && elapsedDays > 0
-              ? (netExVat / elapsedDays) * daysInMonth
+            : isCurrentMonth && openDaysElapsed > 0
+              ? (netExVat / openDaysElapsed) * openDaysInMonthN
               : null;
           return {
             store_id: s.id,
@@ -1893,6 +1905,8 @@ export const nebimSalesRouter = router({
               target && target > 0 && forecast != null
                 ? (forecast / target) * 100
                 : null,
+            open_days_in_month: openDaysInMonthN,
+            open_days_elapsed: openDaysElapsed,
           };
         });
 
