@@ -668,7 +668,10 @@ async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {
   // 🛡️ Belt-and-suspenders: OCR yanılgısına karşı ham metinde X RAPORU
   // ipuçlarını tekrar tara. Z raporları "Z RAPORU" başlığı taşır;
   // gün içi anlık özet olan X raporlarını kabul etmemeliyiz.
-  const rawText = JSON.stringify(raw ?? {}).toUpperCase();
+  // `check_notes` dışarıda: modelin "X raporu değil" demesi sinyal sayılmasın.
+  const { check_notes: _notes, ...rawFields } = (raw ?? {}) as Record<string, unknown>;
+  void _notes;
+  const rawText = JSON.stringify(rawFields).toUpperCase();
   const hasXSignal = /\bX\s*RAPORU\b|\bX\s*RAPOR\b|\bX\s*NO\b/.test(rawText);
   const hasZSignal = /\bZ\s*RAPORU\b|\bZ\s*RAPOR\b|\bZ\s*NO\b/.test(rawText);
   if (hasXSignal && !hasZSignal) {
@@ -677,7 +680,12 @@ async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {
     );
   }
 
-  await assertDateMatch(upload.daily_record_id, parsed.report_date, "Z raporu");
+  parsed.report_date = await assertDateMatch(
+    upload.daily_record_id,
+    parsed.report_date,
+    "Z raporu",
+    parsed.report_date_raw
+  );
 
   // Content fingerprint: Z numarası + tarih + brüt + net (cash/KK artık alınmıyor)
   const fingerprint = parsed.report_no

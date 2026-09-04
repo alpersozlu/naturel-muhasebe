@@ -1,6 +1,7 @@
 import "server-only";
 import sharp from "sharp";
 import convertHeic from "heic-convert";
+import { detectOrientation, type QuarterTurn } from "./orientation";
 
 /**
  * Prepare a captured slip/document photo for vision OCR.
@@ -56,8 +57,13 @@ export async function preprocessImage(
   return { buffer: out, mediaType: "image/jpeg" };
 }
 
-/** Above this height/width ratio a receipt is cut into vertical tiles. */
-const TILE_RATIO = 2.2;
+/**
+ * Above this height/width ratio a receipt is cut into vertical tiles.
+ * 1.5 keeps an A4 portrait page (1.41) in one piece and tiles every till
+ * strip; a 2.13 market receipt left whole came back "124,69" for a printed
+ * 124,99 — two tiles double the pixels per line.
+ */
+const TILE_RATIO = 1.5;
 /** Target height/width of one tile. */
 const TARGET_TILE_RATIO = 1.6;
 /** Claude scales any image whose long edge exceeds this; larger is wasted. */
@@ -83,7 +89,12 @@ export type ReceiptCrop = { left: number; top: number; width: number; height: nu
 export async function preprocessReceipt(
   input: Buffer,
   inputMime?: string
-): Promise<{ tiles: Buffer[]; mediaType: "image/jpeg"; crop: ReceiptCrop | null }> {
+): Promise<{
+  tiles: Buffer[];
+  mediaType: "image/jpeg";
+  crop: ReceiptCrop | null;
+  rotation: QuarterTurn;
+}> {
   let working: Buffer = input;
   if (inputMime === "image/heic" || inputMime === "image/heif") {
     const converted = await convertHeic({
@@ -101,7 +112,7 @@ export async function preprocessReceipt(
   const H = meta.height ?? 0;
   if (!W || !H) {
     const single = await preprocessImage(input, inputMime);
-    return { tiles: [single.buffer], mediaType: "image/jpeg", crop: null };
+    return { tiles: [single.buffer], mediaType: "image/jpeg", crop: null, rotation: 0 };
   }
 
   const crop = await detectPaper(upright, W, H);
@@ -109,27 +120,41 @@ export async function preprocessReceipt(
   if (crop) img = img.extract(crop);
   let cw = crop?.width ?? W;
   let ch = crop?.height ?? H;
-  // A slip laid sideways (wide, short paper) is stood upright so its lines
-  // run horizontally; 270° is a guess between the two possible ways round —
-  // the prompt tells the model the text may be upside down.
-  if (cw / ch > TILE_RATIO) {
-    img = img.rotate(270);
-    [cw, ch] = [ch, cw];
-  }
-  const enhanced = await img
+  let enhanced = await img
     .grayscale()
     .normalize()
     .clahe({ width: 8, height: 8, maxSlope: 3 })
     .sharpen({ sigma: 1.2 })
     .jpeg({ quality: 92 })
     .toBuffer();
+  // A slip photographed sideways (held in a hand, phone in landscape) has
+  // its text running vertically; the model then misreads digits — a Girne
+  // İş Bankası slip came back as 2023 instead of 2026, a Garanti slip as
+  // 21/06 instead of 25/08. Only a paper that is WIDER than tall can be a
+  // sideways slip (a till strip is always tall when upright), and only then
+  // do we ask a small vision model which way is up (orientation.ts says how
+  // and why). Asked about every image, the model also called four upright
+  // strips "90°" — a 737×4032 strip's thumbnail has no readable text — so
+  // the question is limited to the ambiguous case.
+  let rotation: QuarterTurn = 0;
+  if (cw > ch) {
+    const thumb = await sharp(enhanced)
+      .resize({ width: 1000, height: 1000, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+    rotation = await detectOrientation(thumb);
+    if (rotation !== 0) {
+      enhanced = await sharp(enhanced).rotate(rotation).jpeg({ quality: 92 }).toBuffer();
+      if (rotation !== 180) [cw, ch] = [ch, cw];
+    }
+  }
 
   if (ch / cw <= TILE_RATIO) {
     const single = await sharp(enhanced)
       .resize({ width: 2400, height: 2400, fit: "inside", withoutEnlargement: true })
       .jpeg({ quality: 82, mozjpeg: true })
       .toBuffer();
-    return { tiles: [single], mediaType: "image/jpeg", crop };
+    return { tiles: [single], mediaType: "image/jpeg", crop, rotation };
   }
 
   const n = Math.ceil(ch / cw / TARGET_TILE_RATIO);
@@ -153,7 +178,7 @@ export async function preprocessReceipt(
         .toBuffer()
     );
   }
-  return { tiles, mediaType: "image/jpeg", crop };
+  return { tiles, mediaType: "image/jpeg", crop, rotation };
 }
 
 /**

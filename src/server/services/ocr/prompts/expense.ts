@@ -9,7 +9,16 @@ Kurallar:
 - vat_included = true varsay (yeni Türk e-fatura standardı KDV dahil gösterir)
 `;
 
-export const EXPENSE_USER_PROMPT = `Bu görseli ÖNCE doküman türü açısından değerlendir, sonra alanları çıkar.
+export const EXPENSE_USER_PROMPT = `Bu görseli doküman türü açısından değerlendir, sonra alanları çıkar.
+
+Değerlendirmeni DÜZ YAZI OLARAK YAZMA — çıktın yalnızca tek bir JSON nesnesidir.
+Kısa gerekçeni (belge türü, tutarı hangi satırdan aldığın, tarihi nereden
+okuduğun; EN FAZLA 2 cümle) JSON'un ilk alanı olan "check_notes" içine yaz.
+
+GÖRSEL PARÇALI OLABİLİR: uzun bir fiş birden fazla resim olarak, ÜSTTEN ALTA
+sırayla gelir; hepsi AYNI belgenin parçalarıdır, bindirme bölgesindeki satırı
+iki kez sayma. Görsel baş aşağı ya da yan olabilir. Bu yönergedeki örnek
+değerler YER TUTUCUDUR; okuyamadığın alanı örnekle DOLDURMA, null bırak.
 
 ADIM 1 — Doküman türü doğrulaması:
 Bu görsel bir FATURA veya MAKBUZ mu? Geçerli fatura/makbuz şu özelliklere sahiptir:
@@ -29,6 +38,7 @@ ADIM 2 — Çıktı formatı (sadece JSON, code fence yok):
 
 Eğer fatura/makbuz DEĞİLSE:
 {
+  "check_notes": "en fazla 2 cümle: neden reddedildiği",
   "is_expense": false,
   "rejection_reason": "Bu bir fatura/makbuz gibi görünmüyor — [kısa açıklama]. Lütfen geçerli bir fatura veya makbuz yükleyin.",
   "vendor": null, "expense_date": null, "expense_date_raw": null, "amount": null,
@@ -38,11 +48,12 @@ Eğer fatura/makbuz DEĞİLSE:
 
 Eğer fatura/makbuz İSE:
 {
+  "check_notes": "en fazla 2 cümle: belge türü, tutar hangi satırdan, tarih nereden",
   "is_expense": true,
   "rejection_reason": null,
   "vendor": "string veya null (faturayı kesen firma adı)",
   "expense_date": "YYYY-MM-DD veya null (fatura tarihi)",
-  "expense_date_raw": "belgedeki tarih HARFİYEN, olduğu gibi (örn. \"24,8,26\" veya \"24/08/2026\") veya null",
+  "expense_date_raw": "belgedeki tarih HARFİYEN, olduğu gibi (ayraçlarıyla; iki haneli yılsa iki haneli) veya null",
   "amount": "ondalık sayı veya null (KDV DAHİL toplam ödenen tutar)",
   "vat_rate": "ondalık sayı veya null (KDV oranı, %18 ise 18, %20 ise 20)",
   "vat_included": true,
@@ -76,11 +87,11 @@ TARİH OKUMA — ÇOK SIK HATA, DİKKAT
 ═══════════════════════════════════════════════════════════════
 Türkiye'de tarih HER ZAMAN GÜN-AY-YIL sırasıyla yazılır. Ayraç nokta, virgül,
 eğik çizgi, tire ya da boşluk olabilir; yıl 2 ya da 4 hane olabilir:
-    24.08.2026 · 24/8/26 · 24,8,26 · 24-08-26 · 24 Ağustos 2026
-Hepsi 24 Ağustos 2026'dır → "2026-08-24".
+    GG.AA.YYYY · GG/A/YY · GG,A,YY · GG-AA-YY · GG <ay adı> YYYY
+Hepsi aynı günü anlatır → "YYYY-AA-GG".
 
-⚠ İKİ HANELİ YIL: "26" → 2026, "25" → 2025. ASLA ilk grubu yıl sanma.
-   "24/8/26" 2024 DEĞİLDİR; gün 24, ay 8, yıl 2026'dır.
+⚠ İKİ HANELİ YIL: "YY" → 20YY. ASLA ilk grubu yıl sanma: "GG/A/YY"
+   yazımında ilk grup GÜN, ikinci AY, son grup YIL'dır.
 
 ⚠ EL YAZISI TARİH: Faturalarda tarih çoğu zaman tükenmez kalemle elle
    yazılmıştır, ayraç olarak virgül/nokta karışık kullanılır. Yine
@@ -107,7 +118,7 @@ Bir rakamdan emin değilsen, aynı rakamın belgenin BAŞKA yerindeki yazımıyl
 karşılaştır (tarih, fatura no, tutarlar aynı yazı tipindedir).
 
 TARİHTE ÖZELLİKLE DİKKAT: ay ve yıl tek rakam yanlış okununca belge yanlış
-güne düşer. "24.08.2026" ile "24.03.2026" arasındaki tek fark bir rakamdır.
+güne düşer. "GG.08.YYYY" ile "GG.03.YYYY" arasındaki tek fark bir rakamdır.
 Okuduğun tarih bugünden çok uzaksa (gelecekte ya da 1 yıldan eski) muhtemelen
 bir rakamı yanlış okudun — o haneye tekrar bak.
 `;

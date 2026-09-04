@@ -11,7 +11,16 @@ Kurallar:
   Z raporundan sadece TOPLAM/BRÜT/NET satış rakamlarını ve meta alanları al.
 `;
 
-export const Z_REPORT_USER_PROMPT = `Bu görseli ÖNCE doküman türü açısından değerlendir, sonra alanları çıkar.
+export const Z_REPORT_USER_PROMPT = `Bu görseli doküman türü açısından değerlendir, sonra alanları çıkar.
+
+Değerlendirmeni DÜZ YAZI OLARAK YAZMA — çıktın yalnızca tek bir JSON nesnesidir.
+Kısa gerekçeni (başlıkta ne yazdığı, hangi satırdan hangi tutarı aldığın, tarih;
+EN FAZLA 2 cümle) JSON'un ilk alanı olan "check_notes" içine yaz.
+
+GÖRSEL PARÇALI OLABİLİR: uzun bir fiş birden fazla resim olarak, ÜSTTEN ALTA
+sırayla gelir. Hepsi AYNI fişin parçalarıdır — birleştirerek oku; bindirme
+bölgesindeki satırı İKİ KEZ SAYMA. Görsel baş aşağı ya da yan olabilir. Karede
+birden fazla belge varsa yalnız yazar kasa raporunu oku.
 
 ⚠️ ÖN-KONTROL (her şeyden önce):
 Görselin ÜST KISMINDA / başlığında büyük harflerle ne yazıyor?
@@ -60,19 +69,22 @@ ADIM 2 — Çıktı formatı (sadece JSON, code fence yok):
 
 Eğer Z raporu DEĞİLSE:
 {
+  "check_notes": "en fazla 2 cümle: neden reddedildiği (başlıkta ne yazıyor)",
   "is_z_report": false,
   "rejection_reason": "Bu bir yazar kasa Z raporu gibi görünmüyor — [kısa açıklama]. Lütfen geçerli bir Z raporu yükleyin.",
-  "report_no": null, "report_date": null,
+  "report_no": null, "report_date": null, "report_date_raw": null,
   "gross_sales": null, "net_sales": null,
   "refund_amount": null, "vat_total": null, "currency": "TRY"
 }
 
 Eğer Z raporu İSE:
 {
+  "check_notes": "en fazla 2 cümle: başlık, Z no, hangi satırdan hangi tutar, tarih",
   "is_z_report": true,
   "rejection_reason": null,
   "report_no": "string veya null (Z numarası / Z NO / GÜN NO)",
   "report_date": "YYYY-MM-DD veya null (Z raporu tarihi)",
+  "report_date_raw": "fişteki tarih HARFİYEN, olduğu gibi (ayraçlarıyla; iki haneli yılsa iki haneli) veya null",
   "gross_sales": "ondalık sayı veya null (Brüt satış / TOPLAM SATIŞ — iade düşülmemiş)",
   "net_sales": "ondalık sayı veya null (Net satış — iade düşülmüş; yoksa gross_sales ile aynı)",
   "refund_amount": "ondalık sayı veya null (İADE / İPTAL tutarı, varsa)",
@@ -93,4 +105,12 @@ Eşleştirme rehberi (Türk yazar kasa Z raporu terimleri):
   Onlar başka veri kaynaklarından gelecek (POS fişi OCR, mağaza özeti).
 - refund_amount yoksa 0 değil null döndür.
 - KDV %1, %8, %18, %20 satırları olabilir — TOPLAMI al.
+
+TARİH OKUMA: yazar kasa tarihi GÜN-AY-YIL sırasıyla basar (ayraç nokta, tire
+ya da eğik çizgi; yıl 2 ya da 4 hane). report_date_raw'a fişte GÖRDÜĞÜN metni
+hiç yorumlamadan yaz — sunucu çözümlemeyi kendisi yapar. Yıl hanesinde
+3↔8, 5↔6 karışmasın: emin değilsen aynı fişteki başka tarih/saat satırıyla
+karşılaştır. Okuduğun tarih 1 yıldan eskiyse ya da gelecekteyse büyük ihtimalle
+bir haneyi yanlış okudun — o haneye tekrar bak. Bu yönergedeki örnek değerler
+YER TUTUCUDUR; okuyamadığın alanı örnekle DOLDURMA, null bırak.
 `;

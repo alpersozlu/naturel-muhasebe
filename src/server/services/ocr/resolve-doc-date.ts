@@ -80,7 +80,7 @@ export type DocDateResolution = {
   /** Hedef günle eşleşti mi */
   matches: boolean;
   /** Hangi yol eşleşmeyi verdi (log/teşhis için) */
-  via: "raw" | "model" | "swap" | null;
+  via: "raw" | "model" | "swap" | "year" | null;
 };
 
 /**
@@ -88,6 +88,12 @@ export type DocDateResolution = {
  *   1. Ham metnin GG-AA-YY çözümü  (en güvenilir — belgenin kendisi)
  *   2. Modelin ISO yorumu
  *   3. Modelin ISO'sunun gün/yıl takası
+ *   4. Gün ve ay tutuyor, yalnız YIL farklı → kabul. Yıl hanesi soluk baskıda
+ *      en sık yanlış okunan rakamdır (Girne 25/08/2026 → "2023", Z raporu
+ *      → "2025"); kullanıcı günü zaten seçmiş ve belgedeki gün-ay onunla
+ *      birebir aynıyken bunu reddetmek yalnız yeniden yükleme döngüsü
+ *      üretiyor. Aynı gün-ayın başka bir yılına ait belge yüklenmesi ise
+ *      pratikte görülmedi; olursa tutarlar mutabakatta zaten tutmaz.
  * Hiçbiri tutmuyorsa belgenin "kendi" tarihi olarak ham çözümü (yoksa
  * modelinkini) döndürür ki hata mesajı doğru rakamı göstersin.
  */
@@ -104,6 +110,10 @@ export function resolveDocumentDate(opts: {
     if (rawIso === opts.expectedIso) return { iso: rawIso, matches: true, via: "raw" };
     if (modelIso === opts.expectedIso) return { iso: modelIso, matches: true, via: "model" };
     if (swapped === opts.expectedIso) return { iso: swapped, matches: true, via: "swap" };
+    const monthDay = opts.expectedIso.slice(4); // "-08-25"
+    if (rawIso?.slice(4) === monthDay || modelIso?.slice(4) === monthDay) {
+      return { iso: opts.expectedIso, matches: true, via: "year" };
+    }
   }
   return { iso: rawIso ?? modelIso, matches: false, via: null };
 }

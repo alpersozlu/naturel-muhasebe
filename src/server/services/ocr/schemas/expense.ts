@@ -37,3 +37,19 @@ export const expenseOcrSchema = z.object({
 });
 
 export type ExpenseOcr = z.infer<typeof expenseOcrSchema>;
+
+/** Structured-output shape: `check_notes` first, no regex/min/default constraints. */
+export const expenseOutputSchema = z.object({
+  check_notes: z.string(),
+  is_expense: z.boolean(),
+  rejection_reason: z.string().nullable(),
+  vendor: z.string().nullable(),
+  expense_date: z.string().nullable(),
+  expense_date_raw: z.string().nullable(),
+  amount: z.number().nullable(),
+  vat_rate: z.number().nullable(),
+  vat_included: z.boolean(),
+  category: expenseCategoryEnum,
+  description: z.string().nullable(),
+  currency: z.enum(["TRY", "USD", "EUR", "GBP"]),
+});
