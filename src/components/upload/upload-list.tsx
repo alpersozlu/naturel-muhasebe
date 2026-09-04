@@ -143,6 +143,8 @@ type UploadRow = {
   uploaded_by_user: { full_name: string | null; email: string };
   date_mismatch?: boolean;
   error_message?: string | null;
+  /** Modelin ham çıktısı — reddedilen yüklemede de dolu (`stashRaw`). */
+  raw_ocr_json?: unknown;
   pos_slips?: PosSlip[];
   store_summary?: StoreSummary | null;
   bank_receipt?: BankReceipt | null;
@@ -383,11 +385,25 @@ function UploadRowItem({
           <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
           <span className="whitespace-pre-wrap leading-relaxed">
             {upload.error_message}
+            {/* Modelin kendi özeti: "tarih 21/06 okundu, yan çekilmiş" gibi —
+                personel neden reddedildiğini yeniden çekmeden anlasın. */}
+            {readCheckNotes(upload.raw_ocr_json) ? (
+              <span className="block mt-1 text-[11px] text-rose-700/70">
+                Okunan: {readCheckNotes(upload.raw_ocr_json)}
+              </span>
+            ) : null}
           </span>
         </div>
       ) : null}
     </div>
   );
+}
+
+/** `check_notes` from the model's raw output, if that OCR type produces one. */
+function readCheckNotes(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  const notes = (raw as { check_notes?: unknown }).check_notes;
+  return typeof notes === "string" && notes.trim() ? notes.trim() : null;
 }
 
 function getHeroAmount(
