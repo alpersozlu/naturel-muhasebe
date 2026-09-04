@@ -31,7 +31,7 @@ Eğer fatura/makbuz DEĞİLSE:
 {
   "is_expense": false,
   "rejection_reason": "Bu bir fatura/makbuz gibi görünmüyor — [kısa açıklama]. Lütfen geçerli bir fatura veya makbuz yükleyin.",
-  "vendor": null, "expense_date": null, "amount": null,
+  "vendor": null, "expense_date": null, "expense_date_raw": null, "amount": null,
   "vat_rate": null, "vat_included": true,
   "category": "other", "description": null, "currency": "TRY"
 }
@@ -42,6 +42,7 @@ Eğer fatura/makbuz İSE:
   "rejection_reason": null,
   "vendor": "string veya null (faturayı kesen firma adı)",
   "expense_date": "YYYY-MM-DD veya null (fatura tarihi)",
+  "expense_date_raw": "belgedeki tarih HARFİYEN, olduğu gibi (örn. \"24,8,26\" veya \"24/08/2026\") veya null",
   "amount": "ondalık sayı veya null (KDV DAHİL toplam ödenen tutar)",
   "vat_rate": "ondalık sayı veya null (KDV oranı, %18 ise 18, %20 ise 20)",
   "vat_included": true,
@@ -69,6 +70,29 @@ Tutar eşleştirme:
 - "GENEL TOPLAM" / "TOPLAM" / "ÖDENECEK" → amount (KDV dahil)
 - "KDV ORANI" / "KDV %" → vat_rate
 - "Fatura Tarihi" → expense_date
+
+═══════════════════════════════════════════════════════════════
+TARİH OKUMA — ÇOK SIK HATA, DİKKAT
+═══════════════════════════════════════════════════════════════
+Türkiye'de tarih HER ZAMAN GÜN-AY-YIL sırasıyla yazılır. Ayraç nokta, virgül,
+eğik çizgi, tire ya da boşluk olabilir; yıl 2 ya da 4 hane olabilir:
+    24.08.2026 · 24/8/26 · 24,8,26 · 24-08-26 · 24 Ağustos 2026
+Hepsi 24 Ağustos 2026'dır → "2026-08-24".
+
+⚠ İKİ HANELİ YIL: "26" → 2026, "25" → 2025. ASLA ilk grubu yıl sanma.
+   "24/8/26" 2024 DEĞİLDİR; gün 24, ay 8, yıl 2026'dır.
+
+⚠ EL YAZISI TARİH: Faturalarda tarih çoğu zaman tükenmez kalemle elle
+   yazılmıştır, ayraç olarak virgül/nokta karışık kullanılır. Yine
+   GÜN-AY-YIL sırasıdır. Rakamları dikkatle ayır.
+
+expense_date_raw alanına belgede GÖRDÜĞÜN metni, hiç yorumlamadan, olduğu
+gibi yaz (ayraçlarıyla, iki haneliyse iki haneli). Bu alan yorumun değil,
+belgenin kopyasıdır — sunucu çözümlemeyi kendisi yapar.
+
+Kendini test et: expense_date ile expense_date_raw aynı günü mü anlatıyor?
+Bugünden çok uzak (1 yıldan eski / gelecek) bir tarih çıkardıysan büyük
+ihtimalle sırayı karıştırdın — GÜN-AY-YIL ile tekrar oku.
 - "Sayın" / "Mal Sahibi" / "ÜNVAN" → vendor
 
 ═══════════════════════════════════════════════════════════════

@@ -9,6 +9,8 @@ export const posSlipOcrSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .nullable(),
+  /** Slipteki tarih harfiyen ("24/08/26") — sunucu GG-AA-YY ile çözer. */
+  date_raw: z.string().max(40).nullable().optional(),
   sales_count: z.number().int().min(0).nullable(),
   sales_amount: z.number().min(0).nullable(),
   refund_count: z.number().int().min(0).nullable(),

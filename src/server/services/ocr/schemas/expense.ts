@@ -25,6 +25,9 @@ export const expenseOcrSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .nullable(),
+  /** Belgedeki tarih HARFİYEN ("24,8,26", "24/08/2026") — sunucu bunu
+   *  GG-AA-YY sırasıyla kendisi çözer; modelin ISO yorumuna güvenmez. */
+  expense_date_raw: z.string().max(40).nullable().optional(),
   amount: z.number().min(0).nullable(),
   vat_rate: z.number().min(0).max(100).nullable(),
   vat_included: z.boolean().default(true),

@@ -31,7 +31,7 @@ Eğer POS gün sonu DEĞİLSE:
 {
   "is_pos_slip": false,
   "rejection_reason": "Bu bir POS gün sonu raporu gibi görünmüyor — [kısa açıklama]. Lütfen geçerli bir POS gün sonu slipini yükleyin.",
-  "bank_name": null, "terminal_no": null, "date": null,
+  "bank_name": null, "terminal_no": null, "date": null, "date_raw": null,
   "sales_count": null, "sales_amount": null,
   "refund_count": null, "refund_amount": null,
   "net_amount": null, "currency": "TRY"
@@ -44,6 +44,7 @@ Eğer POS gün sonu İSE:
   "bank_name": "string veya null",
   "terminal_no": "string veya null",
   "date": "YYYY-MM-DD veya null",
+  "date_raw": "slipteki tarih HARFİYEN (örn. \"24/08/26\") veya null",
   "sales_count": "tam sayı veya null",
   "sales_amount": "ondalık sayı veya null",
   "refund_count": "tam sayı veya null",
@@ -123,6 +124,9 @@ içerir ve her satırda da tarih vardır, örn:
 Bu satırlardaki tarih de GG-AA-YY'dir. Slip'in tarihi bu satırlarla
 tutarlı olmalıdır — sondaki özet satırındaki tarihi (İŞYERİ NO /
 TERMINAL NO'nun yanındaki) esas al, işlem satırlarıyla doğrula.
+
+date_raw alanına slipte gördüğün tarih metnini olduğu gibi yaz — sunucu
+GG-AA-YY sırasıyla kendisi çözer, senin yorumuna güvenmez.
 
 Karar sırası:
 1. Slip altındaki özet tarihi (TERMINAL NO / İŞYERİ NO yakınında)

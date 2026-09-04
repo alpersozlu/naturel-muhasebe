@@ -1,4 +1,5 @@
 import "server-only";
+import { resolveDocumentDate } from "./resolve-doc-date";
 import { createHash } from "node:crypto";
 import type { Prisma, Upload } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -53,31 +54,6 @@ function normalizeName(s: string): string {
  * Hard date enforcement: belge tarihi seçili güne eşleşmek zorunda.
  * Belge tarihi okunamazsa veya farklıysa hata fırlatır → upload "failed" olur.
  */
-/**
- * Gün ↔ iki-haneli-yıl takası. Türk POS slipleri tarihi GG/AA/YY yazar
- * ("24/08/26" = 24 Ağustos 2026), ama OCR bazen ilk grubu yıl sanıp
- * 2024-08-26 döndürüyor. Takas edilmiş hali beklenen güne oturuyorsa bu bir
- * okuma hatasıdır — belgeyi reddetmek yerine düzeltiriz.
- * 2024-08-26 → 2026-08-24
- */
-function swapDayAndTwoDigitYear(iso: string): string | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  if (!m) return null;
-  const [, year, month, day] = m as unknown as [string, string, string, string];
-  // Yalnız 20xx için anlamlı; gün 01–31 aralığında kalmalı.
-  if (!year.startsWith("20")) return null;
-  const swappedDay = year.slice(2);
-  const swappedYear = `20${day}`;
-  const d = Number(swappedDay);
-  if (d < 1 || d > 31) return null;
-  return `${swappedYear}-${month}-${swappedDay}`;
-}
-
-/**
- * Belge tarihinin yüklendiği günle aynı olduğunu doğrular.
- * Uyuşmuyorsa gün/yıl takası denenir; o da tutmuyorsa hata verilir.
- * Dönen değer: kullanılacak (gerekirse düzeltilmiş) tarih.
- */
 /** Hata mesajlarında tutarı Türkçe biçimde göster. */
 function fmtMoneyTr(v: number): string {
   return v.toLocaleString("tr-TR", {
@@ -86,33 +62,39 @@ function fmtMoneyTr(v: number): string {
   });
 }
 
+/**
+ * Belge tarihinin yüklendiği günle aynı olduğunu doğrular.
+ * Sırayla: belgedeki HAM metnin GG-AA-YY çözümü → modelin ISO'su → gün/yıl
+ * takası. Biri tutarsa o tarih kullanılır; hiçbiri tutmazsa hata verilir.
+ * Dönen değer: kullanılacak (gerekirse düzeltilmiş) tarih.
+ */
 async function assertDateMatch(
   dailyRecordId: string,
   docDate: string | null,
-  docLabel: string
+  docLabel: string,
+  docDateRaw?: string | null
 ): Promise<string> {
-  if (docDate === null) {
-    throw new Error(
-      `${docLabel} tarihi okunamadı — manuel kontrol gerekli. Lütfen tarihi okunaklı olan bir görsel yükleyin.`
-    );
-  }
   const dr = await prisma.dailyRecord.findUnique({
     where: { id: dailyRecordId },
     select: { date: true },
   });
   const expectedIso = dr ? dr.date.toISOString().slice(0, 10) : null;
-  if (expectedIso && docDate !== expectedIso) {
-    if (swapDayAndTwoDigitYear(docDate) === expectedIso) {
-      // GG/AA/YY yanlış çözümlenmiş — sessizce düzelt, belgeyi reddetme.
-      return expectedIso;
-    }
+
+  const r = resolveDocumentDate({ raw: docDateRaw, modelIso: docDate, expectedIso });
+
+  if (r.iso === null) {
     throw new Error(
-      `${docLabel} ${fmtDateTr(docDate)} tarihli, ama ${fmtDateTr(
+      `${docLabel} tarihi okunamadı — manuel kontrol gerekli. Lütfen tarihi okunaklı olan bir görsel yükleyin.`
+    );
+  }
+  if (expectedIso && !r.matches) {
+    throw new Error(
+      `${docLabel} ${fmtDateTr(r.iso)} tarihli, ama ${fmtDateTr(
         expectedIso
       )} gününe yüklenmeye çalışıldı. Doğru güne yükleyin.`
     );
   }
-  return docDate;
+  return r.iso;
 }
 
 /**
@@ -181,7 +163,8 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
   parsed.date = await assertDateMatch(
     upload.daily_record_id,
     parsed.date,
-    "POS slibi"
+    "POS slibi",
+    parsed.date_raw
   );
 
   // Fingerprint over content-defining fields. If two photos of the
@@ -493,7 +476,12 @@ async function runExpense(upload: Upload, buffer: Buffer): Promise<void> {
         "Bu bir fatura/makbuz gibi görünmüyor. Lütfen geçerli bir fatura veya makbuz yükleyin."
     );
   }
-  await assertDateMatch(upload.daily_record_id, parsed.expense_date, "Fatura");
+  parsed.expense_date = await assertDateMatch(
+    upload.daily_record_id,
+    parsed.expense_date,
+    "Fatura",
+    parsed.expense_date_raw
+  );
   if (parsed.amount === null) {
     throw new Error(
       "Faturadan tutar okunamadı — manuel düzenleme gerekli"
