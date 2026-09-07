@@ -184,6 +184,17 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
     },
     onError: (e) => toast.error(e.message),
   });
+  // Admin-only: re-run a Nebim-rejected store summary without the cross-check
+  // (the bridge carries documents Nebim later cancelled; see acceptNebimGap).
+  const { data: me } = trpc.user.me.useQuery();
+  const isAdmin = me?.role === "admin";
+  const acceptGap = trpc.upload.acceptNebimGap.useMutation({
+    onSuccess: () => {
+      toast.success("Yeniden okunuyor — Nebim farkı bilerek kabul edildi");
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   const openFile = async (id: string) => {
     try {
@@ -236,6 +247,19 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                   }
                 }}
                 onConfirm={() => confirmMut.mutate({ id: u.id })}
+                onAcceptGap={
+                  isAdmin
+                    ? () => {
+                        if (
+                          confirm(
+                            "Basılı rapor doğru, Nebim'deki fark bilerek kabul edilsin mi? Özet yeniden okunacak."
+                          )
+                        ) {
+                          acceptGap.mutate({ id: u.id });
+                        }
+                      }
+                    : undefined
+                }
                 expectedDate={date}
               />
             ))}
@@ -251,12 +275,15 @@ function UploadRowItem({
   onOpen,
   onDelete,
   onConfirm,
+  onAcceptGap,
   expectedDate,
 }: {
   upload: UploadRow;
   onOpen: () => void;
   onDelete: () => void;
   onConfirm: () => void;
+  /** Admin only; set when the row is a store summary rejected by the Nebim cross-check. */
+  onAcceptGap?: () => void;
   expectedDate: string;
 }) {
   const meta = TYPE_META[upload.type];
@@ -391,6 +418,19 @@ function UploadRowItem({
               <span className="block mt-1 text-[11px] text-rose-700/70">
                 Okunan: {readCheckNotes(upload.raw_ocr_json)}
               </span>
+            ) : null}
+            {/* Nebim cross-check rejections: the photo may be right and the
+                bridge wrong (a cancelled document). Admin decides. */}
+            {onAcceptGap &&
+            upload.type === "store_summary" &&
+            upload.error_message.includes("Nebim'e göre") ? (
+              <button
+                type="button"
+                onClick={onAcceptGap}
+                className="block mt-2 text-[11px] underline underline-offset-2 text-rose-800 hover:text-rose-900"
+              >
+                Rapor doğru, Nebim farkını bilerek kabul et
+              </button>
             ) : null}
           </span>
         </div>

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure } from "../trpc";
+import { router, protectedProcedure, adminProcedure } from "../trpc";
 import {
   uploadCreateSchema,
   uploadIdSchema,
@@ -248,6 +248,46 @@ export const uploadRouter = router({
       }
       await deleteFromStorage(upload.file_url);
       await ctx.prisma.upload.delete({ where: { id: input.id } });
+      return { ok: true };
+    }),
+
+  /**
+   * Admin: re-run OCR on a store summary the Nebim cross-check rejected,
+   * this time without the cross-check. The check is right to flag the gap
+   * (it caught the "Normal row" misread), but the bridge also carries
+   * documents Nebim later cancelled while the printed report does not,
+   * and a correct photo must not be un-uploadable. The decision is a
+   * human's; the flag is kept on the upload for the audit trail.
+   */
+  acceptNebimGap: adminProcedure
+    .input(uploadIdSchema)
+    .mutation(async ({ ctx, input }) => {
+      const upload = await ctx.prisma.upload.findUnique({
+        where: { id: input.id },
+        include: { daily_record: true },
+      });
+      if (!upload) throw new TRPCError({ code: "NOT_FOUND" });
+      if (upload.type !== "store_summary" || upload.status !== "failed") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Yalnız reddedilmiş bir Mağaza Özeti için kullanılabilir.",
+        });
+      }
+      const meta = (upload.user_meta_json as Record<string, unknown> | null) ?? {};
+      await ctx.prisma.upload.update({
+        where: { id: input.id },
+        data: {
+          status: "pending",
+          error_message: null,
+          uploaded_at: new Date(), // stale-sweep clock restarts with the re-run
+          user_meta_json: { ...meta, skip_nebim_check: true, accepted_by: ctx.user.id },
+        },
+      });
+      waitUntil(
+        processUpload(upload.id).catch((e) => {
+          console.error("[upload.acceptNebimGap] async OCR failed", e);
+        })
+      );
       return { ok: true };
     }),
 });

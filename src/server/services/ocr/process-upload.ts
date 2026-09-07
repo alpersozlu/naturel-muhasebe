@@ -498,7 +498,17 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     }
 
     // Derimod: aynı Nebim tablolarından gelen köprü satırlarıyla çapraz kontrol.
-    if (dr && dr.store.brand.name.toLowerCase().includes("derimod") && periodStart && periodEnd) {
+    // Admin "farkı bilerek kabul et" dediyse (user_meta.skip_nebim_check) atlanır:
+    // köprü iptal edilmiş belgeleri de taşıyor (31.08 Lefkoşa: 09:58'de iptal
+    // edilen 1.499,99'luk iade), basılı rapor ise onları saymıyor.
+    const meta = upload.user_meta_json as { skip_nebim_check?: boolean } | null;
+    if (
+      dr &&
+      dr.store.brand.name.toLowerCase().includes("derimod") &&
+      periodStart &&
+      periodEnd &&
+      !meta?.skip_nebim_check
+    ) {
       await assertNebimNetMatch(dr.store_id, periodStart, periodEnd, salesTotal);
     }
   }
@@ -532,17 +542,28 @@ async function assertNebimNetMatch(
 ): Promise<void> {
   const lines = await prisma.nebimSaleLine.findMany({
     where: { store_id: storeId, invoice_date: { gte: periodStart, lte: periodEnd } },
-    select: { net_amount: true, is_return: true, updated_at: true },
+    select: {
+      net_amount: true,
+      is_return: true,
+      updated_at: true,
+      invoice_ref: true,
+      customer_name: true,
+      created_date: true,
+    },
   });
   if (lines.length === 0) return;
   let total = 0;
   let normalOnly = 0;
   let lastPull = 0;
+  const byInvoice = new Map<string, { net: number; ret: boolean; who: string | null; at: Date | null }>();
   for (const l of lines) {
     const n = l.net_amount ? l.net_amount.toNumber() : 0;
     total += n;
     if (!l.is_return) normalOnly += n;
     lastPull = Math.max(lastPull, l.updated_at.getTime());
+    const inv = byInvoice.get(l.invoice_ref) ?? { net: 0, ret: l.is_return, who: l.customer_name, at: l.created_date };
+    inv.net += n;
+    byInvoice.set(l.invoice_ref, inv);
   }
   const dayAfterPeriod = periodEnd.getTime() + 24 * 60 * 60 * 1000;
   if (lastPull < dayAfterPeriod) return;
@@ -552,14 +573,32 @@ async function assertNebimNetMatch(
   const readNormalRow =
     Math.abs(normalOnly - ocrSales) <= tolerance &&
     Math.abs(normalOnly - total) > tolerance;
-  const hint = readNormalRow
+  let hint = readNormalRow
     ? ` Okunan rakam iadesiz "Normal" satırının neti; Satış tablosunda ` +
       `"Toplam" satırının Net Tutar'ı alınmalı.`
     : "";
+  // Which Nebim document(s) explain the gap? A single invoice whose net
+  // equals the difference is almost always the story: the bridge carries
+  // documents Nebim later cancelled (31.08 Lefkoşa, a return voided at
+  // 09:58) and the printed report does not count them. Name it so the
+  // admin can decide, instead of re-shooting a correct photo.
+  if (!readNormalRow) {
+    const gap = total - ocrSales; // Nebim − rapor
+    const match = Array.from(byInvoice.entries()).find(([, v]) => Math.abs(v.net - gap) <= 0.05);
+    if (match) {
+      const [ref, v] = match;
+      const when = v.at ? ` ${v.at.toISOString().slice(11, 16)}` : "";
+      hint =
+        ` Fark ${fmtMoneyTr(Math.abs(gap))} ₺ = Nebim'deki ${ref} ` +
+        `(${v.ret ? "iade" : "satış"}${v.who ? `, ${v.who}` : ""}${when}); bu belge basılı ` +
+        `raporda yok — Nebim'de iptal edilmiş olabilir. Rapor doğruysa admin "farkı bilerek ` +
+        `kabul et" ile kaydedebilir.`;
+    }
+  }
   throw new Error(
     `Mağaza Özeti okunamadı: Satış Toplam ${fmtMoneyTr(ocrSales)} ₺ okundu, ` +
-      `ama Nebim'e göre bu dönemin neti ${fmtMoneyTr(total)} ₺.${hint} ` +
-      `Görseli daha net çekip tekrar yükleyin.`
+      `ama Nebim'e göre bu dönemin neti ${fmtMoneyTr(total)} ₺.${hint}` +
+      (hint ? "" : " Görseli daha net çekip tekrar yükleyin.")
   );
 }
 
