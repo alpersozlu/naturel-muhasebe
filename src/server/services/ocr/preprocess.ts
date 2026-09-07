@@ -66,7 +66,13 @@ export async function preprocessImage(
 const TILE_RATIO = 1.5;
 /** Target height/width of one tile. */
 const TARGET_TILE_RATIO = 1.6;
-/** Claude scales any image whose long edge exceeds this; larger is wasted. */
+/**
+ * Claude scales any image whose long edge exceeds this; larger is wasted.
+ * Tiles SMALLER than this are enlarged up to it: upscaling adds no
+ * information, but a 589 px strip tile left at native size read "33.630"
+ * as "23.630" — glyphs a few pixels high are what the model misreads, and
+ * the same pixels drawn larger are read reliably.
+ */
 const CLAUDE_MAX_EDGE = 1568;
 
 export type ReceiptCrop = { left: number; top: number; width: number; height: number };
@@ -86,14 +92,23 @@ export type ReceiptCrop = { left: number; top: number; width: number; height: nu
  * into overlapping tiles, each ≤ CLAUDE_MAX_EDGE so nothing is downscaled.
  * The tiles are sent as several image blocks in one request, top to bottom.
  */
+export type ReceiptKind =
+  /** Till strip (POS day-end slip, Z report): upright means tall. */
+  | "strip"
+  /** A page (store summary, invoice): may be landscape, may be sideways. */
+  | "document";
+
 export async function preprocessReceipt(
   input: Buffer,
-  inputMime?: string
+  inputMime?: string,
+  opts: { kind?: ReceiptKind } = {}
 ): Promise<{
   tiles: Buffer[];
   mediaType: "image/jpeg";
   crop: ReceiptCrop | null;
   rotation: QuarterTurn;
+  /** "model" when the crop came from locateDocument, "heuristic" otherwise. */
+  cropBy: "model" | "heuristic" | "none";
 }> {
   let working: Buffer = input;
   if (inputMime === "image/heic" || inputMime === "image/heif") {
@@ -112,21 +127,21 @@ export async function preprocessReceipt(
   const H = meta.height ?? 0;
   if (!W || !H) {
     const single = await preprocessImage(input, inputMime);
-    return { tiles: [single.buffer], mediaType: "image/jpeg", crop: null, rotation: 0 };
+    return { tiles: [single.buffer], mediaType: "image/jpeg", crop: null, rotation: 0, cropBy: "none" };
   }
 
-  const crop = await detectPaper(upright, W, H);
-  let img = sharp(upright);
-  if (crop) img = img.extract(crop);
+  // Coarse crop by colour. A vision-model bounding box was measured as the
+  // alternative and rejected: on thin strips it came back 2× wider than the
+  // heuristic (1632 px vs 737 px), the tiles lost resolution and dates read
+  // 08 → 03.
+  const crop: ReceiptCrop | null = await detectPaper(upright, W, H);
+  const cropBy: "model" | "heuristic" | "none" = crop ? "heuristic" : "none";
+  let region = crop
+    ? await sharp(upright).extract(crop).jpeg({ quality: 92 }).toBuffer()
+    : upright;
   let cw = crop?.width ?? W;
   let ch = crop?.height ?? H;
-  let enhanced = await img
-    .grayscale()
-    .normalize()
-    .clahe({ width: 8, height: 8, maxSlope: 3 })
-    .sharpen({ sigma: 1.2 })
-    .jpeg({ quality: 92 })
-    .toBuffer();
+
   // A slip photographed sideways (held in a hand, phone in landscape) has
   // its text running vertically; the model then misreads digits — a Girne
   // İş Bankası slip came back as 2023 instead of 2026, a Garanti slip as
@@ -136,18 +151,45 @@ export async function preprocessReceipt(
   // and why). Asked about every image, the model also called four upright
   // strips "90°" — a 737×4032 strip's thumbnail has no readable text — so
   // the question is limited to the ambiguous case.
+  // For a PAGE the shape says nothing — a landscape A4 report photographed
+  // in portrait is a tall crop with sideways text (Mavi 26.08: the table
+  // was read sideways and the header with the date fell outside the tiles)
+  // — so pages are always asked.
+  const kind = opts.kind ?? "strip";
   let rotation: QuarterTurn = 0;
-  if (cw > ch) {
-    const thumb = await sharp(enhanced)
+  if (kind === "document" || cw > ch) {
+    const thumb = await sharp(region)
       .resize({ width: 1000, height: 1000, fit: "inside", withoutEnlargement: true })
+      .grayscale()
+      .normalize()
       .jpeg({ quality: 80 })
       .toBuffer();
     rotation = await detectOrientation(thumb);
     if (rotation !== 0) {
-      enhanced = await sharp(enhanced).rotate(rotation).jpeg({ quality: 92 }).toBuffer();
+      region = await sharp(region).rotate(rotation).jpeg({ quality: 92 }).toBuffer();
       if (rotation !== 180) [cw, ch] = [ch, cw];
     }
   }
+
+  // Narrow the (now upright) region to the columns that carry printed text
+  // (see refineByInk) — after the turn, so that a sideways slip's length is
+  // never mistaken for its width.
+  const ink = await refineByInk(region, cw, ch);
+  if (ink) {
+    region = await sharp(region)
+      .extract({ left: ink.left, top: 0, width: ink.width, height: ch })
+      .jpeg({ quality: 92 })
+      .toBuffer();
+    cw = ink.width;
+  }
+
+  const enhanced = await sharp(region)
+    .grayscale()
+    .normalize()
+    .clahe({ width: 8, height: 8, maxSlope: 3 })
+    .sharpen({ sigma: 1.2 })
+    .jpeg({ quality: 92 })
+    .toBuffer();
 
   // A wide page (landscape A4 report) shrinks to ~1568×780 at Claude's
   // cap, and the table digits become ~10 px — the Mavi 31.08 report's
@@ -158,29 +200,32 @@ export async function preprocessReceipt(
   if (cw / ch > 1.3) {
     const half = Math.ceil(cw / 2);
     const ov = Math.round(cw * 0.06);
-    const halves = [
-      { left: 0, width: Math.min(cw, half + ov) },
-      { left: Math.max(0, half - ov), width: cw - Math.max(0, half - ov) },
+    const parts = [
+      { left: 0, top: 0, width: Math.min(cw, half + ov), height: ch },
+      { left: Math.max(0, half - ov), top: 0, width: cw - Math.max(0, half - ov), height: ch },
+      // The header (store code, date) sits centred at the top and would be
+      // split between the halves — a 26.08 report lost its date that way.
+      { left: 0, top: 0, width: cw, height: Math.max(1, Math.round(ch * 0.3)) },
     ];
     const tiles: Buffer[] = [];
-    for (const h of halves) {
+    for (const p of parts) {
       tiles.push(
         await sharp(enhanced)
-          .extract({ left: h.left, top: 0, width: h.width, height: ch })
-          .resize({ width: CLAUDE_MAX_EDGE, height: CLAUDE_MAX_EDGE, fit: "inside", withoutEnlargement: true })
+          .extract(p)
+          .resize({ width: CLAUDE_MAX_EDGE, height: CLAUDE_MAX_EDGE, fit: "inside" })
           .jpeg({ quality: 82, mozjpeg: true })
           .toBuffer()
       );
     }
-    return { tiles, mediaType: "image/jpeg", crop, rotation };
+    return { tiles, mediaType: "image/jpeg", crop, rotation, cropBy };
   }
 
   if (ch / cw <= TILE_RATIO) {
     const single = await sharp(enhanced)
-      .resize({ width: 2400, height: 2400, fit: "inside", withoutEnlargement: true })
+      .resize({ width: 2400, height: 2400, fit: "inside" })
       .jpeg({ quality: 82, mozjpeg: true })
       .toBuffer();
-    return { tiles: [single], mediaType: "image/jpeg", crop, rotation };
+    return { tiles: [single], mediaType: "image/jpeg", crop, rotation, cropBy };
   }
 
   const n = Math.ceil(ch / cw / TARGET_TILE_RATIO);
@@ -204,7 +249,7 @@ export async function preprocessReceipt(
         .toBuffer()
     );
   }
-  return { tiles, mediaType: "image/jpeg", crop, rotation };
+  return { tiles, mediaType: "image/jpeg", crop, rotation, cropBy };
 }
 
 /**
@@ -292,6 +337,74 @@ async function detectPaper(upright: Buffer, W: number, H: number): Promise<Recei
     return { left, top, width, height };
   }
   return null;
+}
+
+/**
+ * Narrow a coarse paper crop to the paper's own columns.
+ *
+ * The colour heuristic takes anything bright and grey for paper: a silver
+ * laptop lid beside a slip gave a crop 3× the slip's width, the tiles kept
+ * the text small and the digits went wrong (6.700 → 5.700). Measured
+ * column profiles on seven photos: brightness alone cannot tell a shaded
+ * hand-held slip from a laptop lid (both sit 25–45 levels under the peak),
+ * and an ink test finds nothing on faint thermal print. What separates
+ * them is TEXTURE: printed paper has strong horizontal gradients in every
+ * column, a lid has none, a desk has texture but is dark. So: take the
+ * widest bright band, then trim its two ends while they carry no text
+ * texture — the lid falls off the end, the shaded interior of a slip stays.
+ * Width only; the height stays. Runs after the quarter turn, so a sideways
+ * slip's length is never mistaken for its width.
+ */
+async function refineByInk(
+  region: Buffer,
+  width: number,
+  height: number
+): Promise<{ left: number; width: number } | null> {
+  const tw = 400;
+  // Twice the proportional height: text texture needs vertical detail.
+  const th = Math.max(1, Math.min(2400, Math.round((height / width) * tw * 2)));
+  const { data } = await sharp(region)
+    .resize(tw, th, { fit: "fill" })
+    .grayscale()
+    .normalize()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const lum = new Float32Array(tw);
+  const grad = new Float32Array(tw);
+  for (let y = 0; y < th; y++) {
+    for (let x = 0; x < tw; x++) {
+      const v = data[y * tw + x]!;
+      lum[x]! += v / th;
+      if (x + 1 < tw) grad[x]! += Math.abs(data[y * tw + x + 1]! - v) / th;
+    }
+  }
+  let peak = 0;
+  let gmax = 0;
+  for (let x = 0; x < tw; x++) {
+    if (lum[x]! > peak) peak = lum[x]!;
+    if (grad[x]! > gmax) gmax = grad[x]!;
+  }
+  if (peak < 120 || gmax <= 0) return null;
+  const bright = new Float32Array(tw);
+  for (let x = 0; x < tw; x++) bright[x] = lum[x]! >= peak - 45 ? 1 : 0;
+  const runs = denseRuns(bright, Math.round(tw * 0.05));
+  if (runs.length === 0) return null;
+  let best = runs[0]!;
+  for (const r of runs) if (r[1] - r[0] > best[1] - best[0]) best = r;
+  const textured = (x: number) => grad[x]! >= gmax * 0.35;
+  let a = best[0];
+  let b = best[1];
+  while (a < b && !textured(a)) a++;
+  while (b > a && !textured(b)) b--;
+  const runW = b - a + 1;
+  if (runW < tw * 0.25) return null; // nothing that looks like a printed sheet
+  const pad = Math.round(runW * 0.08);
+  const x0 = Math.max(0, a - pad);
+  const x1 = Math.min(tw - 1, b + pad);
+  const left = Math.floor((x0 / tw) * width);
+  const right = Math.min(width, Math.ceil(((x1 + 1) / tw) * width));
+  if (right - left >= width * 0.97) return null; // already the region
+  return { left, width: right - left };
 }
 
 /**

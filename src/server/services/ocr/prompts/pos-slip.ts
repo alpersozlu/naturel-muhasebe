@@ -47,10 +47,7 @@ Eğer POS gün sonu DEĞİLSE:
   "check_notes": "en fazla 2 cümle: neden reddedildiği",
   "is_pos_slip": false,
   "rejection_reason": "Bu bir POS gün sonu raporu gibi görünmüyor — [kısa açıklama]. Lütfen geçerli bir POS gün sonu slipini yükleyin.",
-  "bank_name": null, "terminal_no": null, "date": null, "date_raw": null,
-  "sales_count": null, "sales_amount": null,
-  "refund_count": null, "refund_amount": null,
-  "net_amount": null, "currency": "TRY", "sections": []
+  "date": null, "date_raw": null, "currency": "TRY", "sections": []
 }
 
 Eğer POS gün sonu İSE:
@@ -58,15 +55,8 @@ Eğer POS gün sonu İSE:
   "check_notes": "en fazla 2 cümle: kaç banka, tutarları hangi satırdan aldığın, tarih",
   "is_pos_slip": true,
   "rejection_reason": null,
-  "bank_name": "string veya null",
-  "terminal_no": "string veya null",
   "date": "YYYY-MM-DD veya null",
   "date_raw": "slipteki tarih HARFİYEN (GG/AA/YY ya da GG/AA/YYYY biçiminde gördüğün gibi) veya null",
-  "sales_count": "tam sayı veya null",
-  "sales_amount": "ondalık sayı veya null",
-  "refund_count": "tam sayı veya null",
-  "refund_amount": "ondalık sayı veya null",
-  "net_amount": "ondalık sayı veya null",
   "currency": "TRY | USD | EUR | GBP (TRY varsayılan)",
   "sections": [
     {
@@ -76,12 +66,41 @@ Eğer POS gün sonu İSE:
       "sales_amount": "ondalık sayı veya null",
       "refund_count": "tam sayı veya null",
       "refund_amount": "ondalık sayı veya null",
-      "net_amount": "ondalık sayı veya null"
+      "net_amount": "ondalık sayı veya null",
+      "breakdown": [ { "label": "YKB KK", "count": "tam sayı veya null", "amount": "ondalık sayı veya null" } ],
+      "total_candidates": ["o banka için slipte basılı HER toplam rakamı, ondalık sayı"],
+      "transaction_amounts": ["detay işlem listesi varsa (SATIŞ 001, 002 …) her satırın tutarı sırayla; yoksa boş dizi"],
+      "evidence_tiles": ["bu bankanın KIRILIM satırları ve TOPLAM satırlarının göründüğü görsel numaraları (1'den başlar, örn [4,5]); tek görsel varsa [1]"]
     }
   ]
 }
 "sections": slipte KAÇ BANKANIN gün sonu varsa o kadar eleman. Tek bankalı
-slipte tek elemanlı bir dizi ver (tekil alanlarla aynı değerler).
+slipte tek elemanlı bir dizi ver.
+
+═══════════════════════════════════════════════════════════════
+KIRILIM + TOPLAM ADAYLARI — SUNUCU OYLAR (nokta vuruşlu 5↔6, 3↔1 karışır)
+═══════════════════════════════════════════════════════════════
+Bir toplam rakamının tek bir haneyi yanlış okumak kolaydır (en alttaki
+GRUP KAPAMA satırı çoğu zaman gölgede/kıvrımdadır). Bu yüzden her banka için:
+- "breakdown": kart/işlem tipi bazındaki alt satırların HEPSİ, sırayla —
+  Yapı Kredi "KART BAZINDA DETAYLAR" (YKB KK / BKM KK / BKM DK / INT KK…:
+  TUTAR satırındaki adet + altındaki tutar), İş Bankası "SATIŞ / DEBİT SATIŞ /
+  DİĞER BANKA SATIŞ" satırları, Koopbank alt bölümleri (SATIŞ (C), YURTİÇİ
+  DEBİT KARTI … TOPLAM ADET / TOPLAM TUTAR). Her satır {label, count, amount}.
+  İade satırlarını da ekle (label'da "İADE/İPTAL" geçsin, amount pozitif).
+- "total_candidates": o banka için slipte BASILI her toplam: "PEŞİN … TOPLAM",
+  "GRUP KAPAMA … TOPLAM", "ÖZET RAPORU T.TUTAR", "GENEL TOPLAM", "NET SATIŞ".
+  Aynı rakamı iki yerde gördüysen İKİ KEZ yaz (her basım ayrı kanıttır).
+  Okuduğun gibi yaz; birbirinden farklı çıkıyorsa ikisini de yaz, seçme.
+- "transaction_amounts": Yapı Kredi / Optimum "DETAY İŞLEMLER LİSTESİ"
+  varsa HER işlem satırının tutarı sırayla (SATIŞ 001'den sonuncuya; iade
+  satırlarını atla). Bu liste kırılıma girmez; toplamı üçüncü bağımsız
+  kanıttır. Liste yoksa boş dizi.
+- "evidence_tiles": görsel parçalıysa, o bankanın kırılım ve toplam
+  satırlarının hangi parçalarda olduğunu yaz (1'den başlayan numara). Sunucu
+  çelişki olursa yalnız o parçaları büyütüp tekrar okutur.
+Sunucu basılı toplamları, kırılım toplamını ve işlem listesi toplamını
+karşılaştırıp en az İKİ bağımsız kaynağın uyuştuğu rakamı net_amount alır.
 
 ═══════════════════════════════════════════════════════════════
 ⚠ ÇOK BANKALI SLİP — ORTAK TERMİNAL (Koopbank Optimum + Yapı Kredi)
@@ -118,8 +137,7 @@ NE YAPACAKSIN:
   DOĞRULA; uyuşmuyorsa özet raporunu esas al.
 - "İŞLEM YOK" yazan banka satırını sections'a KOYMA.
 - İki bankanın terminal numarası aynı olabilir (ortak cihaz) — normaldir.
-- Tekil alanları (bank_name, net_amount...) İLK bankayla doldur; ama asıl
-  çıktı "sections"tır. ASLA iki bankayı toplayıp tek net_amount yazma.
+- Asıl çıktı "sections"tır. ASLA iki bankayı toplayıp tek section yazma.
 - Özet raporu görselde yoksa/okunamıyorsa, her bankanın kendi bloğundaki
   GENEL TOPLAM / TOPLAM ve İŞLEM SAYISI'nı kullan; onu da okuyamıyorsan null.
 
@@ -131,8 +149,7 @@ TARİH ve TERMİNAL bu slipte ÜÇ yerde basılıdır — null bırakma:
 - Yapı Kredi grup kapama bloğunda: "GG/AA/YY  SS:DD:SS" ve
   "TERMİNAL NO: NNNNNNNN"
 Terminal numarası her bankanın "TERMİNAL NO" / "POS NO" satırındadır; ortak
-cihazda hepsi aynıdır. Her section'ın terminal_no alanına ve tekil
-terminal_no'ya bu numarayı yaz.
+cihazda hepsi aynıdır. Her section'ın terminal_no alanına bu numarayı yaz.
 
 Bu yapıyı tanımanın ipuçları: aynı slipte hem "KOOPBANK" hem "YAPI KREDİ"
 (ya da "optimum" ve "YapıKredi" logoları) geçiyorsa; "ÖZET RAPORU" başlığı

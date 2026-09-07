@@ -1,5 +1,17 @@
 import { z } from "zod";
 
+/**
+ * Alt kırılım satırı: kart tipi / işlem tipi bazında adet + tutar
+ * (Yapı Kredi "KART BAZINDA DETAYLAR", İş Bankası "SATIŞ / DEBİT SATIŞ",
+ * Koopbank alt bölümleri). Toplamın hakemi: kırılım toplamı basılı
+ * toplamlardan hangisiyle tutuyorsa o doğrudur.
+ */
+export const posSlipBreakdownSchema = z.object({
+  label: z.string(),
+  count: z.number().nullable(),
+  amount: z.number().nullable(),
+});
+
 /** Tek slipteki bir bankanın gün sonu bloğu (ortak terminal slipleri). */
 export const posSlipSectionSchema = z.object({
   bank_name: z.string().min(1),
@@ -9,6 +21,17 @@ export const posSlipSectionSchema = z.object({
   refund_count: z.number().int().min(0).nullable(),
   refund_amount: z.number().min(0).nullable(),
   net_amount: z.number().nullable(),
+  breakdown: z.array(posSlipBreakdownSchema).optional(),
+  /** Slipte o banka için basılı HER toplam (PEŞİN TOPLAM, GRUP KAPAMA
+   *  TOPLAM, ÖZET T.TUTAR, GENEL TOPLAM…) — aynı rakam birden fazla yerde
+   *  basılıysa hepsi; sunucu oylar. */
+  total_candidates: z.array(z.number()).optional(),
+  /** Detay işlem listesindeki tek tek satış tutarları (varsa) — toplamı
+   *  üçüncü bağımsız kanıt. */
+  transaction_amounts: z.array(z.number()).optional(),
+  /** Bu bankanın kırılım ve toplam satırlarının bulunduğu görsel parçaları
+   *  (1'den başlayan sıra) — ikinci bakış yalnız onları büyütür. */
+  evidence_tiles: z.array(z.number()).optional(),
 });
 export type PosSlipSection = z.infer<typeof posSlipSectionSchema>;
 
@@ -53,21 +76,25 @@ const posSlipSectionOutputSchema = z.object({
   refund_count: z.number().nullable(),
   refund_amount: z.number().nullable(),
   net_amount: z.number().nullable(),
+  breakdown: z.array(
+    z.object({ label: z.string(), count: z.number().nullable(), amount: z.number().nullable() })
+  ),
+  total_candidates: z.array(z.number()),
+  transaction_amounts: z.array(z.number()),
+  evidence_tiles: z.array(z.number()),
 });
 
+/**
+ * No singular bank fields here: the constrained decoder rejects schemas with
+ * more than ~16 nullable (anyOf) parameters, and the singular fields are
+ * only ever a copy of `sections[0]` — the parser fills them from there.
+ */
 export const posSlipOutputSchema = z.object({
   check_notes: z.string(),
   is_pos_slip: z.boolean(),
   rejection_reason: z.string().nullable(),
-  bank_name: z.string().nullable(),
-  terminal_no: z.string().nullable(),
   date: z.string().nullable(),
   date_raw: z.string().nullable(),
-  sales_count: z.number().nullable(),
-  sales_amount: z.number().nullable(),
-  refund_count: z.number().nullable(),
-  refund_amount: z.number().nullable(),
-  net_amount: z.number().nullable(),
   currency: z.enum(["TRY", "USD", "EUR", "GBP"]),
   sections: z.array(posSlipSectionOutputSchema),
 });

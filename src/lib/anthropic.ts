@@ -16,7 +16,7 @@ export function getAnthropic(): Anthropic {
   // until the sweep marks it failed. Measured 2026-09-04: one call hung for
   // 304 s. Failing fast with a clear error is the better outcome; a retry
   // would not fit in the budget anyway.
-  client = new Anthropic({ apiKey, timeout: 45_000, maxRetries: 0 });
+  client = new Anthropic({ apiKey, timeout: 50_000, maxRetries: 0 });
   return client;
 }
 

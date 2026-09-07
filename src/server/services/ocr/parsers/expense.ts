@@ -43,7 +43,7 @@ export async function parseExpense(opts: {
       },
     });
   } else {
-    const r = await preprocessReceipt(opts.buffer, opts.mimeType);
+    const r = await preprocessReceipt(opts.buffer, opts.mimeType, { kind: "document" });
     tileCount = r.tiles.length;
     for (const tile of r.tiles) {
       content.push({

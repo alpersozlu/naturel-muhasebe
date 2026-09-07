@@ -100,7 +100,19 @@ export function deriveItPosFields(
   // amounts alone. The report's row order is fixed — Satış Toplam, Nakit
   // Toplam, Kredi Kartı Toplam, [Alışveriş Çeki], [Kartuş Puan] — so look
   // for values in that order that add up to the kuruş.
-  const byEq = solveItPosByEquation(amounts);
+  // Bound the search by the label order: everything before "Satış Toplam"
+  // is opening balance (and Devir Bakiye Toplam = Devir Bakiye TRY + Devir
+  // Bakiye EUR also "adds up" — it was picked once as the sales equation),
+  // everything from "Kapanış Toplam" on is closing balance. ±1 for the
+  // usual one-row drift between the lists.
+  const iSales = normLabels.findIndex((l) => l.includes("satis toplam"));
+  const iClose = normLabels.findIndex((l) => l.includes("kapanis toplam"));
+  const lo = iSales >= 0 ? Math.max(0, iSales - 2) : 0;
+  const hi = iClose >= 0 ? Math.min(amounts.length, iClose + 1) : amounts.length;
+  const byEq = solveItPosByEquation(
+    amounts.map((a, i) => (i >= lo && i < hi ? a : null)),
+    iSales >= 0 ? iSales : null
+  );
   if (!byEq) return null;
   const aligned = labels.length === amounts.length;
   const at = (needle: string): number | null => {
@@ -123,7 +135,13 @@ export function deriveItPosFields(
  * kuruş and a coincidence among a dozen unrelated amounts is negligible.
  * Ambiguous (two different solutions) → null.
  */
-function solveItPosByEquation(amounts: (number | null)[]): {
+function solveItPosByEquation(
+  amounts: (number | null)[],
+  /** Index of the "Satış Toplam" label; the sales value must sit within two
+   *  rows of it. Without this the closing block (Kapanış Toplam = Kapanış
+   *  TRY + Kapanış EUR) satisfies the equation and was picked once. */
+  salesLabelIndex: number | null
+): {
   sales_total: number;
   cash_sales: number;
   credit_card_total: number;
@@ -136,6 +154,7 @@ function solveItPosByEquation(amounts: (number | null)[]): {
   for (let s = 0; s < v.length; s++) {
     const S = v[s]!.a;
     if (S <= 0) continue;
+    if (salesLabelIndex != null && Math.abs(v[s]!.i - salesLabelIndex) > 2) continue;
     for (let c = s + 1; c < v.length; c++) {
       const C = v[c]!.a;
       if (C < 0) continue;
@@ -201,7 +220,7 @@ export async function parseStoreSummary(opts: {
       },
     });
   } else {
-    const r = await preprocessReceipt(opts.buffer, opts.mimeType);
+    const r = await preprocessReceipt(opts.buffer, opts.mimeType, { kind: "document" });
     tileCount = r.tiles.length;
     for (const tile of r.tiles) {
       content.push({
@@ -252,7 +271,11 @@ export async function parseStoreSummary(opts: {
         content.filter((c) => c.type === "image"),
         parsed.it_pos_labels?.length ?? 0
       );
-      const solved = amounts ? solveItPosByEquation(amounts) : null;
+      const iSalesLabel =
+        parsed.it_pos_labels?.map(norm).findIndex((l) => l.includes("satis toplam")) ?? -1;
+      const solved = amounts
+        ? solveItPosByEquation(amounts, iSalesLabel >= 0 ? iSalesLabel : null)
+        : null;
       if (solved) {
         derived = { ...solved, wire_transfer_total: null, opening_balance: null, closing_balance: null };
         Object.assign(raw as object, { retried_amounts: amounts });
