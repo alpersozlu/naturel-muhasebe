@@ -44,6 +44,11 @@ Kısa gerekçeni (format kararı + denklem kontrolü sonucu, EN FAZLA 2 cümle)
 JSON'un ilk alanı olan "check_notes" içine yaz; adımları oraya da uzun uzun
 anlatma.
 
+GÖRSEL PARÇALI OLABİLİR: geniş bir sayfa SOL ve SAĞ yarım (bindirmeli) olarak
+iki resim halinde gelir — sol yarımda etiketler, sağ yarımda tutarlar; uzun bir
+sayfa ise üstten alta parçalar halinde gelir. Hepsi AYNI belgedir, birleştirerek
+oku; bindirme bölgesindeki satırı iki kez sayma.
+
 ADIM 1 — Doküman türü doğrulaması:
 Bu görsel bir MAĞAZA GÜN SONU ÖZET RAPORU mu? Geçerli olabilmesi için:
 - Bir mağaza POS yazılımı çıktısı (IT POS veya Nebim)
@@ -87,7 +92,7 @@ Eğer mağaza özet raporu DEĞİLSE:
   "summary_date": null, "sales_total": null, "cash_sales": null,
   "credit_card_total": null, "loyalty_points_total": null,
   "shopping_voucher_total": null, "wire_transfer_total": null,
-  "credit_voucher_total": null,
+  "credit_voucher_total": null, "it_pos_labels": [], "it_pos_amounts": [],
   "period_start": null, "period_end": null,
   "opening_balance": null, "closing_balance": null, "currency": "TRY"
 }
@@ -110,6 +115,8 @@ Eğer mağaza özet raporu İSE:
   "shopping_voucher_total": "ondalık sayı veya null (Alışveriş Çeki Toplam — Mavi/IT POS özetinde ayrı kalem olarak yazıyorsa dolu, yoksa null)",
   "wire_transfer_total": "ondalık sayı veya null (Havale / Banka Transferi — özette AYRI kalem olarak yazıyorsa dolu, yoksa null)",
   "credit_voucher_total": "ondalık sayı veya null — SADECE Nebim/Derimod: Ödemeler tablosundaki 'Kredi Çeki' satırının en sağdaki Toplam'ı (kullanım − aynı gün düzenlenen; çoğu gün 0,00). Satır yoksa 0. IT POS/Mavi'de null.",
+  "it_pos_labels": ["IT POS: AÇIKLAMA sütunu yukarıdan aşağıya, başlık hariç — Nebim'de boş dizi"],
+  "it_pos_amounts": ["IT POS: TRY TUTAR sütunu yukarıdan aşağıya, başlık hariç, sayı/null — Nebim'de boş dizi"],
   "opening_balance": "ondalık sayı veya null (Devir Bakiye)",
   "closing_balance": "ondalık sayı veya null (Kapanış Toplam)",
   "currency": "TRY | USD | EUR | GBP (TRY varsayılan)"
@@ -168,20 +175,31 @@ Nebim ÖRNEK (doğru okuma, S02 25.08.2026): Satış tablosu Normal 40.826,12 /
 credit_voucher_total 0. Denklem: 0 + 39.326,13 + 0 = 39.326,13 ✓.
 
 ═══════════════════════════════════════════════════════════════
-⚠ SATIR KAYMASI — EN SIK YAPILAN HATA
+⚠ IT POS (MAVİ) "GÜNLÜK KASA RAPORU" — SÜTUNLAR KAYMIŞ BASILIR
 ═══════════════════════════════════════════════════════════════
-Bu raporlar alt alta çok satırlı tablolardır. Bir kez tüm değerler BİR SATIR
-kaydırılarak okundu: Nakit'e Kredi Kartı'nın, Kredi Kartı'na Kartuş'un,
-Kartuş'a Kapanış bakiyesinin rakamı yazıldı (₺23,9 milyon "kartuş puan").
+Bu raporda TRY TUTAR sütunu, AÇIKLAMA (etiket) sütununa göre yaklaşık BİR
+SATIR YUKARI kaymış basılır ("TRY TUTAR" başlığı "AÇIKLAMA" başlığından daha
+yukarıdadır). Bir rakamı "yanındaki" etikete göre okursan BİR ALT satırın
+etiketine yazarsın: bir kez Kapanış bakiyesi (₺24 milyon) "Kartuş Puan"
+sanıldı, bir kez iade satırı (21.099,84-) "Satış Toplam" sanıldı.
 
-Bunu önlemek için:
-- Her rakamı SATIR SIRASINA göre değil, YANINDAKİ ETİKETE göre al. Önce
-  etiketi oku ("Kredi Kartı Toplam"), sonra o satırın TRY TUTAR hücresini.
+DOĞRU YÖNTEM — iki sütunu AYRI AYRI, yukarıdan aşağıya yaz:
+- "it_pos_labels": AÇIKLAMA sütunundaki etiketler sırayla ("AÇIKLAMA"
+  başlığı HARİÇ), örn ["Devir Bakiye Toplam", "Devir Bakiye", "Devir Bakiye",
+  "Satış Toplam", "Normal Satış", "Refereanslı İade", "Nakit Toplam", …]
+- "it_pos_amounts": TRY TUTAR sütunundaki tutarlar sırayla ("TRY TUTAR"
+  başlığı HARİÇ; DÖVİZ TUTAR sütunu YOK SAYILIR). Sonunda "-" olan tutar
+  NEGATİFTİR ("21.099,84-" → -21099.84). Boş hücre → null.
+  İki liste AYNI UZUNLUKTA olmalı; sunucu N'inci etiketi N'inci tutarla
+  eşleştirir.
+- Kalınlık ipucu: KALIN etiketler ("… Toplam") KALIN tutarlarla eşleşir;
+  "Nakit Satışlar" − "Nakit İadeler" = "Nakit Toplam" olmalı.
 - "Devir Bakiye" ve "Kapanış" satırları kasa BAKİYESİdir, satış değildir.
   MİLYONLARCA olabilirler. Bu rakamları asla nakit / kredi kartı / kartuş /
   alışveriş çeki alanlarına yazma.
-- Alt kırılım satırları ("Nakit Satışlar", "T.C.ZİRAAT BANKASI A.Ş.") üstteki
-  "... Toplam" satırıyla AYNI rakamı taşır — bu bir doğrulama fırsatıdır.
+- Tekil alanları (sales_total, cash_sales, …) da bu sıraya göre doldur;
+  listeler boşsa sunucu tekil alanlara güvenir. Nebim raporunda iki liste
+  BOŞ dizi olur.
 
 ZORUNLU DENKLEM KONTROLÜ (sonucunu "check_notes" alanına tek satır yaz):
   IT POS:  cash_sales + credit_card_total + loyalty_points_total

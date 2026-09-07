@@ -149,6 +149,32 @@ export async function preprocessReceipt(
     }
   }
 
+  // A wide page (landscape A4 report) shrinks to ~1568×780 at Claude's
+  // cap, and the table digits become ~10 px — the Mavi 31.08 report's
+  // "29.159,74" row went missing or sign-flipped in half the runs. Two
+  // overlapping left/right halves double the pixels per digit; the row
+  // order is preserved inside each half, which is what the column
+  // pairing relies on.
+  if (cw / ch > 1.3) {
+    const half = Math.ceil(cw / 2);
+    const ov = Math.round(cw * 0.06);
+    const halves = [
+      { left: 0, width: Math.min(cw, half + ov) },
+      { left: Math.max(0, half - ov), width: cw - Math.max(0, half - ov) },
+    ];
+    const tiles: Buffer[] = [];
+    for (const h of halves) {
+      tiles.push(
+        await sharp(enhanced)
+          .extract({ left: h.left, top: 0, width: h.width, height: ch })
+          .resize({ width: CLAUDE_MAX_EDGE, height: CLAUDE_MAX_EDGE, fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 82, mozjpeg: true })
+          .toBuffer()
+      );
+    }
+    return { tiles, mediaType: "image/jpeg", crop, rotation };
+  }
+
   if (ch / cw <= TILE_RATIO) {
     const single = await sharp(enhanced)
       .resize({ width: 2400, height: 2400, fit: "inside", withoutEnlargement: true })

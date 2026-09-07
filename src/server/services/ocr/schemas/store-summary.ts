@@ -56,6 +56,18 @@ export const storeSummaryOcrSchema = z.object({
   opening_balance: z.number().nullable(),
   closing_balance: z.number().nullable(),
   currency: z.enum(["TRY", "USD", "EUR", "GBP"]).default("TRY"),
+  /**
+   * IT POS (Mavi) only: the two table columns transcribed SEPARATELY, top to
+   * bottom, header rows excluded. The report prints the TRY column one row
+   * higher than the label column, so any reading "by the label next to the
+   * number" lands on the row below (24.08 ₺23,9M "kartuş", 31.08 "Nakit
+   * 29.259,74 > satış 21.099,84"). The parser pairs the lists by index and
+   * checks the equation; see `deriveItPosFields`.
+   */
+  it_pos_labels: z.array(z.string()).optional(),
+  it_pos_amounts: z.array(z.number().nullable()).optional(),
+  /** Diagnostics: true when the fields came from the paired lists. */
+  derived_from_rows: z.boolean().optional(),
 });
 
 export type StoreSummaryOcr = z.infer<typeof storeSummaryOcrSchema>;
@@ -97,4 +109,6 @@ export const storeSummaryOutputSchema = z.object({
   opening_balance: z.number().nullable(),
   closing_balance: z.number().nullable(),
   currency: z.enum(["TRY", "USD", "EUR", "GBP"]),
+  it_pos_labels: z.array(z.string()),
+  it_pos_amounts: z.array(z.number().nullable()),
 });
