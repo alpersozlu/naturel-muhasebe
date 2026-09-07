@@ -37,6 +37,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   food: "Yemek",
   marketing: "Pazarlama",
   labor: "İşçi Parası",
+  tailor: "Terzi",
   other: "Diğer",
 };
 

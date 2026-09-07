@@ -76,6 +76,7 @@ enum ExpenseCategory {
   food // Yemek
   marketing // Pazarlama
   labor // İşçi parası (yevmiyeli/dışarıdan işçi)
+  tailor // Terzi (paça, tadilat, dikiş — mağaza adına yaptırılan)
   other // Diğer
 }
 

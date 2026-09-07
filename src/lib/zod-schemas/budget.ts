@@ -18,6 +18,7 @@ export const EXPENSE_CATEGORIES = [
   "food",
   "marketing",
   "labor",
+  "tailor",
   "other",
 ] as const;
 
