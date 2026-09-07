@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { router, adminProcedure } from "../trpc";
 import { openDaysInMonth, storeCodeFromName } from "@/server/services/nebim/calendar";
+import { missingVoucherSerials } from "@/server/services/nebim/voucher-snapshot";
 import {
   nebimSalesFilterSchema,
   nebimAnalizSchema,
@@ -1996,8 +1997,15 @@ export const nebimSalesRouter = router({
       if (input.date_from) dateFilter.gte = new Date(`${input.date_from}T00:00:00.000Z`);
       if (input.date_to) dateFilter.lte = new Date(`${input.date_to}T00:00:00.000Z`);
 
+      // Cards Nebim has deleted (cancelled returns) and their issuing
+      // transactions are left out everywhere below — see voucher-snapshot.ts.
+      const missing = await missingVoucherSerials(ctx.prisma);
+      const notMissing =
+        missing.serials.length > 0 ? { serial: { notIn: missing.serials } } : {};
+
       const txns = await ctx.prisma.nebimVoucherTxn.findMany({
         where: {
+          ...notMissing,
           ...(input.store_id ? { store_id: input.store_id } : {}),
           ...(Object.keys(dateFilter).length > 0 ? { txn_date: dateFilter } : {}),
         },
@@ -2135,7 +2143,10 @@ export const nebimSalesRouter = router({
 
       // ── Kalanlar (açık çekler — güncel anlık görüntü) ─────────────────
       const cards = await ctx.prisma.nebimVoucher.findMany({
-        where: { is_blocked: false },
+        where: {
+          is_blocked: false,
+          ...(missing.cutoff ? { updated_at: { gte: missing.cutoff } } : {}),
+        },
       });
       const today = new Date();
       today.setUTCHours(0, 0, 0, 0);
@@ -2206,6 +2217,7 @@ export const nebimSalesRouter = router({
           ctx.prisma.nebimVoucherTxn.groupBy({
             by: ["store_id"],
             where: {
+              ...notMissing,
               amount: { gt: 0 },
               ...(input.store_id ? { store_id: input.store_id } : {}),
               ...(Object.keys(dateFilter).length > 0
@@ -2218,6 +2230,7 @@ export const nebimSalesRouter = router({
           ctx.prisma.nebimVoucherTxn.groupBy({
             by: ["store_id"],
             where: {
+              ...notMissing,
               amount: { lt: 0 },
               ...(input.store_id ? { store_id: input.store_id } : {}),
               ...(Object.keys(dateFilter).length > 0

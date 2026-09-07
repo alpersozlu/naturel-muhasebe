@@ -1,5 +1,6 @@
 import "server-only";
 import type { PrismaClient, Prisma } from "@prisma/client";
+import { missingVoucherSerials } from "./voucher-snapshot";
 
 /**
  * MAĞAZA HAREKET ÖZETİ — Nebim V3'ün aynı adlı çıktısının birebir karşılığı.
@@ -219,6 +220,10 @@ export async function buildStoreMovement(
   if (range.date_to) tarih.lte = new Date(`${range.date_to}T00:00:00.000Z`);
   if (Object.keys(tarih).length > 0) voucherWhere.txn_date = tarih;
 
+  // Issuing lines of cards Nebim has since deleted (cancelled returns) are
+  // not in the printed report either — see voucher-snapshot.ts.
+  const missing = storeIds.length > 0 ? await missingVoucherSerials(prisma) : { serials: [] };
+  if (missing.serials.length > 0) voucherWhere.serial = { notIn: missing.serials };
   const vouchers =
     storeIds.length > 0
       ? await prisma.nebimVoucherTxn.findMany({

@@ -1,5 +1,6 @@
 import "server-only";
 import { resolveDocumentDate } from "./resolve-doc-date";
+import { missingVoucherSerials } from "@/server/services/nebim/voucher-snapshot";
 import { createHash } from "node:crypto";
 import type { Prisma, Upload } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -552,11 +553,24 @@ async function assertNebimNetMatch(
     },
   });
   if (lines.length === 0) return;
+  // A return whose credit voucher Nebim has since deleted was cancelled in
+  // Nebim (voucher-snapshot.ts); the printed report does not count it, the
+  // bridge still carries its lines. Leave those invoices out of the net.
+  const missing = await missingVoucherSerials(prisma);
+  const cancelled = new Set<string>();
+  if (missing.serials.length > 0) {
+    const txns = await prisma.nebimVoucherTxn.findMany({
+      where: { serial: { in: missing.serials }, invoice_ref: { not: null } },
+      select: { invoice_ref: true },
+    });
+    for (const t of txns) if (t.invoice_ref) cancelled.add(t.invoice_ref);
+  }
   let total = 0;
   let normalOnly = 0;
   let lastPull = 0;
   const byInvoice = new Map<string, { net: number; ret: boolean; who: string | null; at: Date | null }>();
   for (const l of lines) {
+    if (cancelled.has(l.invoice_ref)) continue;
     const n = l.net_amount ? l.net_amount.toNumber() : 0;
     total += n;
     if (!l.is_return) normalOnly += n;
