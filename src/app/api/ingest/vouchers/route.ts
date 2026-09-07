@@ -40,7 +40,7 @@ export async function POST(req: Request) {
       { status: 422 }
     );
   }
-  const { company_code, txns, cards } = parsed.data;
+  const { company_code, txns, cards, final } = parsed.data;
 
   const stores = await prisma.store.findMany({
     where: {
@@ -107,9 +107,49 @@ export async function POST(req: Request) {
     );
   }
 
+  // Hareketler 2019'dan beri, kartlar tamamen: her çalışma TAM bir anlık
+  // görüntüdür. Son parçada bu çalışmada dokunulmayan (updated_at eski)
+  // satırlar Nebim'de silinmiştir — iptal edilen iadenin çeki (CV…5954)
+  // böyle 7 gün "açık" göründü. Aynı %3 / 20 satır emniyeti.
+  let pruned_txns = 0;
+  let pruned_cards = 0;
+  let prune_skipped: string | null = null;
+  if (final) {
+    const cutoff = new Date(Date.now() - 30 * 60 * 1000);
+    const [txnAll, txnStale, cardAll, cardStale] = await Promise.all([
+      prisma.nebimVoucherTxn.count({ where: { company_code } }),
+      prisma.nebimVoucherTxn.count({ where: { company_code, updated_at: { lt: cutoff } } }),
+      prisma.nebimVoucher.count({ where: { company_code } }),
+      prisma.nebimVoucher.count({ where: { company_code, updated_at: { lt: cutoff } } }),
+    ]);
+    const capT = Math.max(20, Math.ceil(txnAll * 0.03));
+    const capC = Math.max(20, Math.ceil(cardAll * 0.03));
+    if (txnStale > capT || cardStale > capC) {
+      prune_skipped = `txns ${txnStale}/${capT}, cards ${cardStale}/${capC}`;
+      console.warn("[ingest/vouchers] prune skipped:", prune_skipped);
+    } else {
+      if (txnStale > 0) {
+        pruned_txns = (
+          await prisma.nebimVoucherTxn.deleteMany({ where: { company_code, updated_at: { lt: cutoff } } })
+        ).count;
+      }
+      if (cardStale > 0) {
+        pruned_cards = (
+          await prisma.nebimVoucher.deleteMany({ where: { company_code, updated_at: { lt: cutoff } } })
+        ).count;
+      }
+      if (pruned_txns || pruned_cards) {
+        console.info(`[ingest/vouchers] pruned ${pruned_txns} txns, ${pruned_cards} cards no longer in Nebim`);
+      }
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     txns_received: txns.length,
     cards_received: cards.length,
+    pruned_txns,
+    pruned_cards,
+    prune_skipped,
   });
 }

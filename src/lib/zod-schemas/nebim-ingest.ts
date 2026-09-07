@@ -56,6 +56,19 @@ export const nebimIngestSchema = z.object({
   company_code: z.number().int().default(1),
   currency: z.enum(["TRY", "USD", "EUR", "GBP"]).default("TRY"),
   lines: z.array(nebimSaleLineSchema).min(1).max(20000),
+  /**
+   * Köprü çalışması kimliği: aynı çalışmanın tüm parçaları aynı run_id'yi
+   * taşır; sunucu satırları `source = "nebim:<run_id>"` ile damgalar.
+   */
+  run_id: z.string().min(8).max(64).optional(),
+  /** Bu çalışmanın Nebim'den çektiği aralığın başı (InvoiceDate >= …). */
+  pull_since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  /**
+   * Çalışmanın SON parçası. Sunucu o zaman aralıktaki, bu çalışmada
+   * gelmemiş (damgası eski) satırları siler — Nebim iptal ettiği belgeyi
+   * bayraklamıyor, SİLİYOR; DocuFlow da aynı şeyi yapmalı.
+   */
+  final: z.boolean().optional(),
 });
 
 export type NebimSaleLineInput = z.infer<typeof nebimSaleLineSchema>;

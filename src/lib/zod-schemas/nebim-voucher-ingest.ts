@@ -34,6 +34,10 @@ export const nebimVoucherIngestSchema = z.object({
   company_code: z.number().int().default(1),
   txns: z.array(nebimVoucherTxnSchema).max(20000).default([]),
   cards: z.array(nebimVoucherCardSchema).max(20000).default([]),
+  /** Çalışmanın SON parçası: hareket ve kart tabloları HER çalışmada tam
+   *  gönderildiğinden, bu çalışmada dokunulmayan satırlar Nebim'de silinmiş
+   *  demektir → temizlenir. */
+  final: z.boolean().optional(),
 });
 
 export type NebimVoucherIngestInput = z.infer<typeof nebimVoucherIngestSchema>;

@@ -31,6 +31,7 @@ import logging
 import os
 import sys
 import time
+import uuid
 from datetime import date, datetime, timedelta
 
 try:
@@ -281,10 +282,15 @@ def _invalid_object(exc: Exception) -> bool:
             or "207" in m or "208" in m)
 
 
-def fetch_sales(conn, cfg: dict, since_override=None) -> list[dict]:
+def resolve_since(cfg: dict, since_override=None):
+    """Bu calismanin cektigi aralik basi (InvoiceDate >= since)."""
     lookback = int(cfg.get("sales_lookback_days", 3))
+    return since_override or (datetime.now() - timedelta(days=lookback)).date()
+
+
+def fetch_sales(conn, cfg: dict, since_override=None) -> list[dict]:
     company = cfg.get("company_code", 1)
-    since = since_override or (datetime.now() - timedelta(days=lookback)).date()
+    since = resolve_since(cfg, since_override)
     LOG.info("Satis sorgusu: ProcessCode='R', CompanyCode=%s, InvoiceDate >= %s",
              company, since)
 
@@ -433,6 +439,8 @@ def post_vouchers(cfg: dict, txns: list[dict], cards: list[dict]) -> None:
         parts.append({"txns": [], "cards": cards[start:start + chunk]})
     for i, p in enumerate(parts, 1):
         payload = {"company_code": company, **p}
+        if i == len(parts):
+            payload["final"] = True   # sunucu bu calismada gelmeyen hareket/kartlari siler
         LOG.info("POST %s (parca %d/%d: %d hareket, %d kart)",
                  url, i, len(parts), len(p["txns"]), len(p["cards"]))
         resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
@@ -545,7 +553,10 @@ def build_lines(rows: list[dict], cfg: dict) -> list[dict]:
 # POST
 # ────────────────────────────────────────────────────────────────────────────
 
-def post_ingest(cfg: dict, lines: list[dict]) -> None:
+def post_ingest(cfg: dict, lines: list[dict], since=None, run_id: str = "") -> None:
+    """since + run_id: sunucu son parcada, aralikta olup bu calismada
+    gelmeyen satirlari SILER (Nebim iptal ettigi belgeyi siler, bayraklamaz —
+    KESIF40, 1-R-7-92614). Ikisi de yoksa eski davranis: sadece upsert."""
     base = (cfg.get("webapp_url") or "").rstrip("/")
     token = cfg.get("ingest_token") or ""
     if not base:
@@ -567,6 +578,10 @@ def post_ingest(cfg: dict, lines: list[dict]) -> None:
             "currency": cfg.get("currency", "TRY"),
             "lines": part,
         }
+        if since is not None and run_id:
+            payload["run_id"] = run_id
+            payload["pull_since"] = since.isoformat()
+            payload["final"] = (start + len(part) >= total)
         last_err = None
         for attempt in range(1, max_retries + 1):
             try:
@@ -707,7 +722,7 @@ def main(argv=None) -> int:
                 print("(--dry-run: hicbir sey GONDERILMEDI)")
             return 0
 
-        post_ingest(cfg, lines)
+        post_ingest(cfg, lines, resolve_since(cfg, since_override), uuid.uuid4().hex)
         if v_txns or v_cards:
             try:
                 post_vouchers(cfg, v_txns, v_cards)

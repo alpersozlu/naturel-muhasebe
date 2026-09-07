@@ -43,7 +43,8 @@ export async function POST(req: Request) {
       { status: 422 }
     );
   }
-  const { company_code, currency, lines } = parsed.data;
+  const { company_code, currency, lines, run_id, pull_since, final } = parsed.data;
+  const sourceTag = run_id ? `nebim:${run_id}` : "nebim";
 
   // Derimod mağazalarını yükle ve ad→id çözücüyü kur.
   const stores = await prisma.store.findMany({
@@ -115,7 +116,7 @@ export async function POST(req: Request) {
           campaign: l.campaign ?? null,
           barcode: l.barcode ?? null,
           currency,
-          source: "nebim",
+          source: sourceTag,
         };
 
         return prisma.nebimSaleLine.upsert({
@@ -133,11 +134,48 @@ export async function POST(req: Request) {
     );
   }
 
+  // Nebim iptal edilen belgeyi bayraklamaz, SİLER (KESIF40: 1-R-7-92614
+  // trInvoiceHeader'da yok). Köprü hiç silmediği için silinen faturalar
+  // DocuFlow'da yaşıyordu (ciro, Hareket Özeti, özet çapraz kontrolü hepsi
+  // 1.499,99 fazla). Çalışmanın son parçasında, çekilen aralıkta olup bu
+  // çalışmanın damgasını taşımayan satırlar Nebim'den silinmiş demektir.
+  // Emniyet: bir seferde aralığın %3'ünden (en az 20 satır) fazlası
+  // silinecekse dokunma — kısmi/bozuk bir çekim tabloyu boşaltmasın.
+  let pruned = 0;
+  let prune_skipped: string | null = null;
+  let pruned_invoices: string[] = [];
+  if (final && run_id && pull_since) {
+    const since = new Date(`${pull_since}T00:00:00.000Z`);
+    const range = { company_code, invoice_date: { gte: since } };
+    const [inRange, stale] = await Promise.all([
+      prisma.nebimSaleLine.count({ where: range }),
+      prisma.nebimSaleLine.findMany({
+        where: { ...range, source: { not: sourceTag } },
+        select: { invoice_ref: true },
+      }),
+    ]);
+    const cap = Math.max(20, Math.ceil(inRange * 0.03));
+    if (stale.length > cap) {
+      prune_skipped = `stale=${stale.length} > cap=${cap} (in_range=${inRange})`;
+      console.warn("[ingest/retail-sales] prune skipped:", prune_skipped);
+    } else if (stale.length > 0) {
+      pruned_invoices = Array.from(new Set(stale.map((s) => s.invoice_ref))).slice(0, 50);
+      const del = await prisma.nebimSaleLine.deleteMany({
+        where: { ...range, source: { not: sourceTag } },
+      });
+      pruned = del.count;
+      console.info(`[ingest/retail-sales] pruned ${pruned} lines no longer in Nebim:`, pruned_invoices);
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     received: lines.length,
     store_matched: matched,
     store_unmatched: lines.length - matched,
     unmatched_store_names: Array.from(unmatchedNames),
+    pruned,
+    pruned_invoices,
+    prune_skipped,
   });
 }
