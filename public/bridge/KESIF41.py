@@ -4154,12 +4154,17 @@ def b_profil(cur):
     anahtar = ("sayım", "sayim", "count", "düzelt", "duzelt", "adjust", "fark", "envanter", "inventory")
     aciklamali = set()
     toplu = set()
+    ip_idx = SEMA.tip_cols.index("InnerProcessCode") if "InnerProcessCode" in SEMA.tip_cols else None
     for t, (n, qin, qout, gunler) in tip_toplam.items():
-        if pc_idx is not None and t[pc_idx] == "R":
-            continue
         metin = tip_str(t).lower()
-        if any(a in metin for a in anahtar):
+        if ip_idx is not None and t[ip_idx] in ("CI", "CO"):
+            aciklamali.add(t)          # Nebim: CI = Sayım Fazlası Girişi, CO = Sayım Eksiği Çıkışı
+        elif any(a in metin for a in anahtar):
             aciklamali.add(t)
+        # toplu-giriş sezgisi yalnız belge tipi olmayan (ProcessCode boş = Dahili Hareket) tipler için;
+        # R (satış) ve S (mağazaya transfer) gibi belgeler asla düzeltme sayılmaz (KESIF41 ilk koşu dersi)
+        if pc_idx is not None and t[pc_idx] != "":
+            continue
         gun, gn = max(gunler.items(), key=lambda kv: kv[1])
         if n >= 100 and gn / n >= 0.6:
             toplu.add(t)
