@@ -3978,9 +3978,10 @@ ADJ_TIPLER = set()  # düzeltme sayılan tip tuple'ları
 
 
 def key_of(row_item, row_color, row_dim1, row_dim2=None):
-    k = (s(row_item), s(row_color), s(row_dim1))
+    # SQL Server harf duyarsız (000a2d… = 000A2D…); Python'da da öyle davran (KESIF41 ilk koşu: 4 ürün ikiye bölünmüştü)
+    k = (s(row_item).upper(), s(row_color).upper(), s(row_dim1).upper())
     if SEMA.dim2:
-        k = k + (s(row_dim2),)
+        k = k + (s(row_dim2).upper(),)
     return k
 
 
