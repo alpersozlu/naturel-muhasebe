@@ -195,12 +195,24 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
   if (sections.every((sec) => sec.net_amount == null)) {
     throw new Error(
       "POS slibinden tutar okunamadı. Slibi TEK BAŞINA, dik ve yakından çekin " +
-        "(karede başka belge olmasın); birden fazla banka içeriyorsa " +
-        "(Optimum + Yapı Kredi) en alttaki ÖZET RAPORU bölümü de görünsün."
+        "(karede başka belge olmasın). Uzun slibi (Optimum + Yapı Kredi) parça " +
+        "parça yüklüyorsanız her parçada bankanın kendi GENEL TOPLAM / TOPLAM " +
+        "satırı görünsün; en sondaki ÖZET RAPORU tek başına yetmez."
     );
   }
 
+  // Bölümler tek tek mükerrer kontrolünden geçer. Yırtık slipte (Koopbank
+  // parçası ve Yapı Kredi parçası ayrı yüklenir) bir parçanın kuyruğu öbür
+  // bankanın kapanış toplamını da taşıyabilir; o bölüm daha önce
+  // kaydedilmişse yalnız o atlanır, parçanın getirdiği yeni banka yine
+  // kaydedilir. Bütün bölümler zaten kayıtlıysa bu yükleme yeni bir şey
+  // getirmiyordur → tekrar (replay) olarak reddedilir.
+  const fmtTry = (n: number | null) =>
+    n == null ? "" : `${n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺`;
   const seenBanks = new Set<string>();
+  const skipped: string[] = [];
+  let duplicateOf: string | null = null;
+  let recorded = 0;
   for (const sec of sections) {
     const bankName = sec.bank_name || null;
     // Aynı slipte aynı banka iki kez çıkarsa (model tekrar etmişse) ilkini tut.
@@ -236,16 +248,9 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
         select: { upload_id: true },
       });
       if (dup) {
-        await prisma.upload.update({
-          where: { id: upload.id },
-          data: {
-            status: "failed",
-            duplicate_of_id: dup.upload_id,
-            error_message:
-              `Bu slip'in ${bankName} bölümü bu güne zaten kayıtlı — aynı banka, terminal, tutar. Önce mevcut kaydı silin.`,
-          },
-        });
-        return;
+        skipped.push(`${bankName} ${fmtTry(sec.net_amount)}`.trim());
+        duplicateOf = duplicateOf ?? dup.upload_id;
+        continue;
       }
     }
 
@@ -275,9 +280,28 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
         data: { upload_id: upload.id, daily_record_id: upload.daily_record_id, ...fields },
       });
     }
+    recorded++;
   }
 
-  await markParsed(upload.id, raw, parsed);
+  if (recorded === 0) {
+    await prisma.upload.update({
+      where: { id: upload.id },
+      data: {
+        status: "failed",
+        duplicate_of_id: duplicateOf,
+        error_message:
+          `Bu slip zaten bu güne kayıtlı: ${skipped.join(", ")} — aynı banka, terminal, tutar. ` +
+          "Bu parça yeni bir banka bölümü eklemiyor; yeniden yüklemek için önce mevcut kaydı silin.",
+      },
+    });
+    return;
+  }
+
+  // Atlanan bölümler listede görünsün ("Koopbank 20.668,00 ₺ zaten kayıtlıydı").
+  const rawOut = skipped.length
+    ? { ...(raw as Record<string, unknown>), skipped_sections: skipped }
+    : raw;
+  await markParsed(upload.id, rawOut, parsed);
 }
 
 async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {

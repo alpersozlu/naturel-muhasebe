@@ -82,6 +82,28 @@ export async function parsePosSlip(opts: {
   for (const s of out.sections) blankToNull(s, ["terminal_no"]);
   out.sections = out.sections.filter((s) => s.bank_name.trim() !== "");
 
+  // A torn Optimum + Yapı Kredi strip: the Yapı Kredi piece ends with the
+  // "ÖZET RAPORU" that repeats Koopbank's total, and the model — even while
+  // writing "Koopbank's own block is not in this image" in check_notes —
+  // still emits a Koopbank section from it (measured 2/2 on 07.09.2026).
+  // A section whose only evidence is a single printed number, next to a
+  // section that has a transaction list, a breakdown or a second printed
+  // total, is that summary echo (or a torn tail): drop it — the bank's own
+  // piece is uploaded on its own. When NO section has own-block evidence
+  // (a summary-only piece, a plain single slip) nothing is dropped.
+  const hasOwnBlock = (s: (typeof out.sections)[number]) =>
+    (s.transaction_amounts?.length ?? 0) > 0 ||
+    (s.breakdown?.length ?? 0) > 0 ||
+    (s.total_candidates?.length ?? 0) >= 2;
+  const summaryOnly: string[] = [];
+  if (out.sections.some(hasOwnBlock)) {
+    out.sections = out.sections.filter((s) => {
+      if (hasOwnBlock(s)) return true;
+      summaryOnly.push(s.bank_name);
+      return false;
+    });
+  }
+
   // Vote on each bank's total: the printed totals the model saw plus the
   // sum of the card/type breakdown. See reconcileSectionTotal.
   const notes: string[] = [];
@@ -105,6 +127,7 @@ export async function parsePosSlip(opts: {
     refund_amount: first?.refund_amount ?? null,
     net_amount: first?.net_amount ?? null,
     ...(notes.length ? { total_reconciliation: notes } : {}),
+    ...(summaryOnly.length ? { summary_only_banks: summaryOnly } : {}),
   };
   const parsed = posSlipOcrSchema.parse(raw);
   return { raw, parsed, rawText, tiles: tileCount };

@@ -435,6 +435,28 @@ function UploadRowItem({
           </span>
         </div>
       ) : null}
+
+      {/* Yırtık POS slibi (Optimum + Yapı Kredi): parçanın sonundaki özet
+          raporu öbür bankanın toplamını da yazar — o banka kendi parçasından
+          yüklenir; ya da parçanın taşıdığı bölüm bu güne zaten kayıtlıydı.
+          Hata değil, bilgi. */}
+      {upload.status !== "failed" &&
+      (readSkippedSections(upload.raw_ocr_json).length > 0 ||
+        readSummaryOnlyBanks(upload.raw_ocr_json).length > 0) ? (
+        <div className="mt-3 rounded-lg bg-muted/40 border border-border/60 px-3 py-2 text-xs text-muted-foreground leading-relaxed space-y-0.5">
+          {readSummaryOnlyBanks(upload.raw_ocr_json).length > 0 ? (
+            <div>
+              {readSummaryOnlyBanks(upload.raw_ocr_json).join(", ")} bu parçada yalnız özet
+              raporunda görünüyor; kendi bölümü ayrı parçadan yüklenir.
+            </div>
+          ) : null}
+          {readSkippedSections(upload.raw_ocr_json).length > 0 ? (
+            <div>
+              Zaten kayıtlı olduğu için atlandı: {readSkippedSections(upload.raw_ocr_json).join(", ")}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -444,6 +466,20 @@ function readCheckNotes(raw: unknown): string | null {
   if (!raw || typeof raw !== "object") return null;
   const notes = (raw as { check_notes?: unknown }).check_notes;
   return typeof notes === "string" && notes.trim() ? notes.trim() : null;
+}
+
+/** Banks the parser dropped because they only appeared in the closing summary. */
+function readSummaryOnlyBanks(raw: unknown): string[] {
+  if (!raw || typeof raw !== "object") return [];
+  const v = (raw as { summary_only_banks?: unknown }).summary_only_banks;
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+
+/** POS sections the server skipped because the day already had them. */
+function readSkippedSections(raw: unknown): string[] {
+  if (!raw || typeof raw !== "object") return [];
+  const v = (raw as { skipped_sections?: unknown }).skipped_sections;
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 }
 
 function getHeroAmount(

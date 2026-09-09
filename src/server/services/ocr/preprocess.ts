@@ -333,8 +333,205 @@ async function detectPaper(upright: Buffer, W: number, H: number): Promise<Recei
     const width = right - left;
     const height = bottom - top;
     if (width * height < 0.04 * W * H) continue; // implausibly small
-    if (width >= 0.97 * W && height >= 0.97 * H) return null; // already the frame
+    // Paper spans the whole frame: either the page fills the photo (nothing
+    // to gain) or a long strip runs the length of the frame with other
+    // papers BESIDE it, close enough to merge into one wide run at this
+    // threshold and to keep the rows from trimming. The Derimod Mağusa
+    // 07.09.2026 Optimum + Yapı Kredi strip (a fifth of the frame's width,
+    // beside a Z report and a note) went to the model as ONE 1568 px tile:
+    // 20.688 for 20.668, no date. Cropped to the strip it read both banks.
+    if (width >= 0.97 * W && height >= 0.97 * H) {
+      return spanningStrip(paper, tw, th, W, H) ?? (await spanningByTexture(upright, W, H));
+    }
     return { left, top, width, height };
+  }
+  return null;
+}
+
+/**
+ * Last resort for a frame the paper mask fills because the DESK is as
+ * bright and grey as paper (pale travertine, Derimod Mağusa): colour cannot
+ * separate the strip, print texture can. The frame is cut into 40 blocks
+ * along the height; a column "carries text" in a block when it has a few
+ * strong horizontal gradients there. A till strip has text along most of
+ * its length (coverage 0.4–0.8 in its columns), a note or a Z report beside
+ * it only along a quarter, the desk's veins are sparse (≤0.25). Measured
+ * on the 07.09.2026 photo: the strip's core clears 0.35 alone, everything
+ * else stays under it. The core is then widened while coverage stays above
+ * 0.15 (the strip's blank margins), and the rows inside the band are
+ * trimmed at their textless ends only. Columns first, then rows for a
+ * strip lying across a landscape photo.
+ */
+async function spanningByTexture(upright: Buffer, W: number, H: number): Promise<ReceiptCrop | null> {
+  const tw = 480;
+  const th = Math.max(1, Math.min(2400, Math.round((H / W) * tw * 2)));
+  const { data } = await sharp(upright)
+    .resize(tw, th, { fit: "fill" })
+    .grayscale()
+    .normalize()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const NB = 40;
+  const T = 30;
+  const MIN = 3;
+  const edge = (x: number, y: number) => Math.abs(data[y * tw + x + 1]! - data[y * tw + x]!) > T;
+
+  // Coverage along one axis: fraction of the NB blocks of the other axis in
+  // which this line carries text.
+  const coverage = (axis: "cols" | "rows"): Float32Array => {
+    const n = axis === "cols" ? tw : th;
+    const other = axis === "cols" ? th : tw;
+    const cnt = new Uint16Array(n * NB);
+    for (let y = 0; y < th; y++)
+      for (let x = 0; x + 1 < tw; x++)
+        if (edge(x, y)) {
+          const i = axis === "cols" ? x : y;
+          const j = axis === "cols" ? y : x;
+          cnt[i * NB + Math.min(NB - 1, Math.floor((j / other) * NB))]!++;
+        }
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      let k = 0;
+      for (let b = 0; b < NB; b++) if (cnt[i * NB + b]! >= MIN) k++;
+      out[i] = k / NB;
+    }
+    return out;
+  };
+  const band = (cov: Float32Array): [number, number] | null => {
+    const runs = runsAbove(cov, 0.35, Math.round(cov.length * 0.05));
+    if (runs.length === 0) return null;
+    const areaOf = (r: [number, number]) => {
+      let a = 0;
+      for (let i = r[0]; i <= r[1]; i++) a += cov[i]!;
+      return a;
+    };
+    runs.sort((a, b) => areaOf(b) - areaOf(a));
+    const core = runs[0]!;
+    if (runs.length > 1 && areaOf(runs[1]!) > 0.5 * areaOf(core)) return null;
+    if (core[1] - core[0] + 1 < cov.length * 0.04) return null;
+    let a = core[0];
+    let b = core[1];
+    while (a > 0 && cov[a - 1]! > 0.15) a--;
+    while (b + 1 < cov.length && cov[b + 1]! > 0.15) b++;
+    if (b - a + 1 > cov.length * 0.6) return null;
+    return [a, b];
+  };
+  // Extent along the other axis inside the band: trim textless ends only.
+  const extent = (axis: "cols" | "rows", r: [number, number]): [number, number] | null => {
+    const n = axis === "cols" ? th : tw;
+    const dens = new Float32Array(n);
+    const span = r[1] - r[0] + 1;
+    for (let y = 0; y < th; y++)
+      for (let x = 0; x + 1 < tw; x++) {
+        const inBand = axis === "cols" ? x >= r[0] && x <= r[1] : y >= r[0] && y <= r[1];
+        if (inBand && edge(x, y)) dens[axis === "cols" ? y : x]! += 1 / span;
+      }
+    let a = 0;
+    while (a < n && dens[a]! < 0.02) a++;
+    let b = n - 1;
+    while (b > a && dens[b]! < 0.02) b--;
+    if (b - a + 1 < n * 0.2) return null; // too short to be a strip
+    return [a, b];
+  };
+  const build = (xr: [number, number], yr: [number, number]): ReceiptCrop | null => {
+    const padX = Math.round(W * 0.03);
+    const padY = Math.round(H * 0.03);
+    const left = Math.max(0, Math.floor((xr[0] / tw) * W) - padX);
+    const top = Math.max(0, Math.floor((yr[0] / th) * H) - padY);
+    const right = Math.min(W, Math.ceil(((xr[1] + 1) / tw) * W) + padX);
+    const bottom = Math.min(H, Math.ceil(((yr[1] + 1) / th) * H) + padY);
+    const width = right - left;
+    const height = bottom - top;
+    if (width * height < 0.04 * W * H) return null;
+    if (width >= 0.97 * W && height >= 0.97 * H) return null;
+    return { left, top, width, height };
+  };
+
+  const xr = band(coverage("cols"));
+  if (xr) {
+    const yr = extent("cols", xr);
+    if (yr) return build(xr, yr);
+  }
+  const yr = band(coverage("rows"));
+  if (yr) {
+    const xr2 = extent("rows", yr);
+    if (xr2) return build(xr2, yr);
+  }
+  return null;
+}
+
+/**
+ * Fallback for a frame the paper mask fills: a strip that runs the LENGTH
+ * of the frame has paper in ≥60% of the rows of each of its columns, while
+ * a note or a Z report beside it — a quarter of the height — drops out at
+ * that threshold. Same ambiguity rule as the main pass (a comparable
+ * runner-up means we cannot tell which paper was meant); the band must be
+ * a plausible strip (6–60% of the axis). Tried on the columns first, then
+ * on the rows (a strip lying across a landscape photo), and the other axis
+ * is trimmed at its empty ends only, never at an interior dip.
+ */
+function spanningStrip(paper: Uint8Array, tw: number, th: number, W: number, H: number): ReceiptCrop | null {
+  const cols = new Float32Array(tw);
+  const rows = new Float32Array(th);
+  for (let y = 0; y < th; y++)
+    for (let x = 0; x < tw; x++)
+      if (paper[y * tw + x]) {
+        cols[x]! += 1 / th;
+        rows[y]! += 1 / tw;
+      }
+  const pick = (d: Float32Array, gap: number): [number, number] | null => {
+    const runs = runsAbove(d, 0.6, gap);
+    if (runs.length === 0) return null;
+    const areaOf = (r: [number, number]) => {
+      let a = 0;
+      for (let i = r[0]; i <= r[1]; i++) a += d[i]!;
+      return a;
+    };
+    runs.sort((a, b) => areaOf(b) - areaOf(a));
+    const best = runs[0]!;
+    if (runs.length > 1 && areaOf(runs[1]!) > 0.5 * areaOf(best)) return null;
+    const w = best[1] - best[0] + 1;
+    if (w < d.length * 0.06 || w > d.length * 0.6) return null;
+    return best;
+  };
+  const trimmed = (d: Float32Array): [number, number] | null => {
+    let a = 0;
+    while (a < d.length && d[a]! < 0.05) a++;
+    let b = d.length - 1;
+    while (b > a && d[b]! < 0.05) b--;
+    return b - a < 2 ? null : [a, b];
+  };
+  const build = (xr: [number, number], yr: [number, number]): ReceiptCrop | null => {
+    const padX = Math.round(W * 0.03);
+    const padY = Math.round(H * 0.03);
+    const left = Math.max(0, Math.floor((xr[0] / tw) * W) - padX);
+    const top = Math.max(0, Math.floor((yr[0] / th) * H) - padY);
+    const right = Math.min(W, Math.ceil(((xr[1] + 1) / tw) * W) + padX);
+    const bottom = Math.min(H, Math.ceil(((yr[1] + 1) / th) * H) + padY);
+    const width = right - left;
+    const height = bottom - top;
+    if (width * height < 0.04 * W * H) return null;
+    if (width >= 0.97 * W && height >= 0.97 * H) return null;
+    return { left, top, width, height };
+  };
+
+  const xr = pick(cols, Math.round(tw * 0.05));
+  if (xr) {
+    const inside = new Float32Array(th);
+    const span = xr[1] - xr[0] + 1;
+    for (let y = 0; y < th; y++)
+      for (let x = xr[0]; x <= xr[1]; x++) if (paper[y * tw + x]) inside[y]! += 1 / span;
+    const yr = trimmed(inside);
+    if (yr) return build(xr, yr);
+  }
+  const yr = pick(rows, Math.round(th * 0.05));
+  if (yr) {
+    const inside = new Float32Array(tw);
+    const span = yr[1] - yr[0] + 1;
+    for (let y = yr[0]; y <= yr[1]; y++)
+      for (let x = 0; x < tw; x++) if (paper[y * tw + x]) inside[x]! += 1 / span;
+    const xr2 = trimmed(inside);
+    if (xr2) return build(xr2, yr);
   }
   return null;
 }
@@ -416,7 +613,11 @@ function denseRuns(density: Float32Array, gap: number): Array<[number, number]> 
   let max = 0;
   for (let i = 0; i < density.length; i++) if (density[i]! > max) max = density[i]!;
   if (max < 0.15) return [];
-  const thr = Math.max(0.05, max * 0.3);
+  return runsAbove(density, Math.max(0.05, max * 0.3), gap);
+}
+
+/** Runs of indices whose density exceeds an absolute threshold; gaps of at most `gap` merged. */
+function runsAbove(density: Float32Array, thr: number, gap: number): Array<[number, number]> {
   const runs: Array<[number, number]> = [];
   let start = -1;
   for (let i = 0; i <= density.length; i++) {

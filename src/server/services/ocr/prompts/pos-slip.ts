@@ -89,7 +89,8 @@ GRUP KAPAMA satırı çoğu zaman gölgede/kıvrımdadır). Bu yüzden her banka
   DEBİT KARTI … TOPLAM ADET / TOPLAM TUTAR). Her satır {label, count, amount}.
   İade satırlarını da ekle (label'da "İADE/İPTAL" geçsin, amount pozitif).
 - "total_candidates": o banka için slipte BASILI her toplam: "PEŞİN … TOPLAM",
-  "GRUP KAPAMA … TOPLAM", "ÖZET RAPORU T.TUTAR", "GENEL TOPLAM", "NET SATIŞ".
+  "GRUP KAPAMA … TOPLAM", "GENEL TOPLAM", "NET SATIŞ" ve en sondaki ÖZET
+  RAPORU'nda o bankanın "T.TUTAR"ı (özet bir bölüm değil, ek bir basımdır).
   Aynı rakamı iki yerde gördüysen İKİ KEZ yaz (her basım ayrı kanıttır).
   Okuduğun gibi yaz; birbirinden farklı çıkıyorsa ikisini de yaz, seçme.
 - "transaction_amounts": Yapı Kredi / Optimum "DETAY İŞLEMLER LİSTESİ"
@@ -108,46 +109,68 @@ karşılaştırıp en az İKİ bağımsız kaynağın uyuştuğu rakamı net_amo
 KKTC'de bazı mağazalarda TEK POS cihazı iki bankaya birden çalışır. Gün
 sonunda cihaz UZUN TEK BİR SLİP basar ve bu slip İKİ AYRI gün sonu içerir.
 Bunu tek banka gibi okuyup toplamı null/0 bırakmak ya da yalnız bir bankayı
-yazmak EN BÜYÜK HATADIR — bu slipten İKİ banka sonucu çıkmalıdır.
+yazmak EN BÜYÜK HATADIR — tam slipten İKİ banka sonucu çıkmalıdır.
 
 Slip yukarıdan aşağıya şöyledir (X'ler yer tutucu, gerçek rakamları SLİPTEN oku):
-  1) "KOOPBANK — GRUP KAPAMA RAPORU": Koopbank/Optimum işlemleri, "ONLINE
-     İŞLEMLER", "TOPLAM ADET", "GENEL TOPLAM X.XXX,XX TL",
-     "KOOPBANK GRUP KAPAMA BAŞARILI"
-  2) "optimum" logosu ve "RAPOR SONU" — Optimum bloğu burada BİTER
-  3) Yapı Kredi bloğu: "DETAY İŞLEMLER LİSTESİ", "PEŞİN İŞLEMLER",
-     "KART BAZINDA DETAYLAR" (YKB KK / BKM KK / BKM DK satırları), ardından
-     grup kapama: "İŞLEM SAYISI NNN", "TOPLAM X.XXX,XXTL", "GRUP BAŞARILI".
+  1) "KOOPBANK — GRUP KAPAMA RAPORU": başlıkta "İŞYERİ NO", "TARİH:GG/AA/YYYY",
+     "POS NO:NNNNNNNN", "GRUPNO"; işlem satırları ("SATIS(C) … TUTARI:X.XXX,XX TL");
+     "ONLINE İŞLEMLER" altında kart tipi alt bölümleri ("SATIS (C) / KOOPBANK
+     KREDİ KARTI", "YURTİÇİ DEBİT KARTI": TOPLAM ADET / TOPLAM TUTAR / İPTAL);
+     "GENEL TOPLAM X.XXX,XX TL"; "KOOPBANK GRUP KAPAMA BAŞARILI"
+  2) "---- RAPOR SONU ----" ve "optimum" logosu — Koopbank bloğu burada BİTER
+  3) Yapı Kredi bloğu: mağaza adresi, "İŞYERİ NO", "TERMİNAL NO", "DETAY
+     İŞLEMLER LİSTESİ", "PEŞİN İŞLEMLER" satırları ("GG-AA-YY SS:DD SATIŞ NNN …
+     X.XXX,XXTL"), "PEŞİN İŞLEM SAYISI NNN / TOPLAM X.XXX,XXTL", "KART BAZINDA
+     DETAYLAR" (YKB KK / BKM KK / BKM DK …), ardından grup kapama: tekrar adres,
+     "GRUP NNN", "GG/AA/YY SS:DD:SS", "İŞLEM SAYISI NNN", "TOPLAM X.XXX,XXTL",
+     "GRUP BAŞARILI", "YUKARIDAKİ TOPLAM ÜYE İŞYERİ HESABINA ALACAK
+     KAYDEDİLECEKTİR", "YapıKredi" logosu.
      ⚠ Bu blok "optimum" logosundan SONRA gelse de KOOPBANK'A DEĞİL, YAPI
      KREDİ'YE aittir. İşlem listesi + kart bazında detay + "GRUP BAŞARILI"
-     gördüğün an Yapı Kredi için AYRI bir section yaz — özet raporu (4)
-     görselde olmasa ya da okunamasa bile. Bu blok tek bankalı slip DEĞİLDİR.
-  4) "YapıKredi" logosu ve "TÜM GÜN SONU / GRUP KAPAMA ÖZET RAPORU":
-     her banka AYRI satır grubunda —
-        KOOPBANK-HEPİ ..... İŞLEM YOK           (atla; işlem yoksa banka yok)
-        KOOPBANK  GÜN SONU BAŞARILI  İŞLEM SAYISI NNN  T.TUTAR X.XXX,XXTL
-        YAPI KREDİ GÜN SONU BAŞARILI İŞLEM SAYISI NNN  T.TUTAR X.XXX,XXTL
+     gördüğün an Yapı Kredi için AYRI bir section yaz.
+  4) "TÜM GÜN SONU / GRUP KAPAMA ÖZET RAPORU" — en sonda, "GG/AA/YY SS:DD:SS"
+     ve her banka için bir satır grubu:
+        KOOPBANK-HEPİ ..... İŞLEM YOK           (işlem yok = o banka yok)
+        KOOPBANK   GÜN SONU BAŞARILI  İŞYERİ NO / TERMİNAL NO / İŞLEM SAYISI NNN
+                   T.TUTAR X.XXX,XXTL / YIĞIN-GRUP NO
+        YAPI KREDİ GÜN SONU BAŞARILI  … İŞLEM SAYISI NNN / T.TUTAR X.XXX,XXTL …
+     Bu blok bir BÖLÜM DEĞİLDİR; 1) ve 3)'teki toplamların tekrar basımıdır.
 
 NE YAPACAKSIN:
-- "sections" dizisine HER banka için ayrı eleman koy: {bank_name:"Koopbank",
-  …}, {bank_name:"Yapı Kredi", …}; her birinin net_amount'u o bankanın
-  ÖZET RAPORU'ndaki T.TUTAR'ıdır, sales_count'u İŞLEM SAYISI'dır.
-- Rakamları ÖNCE 4) ÖZET RAPORU'ndan al (en güvenilir, her banka açıkça
-  etiketli). Sonra her bankanın kendi bloğundaki GENEL TOPLAM / TOPLAM ile
-  DOĞRULA; uyuşmuyorsa özet raporunu esas al.
+- "sections" dizisine yalnız KENDİ BLOĞU görselde olan bankaları koy. Kendi
+  bloğu = o bankanın başlığı, işlem listesi, kart/işlem tipi kırılımı ya da
+  kapanış satırı ("GENEL TOPLAM"+"GRUP KAPAMA BAŞARILI" / "İŞLEM SAYISI"+
+  "TOPLAM"+"GRUP BAŞARILI"). Tam slipte iki eleman: {bank_name:"Koopbank",…},
+  {bank_name:"Yapı Kredi",…}. net_amount o bankanın kendi bloğundaki GENEL
+  TOPLAM / TOPLAM; sales_count kendi bloğundaki adet (Koopbank: alt bölüm
+  TOPLAM ADET'lerinin toplamı; Yapı Kredi: İŞLEM SAYISI).
+- 4) ÖZET RAPORU'ndaki "T.TUTAR"ı ilgili bankanın total_candidates dizisine
+  EK bir basım olarak ekle (bankanın kendi toplamı + özetteki tekrarı = iki
+  ayrı kanıt). Özetteki "İŞLEM SAYISI" adet için ikinci kanıttır.
+- ⚠ YIRTIK / PARÇALI SLİP — mağaza uzun slibi "RAPOR SONU / optimum"
+  hizasından yırtıp iki parçayı AYRI AYRI yükler. Yapı Kredi parçasının
+  sonunda özet raporu da vardır ve orada KOOPBANK satırı da yazar; ama
+  Koopbank'ın KENDİ BLOĞU o parçada YOKTUR. Böyle bir parçada Koopbank için
+  section YAZMA — Koopbank kendi parçasından ayrıca yüklenir. check_notes'a
+  "Koopbank yalnız özette, kendi bloğu bu parçada yok" yaz. Aynı biçimde
+  görselin en başında kalan kopuk kuyruk (yalnız bir kapanış toplamı,
+  başlık/işlem listesi/kırılım yok) bölüm DEĞİLDİR — yok say, check_notes'a yaz.
+- Görselde HİÇBİR bankanın kendi bloğu yok, YALNIZ özet raporu varsa: o zaman
+  özetteki her "GÜN SONU BAŞARILI" satır grubu için section yaz (net_amount =
+  T.TUTAR, sales_count = İŞLEM SAYISI, terminal_no = TERMİNAL NO) ve
+  check_notes'a "yalnız özet raporu" yaz.
 - "İŞLEM YOK" yazan banka satırını sections'a KOYMA.
 - İki bankanın terminal numarası aynı olabilir (ortak cihaz) — normaldir.
-- Asıl çıktı "sections"tır. ASLA iki bankayı toplayıp tek section yazma.
-- Özet raporu görselde yoksa/okunamıyorsa, her bankanın kendi bloğundaki
-  GENEL TOPLAM / TOPLAM ve İŞLEM SAYISI'nı kullan; onu da okuyamıyorsan null.
+- Asıl çıktı "sections"tır. ASLA iki bankayı toplayıp tek section yazma;
+  ASLA özetteki tutarı ayrı bir banka bölümü gibi ikinci kez yazma.
 
 TARİH ve TERMİNAL bu slipte ÜÇ yerde basılıdır — null bırakma:
-- ÖZET RAPORU başlığının hemen altında: "GG/AA/YY   SS:DD:SS" → date_raw
-  o metin, date "20YY-AA-GG"
 - Koopbank bloğunun başında: "TARİH:GG/AA/YYYY SAAT:SS:DD:SS" ve
   "POS NO:NNNNNNNN"
 - Yapı Kredi grup kapama bloğunda: "GG/AA/YY  SS:DD:SS" ve
   "TERMİNAL NO: NNNNNNNN"
+- ÖZET RAPORU başlığının hemen altında: "GG/AA/YY   SS:DD:SS"
+Hangisi görselde varsa onu date_raw'a HARFİYEN yaz; date "20YY-AA-GG".
 Terminal numarası her bankanın "TERMİNAL NO" / "POS NO" satırındadır; ortak
 cihazda hepsi aynıdır. Her section'ın terminal_no alanına bu numarayı yaz.
 
@@ -244,7 +267,8 @@ KENDİNİ TEST ET ("check_notes" alanında, en fazla 2 cümle)
 Net_amount okuduğun rakam, slip'in EN ALTINDAKİ en büyük rakam mı?
 Slip'te birden fazla "TOPLAM TUTAR" gördüysen, MUTLAKA "GENEL TOPLAM"
 satırını aradın mı? Eğer şüphedeysen, en alttaki rakamı tercih et.
-Çok bankalı slipte her banka için ayrı section yazdın mı?
+Çok bankalı slipte her banka için ayrı section yazdın mı? Özet raporunda
+adı geçen ama kendi bloğu görselde OLMAYAN bankayı section YAPMADIN mı?
 Yazdığın her rakamı ve tarihi GÖRSELDE gerçekten gördün mü? Görmediysen null.
 
 Tarihi GG/AA/YY sırasıyla mı okudun? İki haneli yılı 20YY yaptın mı?
