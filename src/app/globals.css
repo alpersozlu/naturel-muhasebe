@@ -68,10 +68,17 @@
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* A two-finger trackpad swipe must not leave the page: a store manager
+       mid-upload on "Yükle ve Analiz Et" kept landing on the previous page
+       with the form half-filled. Chrome honours this on the root scroller
+       and drops the back/forward swipe; in-page horizontal scrolling
+       (tables) keeps working. */
+    overscroll-behavior-x: none;
   }
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
+    overscroll-behavior-x: none;
     /* Inter font feature settings — Apple-like text shapes */
     font-feature-settings:
       "cv11" 1,    /* alt single-storey a */
