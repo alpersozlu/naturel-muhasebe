@@ -7,7 +7,16 @@ export const analyticsFilterSchema = z.object({
   month: z.number().int().min(1).max(12),
 });
 
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
 export const expenseFilterSchema = analyticsFilterSchema.extend({
+  /**
+   * Optional day range. When both are given the period (KPIs, categories,
+   * stores, daily view) is [date_from, date_to] inclusive instead of the
+   * calendar month; year/month still drive the yearly trend and matrix.
+   */
+  date_from: isoDay.optional(),
+  date_to: isoDay.optional(),
   employee_id: z.string().uuid().optional(),
   category: z
     .enum([

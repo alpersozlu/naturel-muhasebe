@@ -48,7 +48,8 @@ export async function buildExpenseExcel(opts: {
   brandName?: string;
   storeName?: string;
 }): Promise<{ base64: string; filename: string }> {
-  const periodLabel = `${MONTHS[opts.month - 1]} ${opts.year}`;
+  const range = opts.summary.period?.mode === "range" ? opts.summary.period : null;
+  const periodLabel = range ? range.label : `${MONTHS[opts.month - 1]} ${opts.year}`;
   const wb = newWorkbook({
     title: "Gider Analizi Raporu",
     subject: `Naturel Ticaret - ${periodLabel}`,
@@ -196,6 +197,8 @@ export async function buildExpenseExcel(opts: {
   });
 
   const base64 = await workbookToBase64(wb);
-  const filename = `Gider-Analizi-${opts.year}-${String(opts.month).padStart(2, "0")}.xlsx`;
+  const filename = range
+    ? `Gider-Analizi-${range.from}_${range.to}.xlsx`
+    : `Gider-Analizi-${opts.year}-${String(opts.month).padStart(2, "0")}.xlsx`;
   return { base64, filename };
 }

@@ -25,6 +25,16 @@ export default function ExpensesPage() {
     month: now.getMonth() + 1,
   });
 
+  const isRange = !!sel.dateFrom && !!sel.dateTo;
+  // In range mode the month-based blocks (P&L, commissions, vouchers, trend)
+  // follow the month the range ends in.
+  const onFilterChange = (v: AnalyticsSelection) =>
+    setSel(
+      v.dateFrom && v.dateTo
+        ? { ...v, year: Number(v.dateTo.slice(0, 4)), month: Number(v.dateTo.slice(5, 7)) }
+        : v
+    );
+
   const exportMutation = trpc.analytics.exportExpense.useMutation();
 
   const handleExport = () =>
@@ -33,6 +43,7 @@ export default function ExpensesPage() {
       store_id: sel.storeId || undefined,
       year: sel.year,
       month: sel.month,
+      ...(isRange ? { date_from: sel.dateFrom, date_to: sel.dateTo } : {}),
     });
 
   return (
@@ -40,17 +51,19 @@ export default function ExpensesPage() {
       <div className="flex items-start justify-between gap-4 mb-2">
         <PageHeader
           title="Gider Analizi"
-          description="Marka, mağaza ve ay bazında giderlerinizi analiz edin."
+          description="Marka, mağaza ve ay ya da gün aralığı bazında giderlerinizi analiz edin."
         />
         <ExportExcelButton onExport={handleExport} />
       </div>
-      <AnalyticsFilters value={sel} onChange={setSel} />
+      <AnalyticsFilters value={sel} onChange={onFilterChange} allowRange />
       <BudgetAlertBanner />
       <ExpenseDashboard
         brandId={sel.brandId}
         storeId={sel.storeId}
         year={sel.year}
         month={sel.month}
+        dateFrom={sel.dateFrom}
+        dateTo={sel.dateTo}
       />
       <div className="mt-8">
         <BudgetLimitsBlock />

@@ -78,17 +78,24 @@ export function ExpenseDashboard({
   storeId,
   year,
   month,
+  dateFrom,
+  dateTo,
 }: {
   brandId: string;
   storeId: string;
   year: number;
   month: number;
+  /** Both set = the KPIs, categories, stores and daily view cover this day range. */
+  dateFrom?: string;
+  dateTo?: string;
 }) {
+  const isRange = !!dateFrom && !!dateTo;
   const { data, isLoading } = trpc.analytics.expense.useQuery({
     brand_id: brandId || undefined,
     store_id: storeId || undefined,
     year,
     month,
+    ...(isRange ? { date_from: dateFrom, date_to: dateTo } : {}),
   });
 
   if (isLoading) {
@@ -110,7 +117,9 @@ export function ExpenseDashboard({
       <Card>
         <CardContent className="py-16 text-center text-muted-foreground animate-fade-in">
           <Wallet className="h-12 w-12 mx-auto mb-3 opacity-30" />
-          <div className="font-medium text-foreground">Bu ay için gider verisi yok</div>
+          <div className="font-medium text-foreground">
+            {isRange ? "Bu gün aralığı için gider verisi yok" : "Bu ay için gider verisi yok"}
+          </div>
           <div className="text-sm mt-1">
             Masraf/Fatura veya Faturasız Peşin Ödeme girildikten sonra burada gözükür.
           </div>
@@ -133,7 +142,7 @@ export function ExpenseDashboard({
           value={data.total}
           color="text-rose-600"
           bgColor="bg-rose-50"
-          hint={`${data.count} kayıt`}
+          hint={isRange ? `${data.count} kayıt · ${summary.period.label}` : `${data.count} kayıt`}
         />
         <StatCard
           icon={Receipt}
@@ -855,10 +864,13 @@ function StoreComparison({
   month: number;
   year: number;
 }) {
-  const prevMonthIdx = month === 1 ? 12 : month - 1;
-  const prevMonthYear = month === 1 ? year - 1 : year;
-  const prevLabel = `${MONTH_LABELS_SHORT[prevMonthIdx - 1]} ${prevMonthYear}`;
-  const currLabel = `${MONTH_LABELS_SHORT[month - 1]} ${year}`;
+  // Labels come from the server's period: "Eyl 2026" vs "Ağu 2026", or
+  // "20 Ağu – 10 Eyl 2026" vs "önceki 22 gün".
+  const isRange = data.period.mode === "range";
+  const prevLabel = data.period.prev_label;
+  const currLabel = data.period.label;
+  void month;
+  void year;
 
   if (data.by_store.length === 0) {
     return (
@@ -938,7 +950,7 @@ function StoreComparison({
                 className="flex items-baseline justify-between text-xs tabular-nums"
               >
                 <span className="text-foreground truncate pr-2">{s.store_name}</span>
-                <MomTrend value={mom} />
+                <MomTrend value={mom} against={isRange ? "önceki dönem" : "geçen ay"} />
               </div>
             );
           })}
@@ -948,11 +960,11 @@ function StoreComparison({
   );
 }
 
-function MomTrend({ value }: { value: number | null }) {
+function MomTrend({ value, against = "geçen ay" }: { value: number | null; against?: string }) {
   if (value === null) {
     return (
       <span className="text-muted-foreground inline-flex items-center gap-0.5">
-        <ArrowUpRight className="h-3 w-3" />— vs. geçen ay
+        <ArrowUpRight className="h-3 w-3" />— vs. {against}
       </span>
     );
   }
@@ -963,7 +975,7 @@ function MomTrend({ value }: { value: number | null }) {
     <span className={`inline-flex items-center gap-0.5 font-medium ${tone}`}>
       <Icon className="h-3 w-3" />
       {`${positive ? "+" : ""}${value.toFixed(Math.abs(value) < 10 ? 1 : 0)}%`}
-      <span className="text-muted-foreground font-normal ml-1">vs. geçen ay</span>
+      <span className="text-muted-foreground font-normal ml-1">vs. {against}</span>
     </span>
   );
 }
@@ -981,7 +993,8 @@ function DailyView({
   if (data.daily_series.length === 0 || data.daily_series.every((d) => d.total === 0)) {
     return null;
   }
-  const monthLabel = `${MONTH_LABELS_SHORT[month - 1]} ${year}`;
+  const isRange = data.period.mode === "range";
+  const monthLabel = isRange ? data.period.label : `${MONTH_LABELS_SHORT[month - 1]} ${year}`;
   const maxDay = [...data.daily_series].sort((a, b) => b.total - a.total)[0];
   const activeDays = data.daily_series.filter((d) => d.total > 0).length;
   const dayAvg = activeDays > 0 ? data.total / activeDays : 0;
@@ -1000,13 +1013,13 @@ function DailyView({
               Günlük Görünüm — {monthLabel}
             </div>
             <div className="text-xs text-muted-foreground mt-1">
-              Ayın her gününde toplam gider — en yoğun gün koyu kırmızı
+              {isRange ? "Aralıktaki" : "Ayın"} her gününde toplam gider — en yoğun gün koyu kırmızı
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
             <Pill
               label="En Yoğun Gün"
-              value={maxDay ? `${maxDay.day} · ${fmtMoneyShort(maxDay.total)}` : "—"}
+              value={maxDay ? `${maxDay.label} · ${fmtMoneyShort(maxDay.total)}` : "—"}
               tone="amber"
             />
             <Pill label="Aktif Gün" value={`${activeDays}`} tone="slate" />
@@ -1017,7 +1030,13 @@ function DailyView({
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-            <XAxis dataKey="day" fontSize={10} tickLine={false} axisLine={false} />
+            <XAxis
+              dataKey="label"
+              fontSize={10}
+              tickLine={false}
+              axisLine={false}
+              interval={isRange && data.daily_series.length > 40 ? "preserveStartEnd" : 0}
+            />
             <YAxis
               fontSize={11}
               tickLine={false}
@@ -1027,7 +1046,7 @@ function DailyView({
             />
             <Tooltip
               formatter={(v) => [`${TRY2.format(Number(v))} ₺`, "Gider"]}
-              labelFormatter={(d) => `${d} ${monthLabel.split(" ")[0]}`}
+              labelFormatter={(d) => (isRange ? String(d) : `${d} ${monthLabel.split(" ")[0]}`)}
               contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}
               cursor={{ fill: "#f8fafc" }}
             />
