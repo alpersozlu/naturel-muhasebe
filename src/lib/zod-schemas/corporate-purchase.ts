@@ -49,7 +49,7 @@ export const corporatePurchaseFormSchema = z.object({
   // Fişteki "Ödenecek Tutar" girilen tutarla karşılaştırılır.
   receipt_base64: z.string().min(1).optional(),
   receipt_mime_type: z
-    .enum(["image/jpeg", "image/png", "image/webp", "application/pdf"])
+    .enum(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"])
     .optional(),
   receipt_filename: z.string().max(200).optional(),
 });

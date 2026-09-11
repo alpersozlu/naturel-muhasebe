@@ -39,6 +39,22 @@ const TRY_FORMATTER = new Intl.NumberFormat("tr-TR", {
   maximumFractionDigits: 2,
 });
 
+type ReceiptMime = "image/jpeg" | "image/png" | "image/webp" | "image/heic" | "image/heif" | "application/pdf";
+
+/**
+ * The receipt's MIME type, or null when the file is not accepted. iPhone
+ * photos are HEIC; Chrome often hands them over with an EMPTY `type`, so
+ * the extension decides for those (the server converts HEIC itself).
+ */
+function receiptMime(f: File): ReceiptMime | null {
+  const t = f.type as ReceiptMime | "";
+  if (t === "image/jpeg" || t === "image/png" || t === "image/webp" || t === "application/pdf") return t;
+  if (t === "image/heic" || t === "image/heif") return t;
+  if (/\.heic$/i.test(f.name)) return "image/heic";
+  if (/\.heif$/i.test(f.name)) return "image/heif";
+  return null;
+}
+
 export function CorporatePurchaseCard({
   storeId,
   date,
@@ -67,12 +83,11 @@ export function CorporatePurchaseCard({
   const dragCounter = useRef(0);
   const receiptInputRef = useRef<HTMLInputElement>(null);
 
-  const ACCEPTED = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
   const takeFile = (files: FileList | null) => {
     const f = files?.[0];
     if (!f) return;
-    if (!ACCEPTED.includes(f.type)) {
-      toast.error("Yalnız JPG, PNG, WEBP veya PDF yükleyebilirsin");
+    if (!receiptMime(f)) {
+      toast.error("Yalnız JPG, PNG, WEBP, HEIC veya PDF yükleyebilirsin");
       return;
     }
     setReceiptFile(f);
@@ -182,8 +197,7 @@ export function CorporatePurchaseCard({
     const receipt = receiptFile
       ? {
           receipt_base64: await fileToBase64(receiptFile),
-          receipt_mime_type:
-            receiptFile.type as "image/jpeg" | "image/png" | "image/webp" | "application/pdf",
+          receipt_mime_type: receiptMime(receiptFile)!,
           receipt_filename: receiptFile.name,
         }
       : {};
@@ -382,7 +396,7 @@ export function CorporatePurchaseCard({
                   ref={receiptInputRef}
                   id="cp-receipt"
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif,application/pdf"
                   className="hidden"
                   onChange={(e) => takeFile(e.target.files)}
                 />
