@@ -310,20 +310,24 @@ async function detectPaper(upright: Buffer, W: number, H: number): Promise<Recei
   // Paper is the LEAST saturated bright thing in the frame. Try a tight
   // saturation cut first (pale wooden desks sit around 0.2) and loosen only
   // if nothing paper-like shows up (paper tinted by warm light).
-  for (const satMax of [0.12, 0.18, 0.25]) {
+  const maskFor = (satMax: number): Uint8Array => {
     const paper = new Uint8Array(tw * th);
     // 135 not 150: paper in a desk-lamp shadow still reads ~140.
     for (let p = 0; p < tw * th; p++) if (lum[p]! > 135 && sat[p]! < satMax) paper[p] = 1;
-
-    // Pass 1 — columns over all rows; pick the run holding the most paper.
-    // Several papers in one frame (a Z report beside the slip) give several
-    // runs; when the runner-up is comparable we cannot know which one the
-    // user meant, so give up on cropping and let the model see everything.
+    return paper;
+  };
+  // Pass 1 — columns over all rows; the run holding the most paper.
+  // Several papers in one frame (a Z report beside the slip) give several
+  // runs; when the runner-up is comparable we cannot know which one the
+  // user meant, so give up on cropping and let the model see everything.
+  const runFor = (
+    paper: Uint8Array
+  ): { xr: [number, number]; ambiguous: boolean; cols: Float32Array } | null => {
     const cols = new Float32Array(tw);
     for (let y = 0; y < th; y++)
       for (let x = 0; x < tw; x++) if (paper[y * tw + x]) cols[x]! += 1 / th;
     const runs = denseRuns(cols, Math.round(tw * 0.05));
-    if (runs.length === 0) continue;
+    if (runs.length === 0) return null;
     const areaOf = (r: [number, number]) => {
       let a = 0;
       for (let x = r[0]; x <= r[1]; x++) a += cols[x]!;
@@ -331,8 +335,79 @@ async function detectPaper(upright: Buffer, W: number, H: number): Promise<Recei
     };
     runs.sort((a, b) => areaOf(b) - areaOf(a));
     const xr = runs[0]!;
-    if (runs.length > 1 && areaOf(runs[1]!) > 0.5 * areaOf(xr)) return null;
+    return { xr, ambiguous: runs.length > 1 && areaOf(runs[1]!) > 0.5 * areaOf(xr), cols };
+  };
+  // Columns from a run's boundary inward until the density reaches 80% of
+  // the run's median: a paper edge is a few columns, a desk under a lamp's
+  // gradient ramps over a quarter of the frame.
+  const ramp = (cols: Float32Array, xr: [number, number]): number => {
+    const vals = Array.from({ length: xr[1] - xr[0] + 1 }, (_, i) => cols[xr[0] + i]!).sort((a, b) => a - b);
+    const target = 0.8 * vals[Math.floor(vals.length / 2)]!;
+    let l = 0;
+    while (xr[0] + l <= xr[1] && cols[xr[0] + l]! < target) l++;
+    let r = 0;
+    while (xr[1] - r >= xr[0] && cols[xr[1] - r]! < target) r++;
+    return Math.max(l, r);
+  };
 
+  // The tightest cut that finds paper is the candidate. A looser cut then
+  // gets ONE chance to reveal the rest of the SAME paper: thermal paper
+  // under a warm lamp sits at saturation 0.18–0.22, and at the tight cut the
+  // mask faded along a CardPlus slip (Mavi Mağusa 04.09.2026) so the run
+  // covered 611 px of ~1700 and every line was cut short. A run that
+  // contains the candidate, is at least 1.4× wider and is still not the
+  // frame is that: the paper, not a pale desk (a desk would fill the frame
+  // and be rejected; a desk on one side is trimmed later by refineByInk).
+  // The added columns must also carry PRINT (text texture at least half as
+  // dense as the candidate's): a Yapı Kredi slip beside a bright, blank
+  // area would otherwise widen 1.6× and its tiles shrink from five to one.
+  let chosen: { satMax: number; xr: [number, number] } | null = null;
+  let tex: Float32Array | null = null;
+  const texMean = (a: number, b: number): number => {
+    // detectPaper columns are tw=240 wide, the texture profile TEX_W=480.
+    const f = TEX_W / tw;
+    let sum = 0;
+    let n = 0;
+    for (let x = Math.floor(a * f); x < Math.ceil((b + 1) * f) && x < TEX_W; x++) {
+      sum += tex![x]!;
+      n++;
+    }
+    return n ? sum / n : 0;
+  };
+  for (const satMax of [0.12, 0.18, 0.25]) {
+    const r = runFor(maskFor(satMax));
+    if (!r) {
+      if (chosen) break;
+      continue;
+    }
+    if (!chosen) {
+      if (r.ambiguous) return null;
+      chosen = { satMax, xr: r.xr };
+      continue;
+    }
+    const w0 = chosen.xr[1] - chosen.xr[0] + 1;
+    const w1 = r.xr[1] - r.xr[0] + 1;
+    const contains = r.xr[0] <= chosen.xr[0] && r.xr[1] >= chosen.xr[1];
+    // A paper is a flat band with sharp edges and leaves most of the frame
+    // free; a pale desk pulled in by the looser cut (Yapı Kredi 31.08 on
+    // travertine: run 87% of the frame, 50-column ramp) is neither.
+    const paperLike = w1 <= 0.75 * tw && ramp(r.cols, r.xr) <= 0.15 * w1;
+    if (!(!r.ambiguous && contains && w1 >= 1.4 * w0 && paperLike)) break;
+    tex ??= (await textCoverage(upright, W, H)).cols;
+    const core = texMean(chosen.xr[0], chosen.xr[1]);
+    const leftAdd = r.xr[0] < chosen.xr[0] ? texMean(r.xr[0], chosen.xr[0] - 1) : null;
+    const rightAdd = r.xr[1] > chosen.xr[1] ? texMean(chosen.xr[1] + 1, r.xr[1]) : null;
+    const added = [leftAdd, rightAdd].filter((v): v is number => v !== null);
+    const printed = core > 0.1 && added.length > 0 && added.every((v) => v >= 0.5 * core);
+    if (!printed) break;
+    chosen = { satMax, xr: r.xr };
+  }
+  if (!chosen) return null;
+
+  {
+    const satMax = chosen.satMax;
+    const paper = maskFor(satMax);
+    const xr = chosen.xr;
     // Pass 2 — rows inside the paper columns; trim only the empty ends.
     const rows = new Float32Array(th);
     const span = xr[1] - xr[0] + 1;
@@ -342,7 +417,7 @@ async function detectPaper(upright: Buffer, W: number, H: number): Promise<Recei
     while (y0 < th && rows[y0]! < 0.05) y0++;
     let y1 = th - 1;
     while (y1 > y0 && rows[y1]! < 0.05) y1--;
-    if (y1 - y0 < 2) continue;
+    if (y1 - y0 < 2) return null;
 
     const padX = Math.round(W * 0.03);
     const padY = Math.round(H * 0.03);
@@ -352,7 +427,7 @@ async function detectPaper(upright: Buffer, W: number, H: number): Promise<Recei
     const bottom = Math.min(H, Math.ceil(((y1 + 1) / th) * H) + padY);
     const width = right - left;
     const height = bottom - top;
-    if (width * height < 0.04 * W * H) continue; // implausibly small
+    if (width * height < 0.04 * W * H) return null; // implausibly small
     // Paper spans the whole frame: either the page fills the photo (nothing
     // to gain) or a long strip runs the length of the frame with other
     // papers BESIDE it, close enough to merge into one wide run at this
@@ -365,25 +440,23 @@ async function detectPaper(upright: Buffer, W: number, H: number): Promise<Recei
     }
     return { left, top, width, height };
   }
-  return null;
 }
 
 /**
- * Last resort for a frame the paper mask fills because the DESK is as
- * bright and grey as paper (pale travertine, Derimod Mağusa): colour cannot
- * separate the strip, print texture can. The frame is cut into 40 blocks
- * along the height; a column "carries text" in a block when it has a few
- * strong horizontal gradients there. A till strip has text along most of
- * its length (coverage 0.4–0.8 in its columns), a note or a Z report beside
- * it only along a quarter, the desk's veins are sparse (≤0.25). Measured
- * on the 07.09.2026 photo: the strip's core clears 0.35 alone, everything
- * else stays under it. The core is then widened while coverage stays above
- * 0.15 (the strip's blank margins), and the rows inside the band are
- * trimmed at their textless ends only. Columns first, then rows for a
- * strip lying across a landscape photo.
+ * Text-texture coverage along the columns (or rows) of an upright photo.
+ * The frame is cut into NB blocks along the other axis; a line "carries
+ * text" in a block when it has a few strong horizontal gradients there.
+ * A till strip has text along most of its length (coverage 0.4–0.8 in its
+ * columns), a note or a Z report beside it only along a quarter, the
+ * desk's veins are sparse (≤0.25). Width TW=480 — text needs the detail.
  */
-async function spanningByTexture(upright: Buffer, W: number, H: number): Promise<ReceiptCrop | null> {
-  const tw = 480;
+const TEX_W = 480;
+async function textCoverage(
+  upright: Buffer,
+  W: number,
+  H: number
+): Promise<{ cols: Float32Array; rows: Float32Array; tw: number; th: number; edge: (x: number, y: number) => boolean }> {
+  const tw = TEX_W;
   const th = Math.max(1, Math.min(2400, Math.round((H / W) * tw * 2)));
   const { data } = await sharp(upright)
     .resize(tw, th, { fit: "fill" })
@@ -395,28 +468,41 @@ async function spanningByTexture(upright: Buffer, W: number, H: number): Promise
   const T = 30;
   const MIN = 3;
   const edge = (x: number, y: number) => Math.abs(data[y * tw + x + 1]! - data[y * tw + x]!) > T;
+  const cntC = new Uint16Array(tw * NB);
+  const cntR = new Uint16Array(th * NB);
+  for (let y = 0; y < th; y++)
+    for (let x = 0; x + 1 < tw; x++)
+      if (edge(x, y)) {
+        cntC[x * NB + Math.min(NB - 1, Math.floor((y / th) * NB))]!++;
+        cntR[y * NB + Math.min(NB - 1, Math.floor((x / tw) * NB))]!++;
+      }
+  const cols = new Float32Array(tw);
+  for (let x = 0; x < tw; x++) {
+    let k = 0;
+    for (let b = 0; b < NB; b++) if (cntC[x * NB + b]! >= MIN) k++;
+    cols[x] = k / NB;
+  }
+  const rows = new Float32Array(th);
+  for (let y = 0; y < th; y++) {
+    let k = 0;
+    for (let b = 0; b < NB; b++) if (cntR[y * NB + b]! >= MIN) k++;
+    rows[y] = k / NB;
+  }
+  return { cols, rows, tw, th, edge };
+}
 
-  // Coverage along one axis: fraction of the NB blocks of the other axis in
-  // which this line carries text.
-  const coverage = (axis: "cols" | "rows"): Float32Array => {
-    const n = axis === "cols" ? tw : th;
-    const other = axis === "cols" ? th : tw;
-    const cnt = new Uint16Array(n * NB);
-    for (let y = 0; y < th; y++)
-      for (let x = 0; x + 1 < tw; x++)
-        if (edge(x, y)) {
-          const i = axis === "cols" ? x : y;
-          const j = axis === "cols" ? y : x;
-          cnt[i * NB + Math.min(NB - 1, Math.floor((j / other) * NB))]!++;
-        }
-    const out = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      let k = 0;
-      for (let b = 0; b < NB; b++) if (cnt[i * NB + b]! >= MIN) k++;
-      out[i] = k / NB;
-    }
-    return out;
-  };
+/**
+ * Last resort for a frame the paper mask fills because the DESK is as
+ * bright and grey as paper (pale travertine, Derimod Mağusa): colour cannot
+ * separate the strip, print texture can. Measured on the 07.09.2026 photo:
+ * the strip's core clears coverage 0.35 alone, everything else stays under
+ * it. The core is then widened while coverage stays above 0.15 (the
+ * strip's blank margins), and the rows inside the band are trimmed at
+ * their textless ends only. Columns first, then rows for a strip lying
+ * across a landscape photo.
+ */
+async function spanningByTexture(upright: Buffer, W: number, H: number): Promise<ReceiptCrop | null> {
+  const { cols, rows, tw, th, edge } = await textCoverage(upright, W, H);
   const band = (cov: Float32Array): [number, number] | null => {
     const runs = runsAbove(cov, 0.35, Math.round(cov.length * 0.05));
     if (runs.length === 0) return null;
@@ -467,12 +553,12 @@ async function spanningByTexture(upright: Buffer, W: number, H: number): Promise
     return { left, top, width, height };
   };
 
-  const xr = band(coverage("cols"));
+  const xr = band(cols);
   if (xr) {
     const yr = extent("cols", xr);
     if (yr) return build(xr, yr);
   }
-  const yr = band(coverage("rows"));
+  const yr = band(rows);
   if (yr) {
     const xr2 = extent("rows", yr);
     if (xr2) return build(xr2, yr);
