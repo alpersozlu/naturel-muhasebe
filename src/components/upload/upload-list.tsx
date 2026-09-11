@@ -12,6 +12,7 @@ import {
   Wallet,
   Trash2,
   ExternalLink,
+  RefreshCw,
   AlertCircle,
   Check,
   Calculator,
@@ -196,6 +197,15 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
     onError: (e) => toast.error(e.message),
   });
 
+  // Failed row → run the OCR again on the same photo (no re-upload).
+  const retry = trpc.upload.retry.useMutation({
+    onSuccess: () => {
+      toast.success("Yeniden okunuyor…");
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const openFile = async (id: string) => {
     try {
       const res = await utils.upload.signedUrl.fetch({ id });
@@ -247,6 +257,7 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                   }
                 }}
                 onConfirm={() => confirmMut.mutate({ id: u.id })}
+                onRetry={() => retry.mutate({ id: u.id })}
                 onAcceptGap={
                   isAdmin
                     ? () => {
@@ -275,6 +286,7 @@ function UploadRowItem({
   onOpen,
   onDelete,
   onConfirm,
+  onRetry,
   onAcceptGap,
   expectedDate,
 }: {
@@ -282,6 +294,8 @@ function UploadRowItem({
   onOpen: () => void;
   onDelete: () => void;
   onConfirm: () => void;
+  /** Failed rows: run the OCR again on the same file. */
+  onRetry?: () => void;
   /** Admin only; set when the row is a store summary rejected by the Nebim cross-check. */
   onAcceptGap?: () => void;
   expectedDate: string;
@@ -364,6 +378,17 @@ function UploadRowItem({
                 onClick={onConfirm}
               >
                 <Check className="h-4 w-4" />
+              </Button>
+            ) : null}
+            {upload.status === "failed" && onRetry ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                title="Yeniden analiz et"
+                onClick={onRetry}
+              >
+                <RefreshCw className="h-4 w-4" />
               </Button>
             ) : null}
             <Button

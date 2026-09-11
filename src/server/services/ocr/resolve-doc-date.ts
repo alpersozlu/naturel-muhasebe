@@ -103,7 +103,11 @@ export function resolveDocumentDate(opts: {
   expectedIso: string | null;
 }): DocDateResolution {
   const rawIso = parseTurkishDate(opts.raw);
-  const modelIso = opts.modelIso ?? null;
+  // The model saw only the year ("…2026 19:54" on a slip whose left edge was
+  // cut off) and filled the rest with 1 January. Raw text that names no
+  // day-month plus a 1 January ISO is that guess, not a date.
+  let modelIso = opts.modelIso ?? null;
+  if (modelIso?.endsWith("-01-01") && opts.raw && !rawIso) modelIso = null;
   const swapped = modelIso ? swapDayAndTwoDigitYear(modelIso) : null;
 
   if (opts.expectedIso) {

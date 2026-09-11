@@ -551,6 +551,13 @@ function spanningStrip(paper: Uint8Array, tw: number, th: number, W: number, H: 
  * texture — the lid falls off the end, the shaded interior of a slip stays.
  * Width only; the height stays. Runs after the quarter turn, so a sideways
  * slip's length is never mistaken for its width.
+ *
+ * Column brightness is the 70th percentile of the column, not its mean: a
+ * thumb or a flyer covering one END of the slip drags the mean of those
+ * columns under the paper threshold and the band then starts inside the
+ * text — an İş Bankası 30.08.2026 slip lost the first three characters of
+ * every line ("30/08/2026" → "…2026") and the date came back as 1 January.
+ * The percentile ignores a third of the column being covered.
  */
 async function refineByInk(
   region: Buffer,
@@ -568,11 +575,23 @@ async function refineByInk(
     .toBuffer({ resolveWithObject: true });
   const lum = new Float32Array(tw);
   const grad = new Float32Array(tw);
+  const hist = new Uint32Array(tw * 256);
   for (let y = 0; y < th; y++) {
     for (let x = 0; x < tw; x++) {
       const v = data[y * tw + x]!;
-      lum[x]! += v / th;
+      hist[x * 256 + v]!++;
       if (x + 1 < tw) grad[x]! += Math.abs(data[y * tw + x + 1]! - v) / th;
+    }
+  }
+  for (let x = 0; x < tw; x++) {
+    let acc = 0;
+    const target = th * 0.7;
+    for (let v = 0; v < 256; v++) {
+      acc += hist[x * 256 + v]!;
+      if (acc >= target) {
+        lum[x] = v;
+        break;
+      }
     }
   }
   let peak = 0;

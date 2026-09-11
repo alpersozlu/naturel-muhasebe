@@ -252,6 +252,47 @@ export const uploadRouter = router({
     }),
 
   /**
+   * Re-run OCR on a failed upload without uploading the photo again — after
+   * a fix on our side (a crop, a prompt) the same photo may read fine, and a
+   * transient failure (timeout, credit) should not cost the store a retake.
+   */
+  retry: protectedProcedure
+    .input(uploadIdSchema)
+    .mutation(async ({ ctx, input }) => {
+      const upload = await ctx.prisma.upload.findUnique({
+        where: { id: input.id },
+        include: { daily_record: true },
+      });
+      if (!upload) throw new TRPCError({ code: "NOT_FOUND" });
+      await assertCanAccessStore(ctx.user, upload.daily_record.store_id);
+      if (upload.status !== "failed") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Yalnız başarısız bir yükleme yeniden okunabilir.",
+        });
+      }
+      if (upload.daily_record.status === "locked" && ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Gün kilitli." });
+      }
+      await ctx.prisma.upload.update({
+        where: { id: input.id },
+        data: {
+          status: "pending",
+          error_message: null,
+          duplicate_of_id: null,
+          date_mismatch: false,
+          uploaded_at: new Date(), // stale-sweep clock restarts with the re-run
+        },
+      });
+      waitUntil(
+        processUpload(upload.id).catch((e) => {
+          console.error("[upload.retry] async OCR failed", e);
+        })
+      );
+      return { ok: true };
+    }),
+
+  /**
    * Admin: re-run OCR on a store summary the Nebim cross-check rejected,
    * this time without the cross-check. The check is right to flag the gap
    * (it caught the "Normal row" misread), but the bridge also carries
