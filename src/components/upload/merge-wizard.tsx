@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import {
   Receipt,
@@ -65,6 +66,7 @@ export function MergeWizard({
   storeId: string;
   isAdmin: boolean;
 }) {
+  const confirmDialog = useConfirm();
   const utils = trpc.useUtils();
   const [start, setStart] = useState(todayIso());
   const [end, setEnd] = useState(todayIso());
@@ -245,8 +247,15 @@ export function MergeWizard({
               size="sm"
               variant="ghost"
               className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
-              onClick={() => {
-                if (confirm("Birleşmeyi iptal et? Günlerin merge bağı kaldırılır.")) {
+              onClick={async () => {
+                if (
+                  await confirmDialog({
+                    title: "Birleşme iptal edilsin mi?",
+                    description: "Günlerin birleşme bağı kaldırılır; belgeler silinmez.",
+                    confirmLabel: "İptal et",
+                    destructive: true,
+                  })
+                ) {
                   del.mutate({ id: groupId });
                 }
               }}

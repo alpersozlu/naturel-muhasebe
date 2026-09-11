@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import {
   Check,
@@ -162,6 +163,7 @@ function FilledDayRow({
   onChange: () => void;
   canUnlock: boolean;
 }) {
+  const confirmDialog = useConfirm();
   const [open, setOpen] = useState(false);
 
   const previewQuery = trpc.verification.preview.useQuery(
@@ -278,8 +280,14 @@ function FilledDayRow({
               size="sm"
               variant="ghost"
               disabled={unlock.isPending}
-              onClick={() => {
-                if (confirm("Kilidi açmak istediğine emin misin?")) {
+              onClick={async () => {
+                if (
+                  await confirmDialog({
+                    title: "Günün kilidi açılsın mı?",
+                    description: "Bu güne yeniden belge eklenebilir ve değiştirilebilir.",
+                    confirmLabel: "Kilidi aç",
+                  })
+                ) {
                   unlock.mutate({ id: record.id });
                 }
               }}
@@ -358,8 +366,14 @@ function FilledDayRow({
               ) : isLocked && canUnlock ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    if (confirm("Kilidi açmak istediğine emin misin?")) {
+                  onClick={async () => {
+                    if (
+                      await confirmDialog({
+                        title: "Günün kilidi açılsın mı?",
+                        description: "Bu güne yeniden belge eklenebilir ve değiştirilebilir.",
+                        confirmLabel: "Kilidi aç",
+                      })
+                    ) {
                       unlock.mutate({ id: record.id });
                     }
                   }}

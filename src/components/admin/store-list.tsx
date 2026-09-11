@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import {
   Store,
@@ -25,6 +26,7 @@ import { StoreFormDialog } from "./store-form-dialog";
 import { StoreStaffDialog } from "./store-staff-dialog";
 
 export function StoreList({ brandId }: { brandId: string }) {
+  const confirmDialog = useConfirm();
   const { data, isLoading } = trpc.store.listByBrand.useQuery({ brand_id: brandId });
   const utils = trpc.useUtils();
   const softDelete = trpc.store.softDelete.useMutation({
@@ -98,9 +100,14 @@ export function StoreList({ brandId }: { brandId: string }) {
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive"
-                    onSelect={() => {
+                    onSelect={async () => {
                       if (
-                        confirm(`"${store.name}" mağazasını silmek istediğine emin misin?`)
+                        await confirmDialog({
+                          title: `"${store.name}" mağazası silinsin mi?`,
+                          description: "Mağaza listelerden kaldırılır; geçmiş kayıtlar durur.",
+                          confirmLabel: "Sil",
+                          destructive: true,
+                        })
                       ) {
                         softDelete.mutate({ id: store.id });
                       }

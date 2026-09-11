@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useForm, Controller, useWatch, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -48,6 +49,7 @@ export function CorporatePurchaseCard({
   /** Mavi mağazaları: bilgi fişi zorunlu, tutar fişten doğrulanır. */
   requireReceipt?: boolean;
 }) {
+  const confirmDialog = useConfirm();
   const disabled = !storeId || !date;
   const utils = trpc.useUtils();
 
@@ -455,8 +457,15 @@ export function CorporatePurchaseCard({
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6 text-destructive hover:text-destructive shrink-0"
-                  onClick={() => {
-                    if (confirm("Bu alışverişi silmek istediğine emin misin?")) {
+                  onClick={async () => {
+                    if (
+                      await confirmDialog({
+                        title: "Alışveriş silinsin mi?",
+                        description: "Bu kurumsal alışveriş kaydı kaldırılır.",
+                        confirmLabel: "Sil",
+                        destructive: true,
+                      })
+                    ) {
                       del.mutate({ id: r.id });
                     }
                   }}

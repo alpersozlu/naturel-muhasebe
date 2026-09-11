@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import {
   ShieldCheck,
@@ -55,6 +56,7 @@ export function ReconciliationPanel({
   date: string;
   canApprove: boolean;
 }) {
+  const confirmDialog = useConfirm();
   const disabled = !storeId || !date;
   const utils = trpc.useUtils();
   const { data, isLoading, refetch, isRefetching } =
@@ -392,13 +394,14 @@ export function ReconciliationPanel({
             {!isLocked && data.daily_record_id && data.has_summary ? (
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    confirm(
-                      "Günü kilitlemek üzeresin.\n\nKilitledikten sonra bu güne " +
-                        "belge ekleyemez, değiştiremez veya silemezsin. Kilidi " +
-                        "yalnızca yönetici açabilir.\n\nDevam edilsin mi?"
-                    )
+                    await confirmDialog({
+                      title: "Gün kilitlensin mi?",
+                      description:
+                        "Kilitledikten sonra bu güne belge eklenemez, değiştirilemez ve silinemez. Kilidi yalnızca yönetici açabilir.",
+                      confirmLabel: "Günü kilitle",
+                    })
                   ) {
                     lockDay.mutate({ id: data.daily_record_id! });
                   }

@@ -17,7 +17,10 @@ okuduğun; EN FAZLA 2 cümle) JSON'un ilk alanı olan "check_notes" içine yaz.
 
 GÖRSEL PARÇALI OLABİLİR: uzun bir fiş birden fazla resim olarak, ÜSTTEN ALTA
 sırayla gelir; hepsi AYNI belgenin parçalarıdır, bindirme bölgesindeki satırı
-iki kez sayma. Görsel baş aşağı ya da yan olabilir. Bu yönergedeki örnek
+iki kez sayma. SON GÖRSEL belgenin ÜST BÖLÜMÜNÜN (başlık: tarih, fiş/fatura
+no, damga) BÜYÜTÜLMÜŞ tekrarıdır — tarihi ve numarayı ORADAN oku; soluk nokta
+vuruşlu tarih damgası (fiş numarasının altında "TARİH GG.AA.YYYY") orada
+seçilir. Aynı satırları ikinci kez sayma. Görsel baş aşağı ya da yan olabilir. Bu yönergedeki örnek
 değerler YER TUTUCUDUR; okuyamadığın alanı örnekle DOLDURMA, null bırak.
 
 ADIM 1 — Doküman türü doğrulaması:

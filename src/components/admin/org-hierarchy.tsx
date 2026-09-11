@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import {
   Building2,
@@ -80,6 +81,7 @@ function BrandRow({
   logoUrl: string | null;
   storeCount: number;
 }) {
+  const confirmDialog = useConfirm();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [creatingStore, setCreatingStore] = useState(false);
@@ -148,8 +150,15 @@ function BrandRow({
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-destructive hover:text-destructive"
-            onClick={() => {
-              if (confirm(`"${name}" markasını silmek istediğine emin misin?`)) {
+            onClick={async () => {
+              if (
+                await confirmDialog({
+                  title: `"${name}" markası silinsin mi?`,
+                  description: "Marka ve mağazaları listelerden kaldırılır.",
+                  confirmLabel: "Sil",
+                  destructive: true,
+                })
+              ) {
                 softDelete.mutate({ id });
               }
             }}
@@ -215,6 +224,7 @@ function StoreRow({
   city: string | null;
   brandId: string;
 }) {
+  const confirmDialog = useConfirm();
   const [staffOpen, setStaffOpen] = useState(false);
   const [staffRole, setStaffRole] = useState<UserRole>("store_manager");
   const utils = trpc.useUtils();
@@ -301,8 +311,15 @@ function StoreRow({
           variant="ghost"
           size="icon"
           className="h-8 w-8 text-destructive hover:text-destructive"
-          onClick={() => {
-            if (confirm(`"${name}" mağazasını silmek istediğine emin misin?`)) {
+          onClick={async () => {
+            if (
+              await confirmDialog({
+                title: `"${name}" mağazası silinsin mi?`,
+                description: "Mağaza listelerden kaldırılır; geçmiş kayıtlar durur.",
+                confirmLabel: "Sil",
+                destructive: true,
+              })
+            ) {
               softDelete.mutate({ id: storeId });
             }
           }}

@@ -48,6 +48,9 @@ GÖRSEL PARÇALI OLABİLİR: geniş bir sayfa SOL ve SAĞ yarım (bindirmeli) ol
 iki resim halinde gelir — sol yarımda etiketler, sağ yarımda tutarlar; uzun bir
 sayfa ise üstten alta parçalar halinde gelir. Hepsi AYNI belgedir, birleştirerek
 oku; bindirme bölgesindeki satırı iki kez sayma.
+SON GÖRSEL her iki durumda da sayfanın ÜST BÖLÜMÜNÜN (mağaza kodu, tarih
+aralığı, başlık) büyütülmüş tekrarıdır — tarihi ve mağazayı oradan oku, oradaki
+satırları ikinci kez sayma.
 
 ADIM 1 — Doküman türü doğrulaması:
 Bu görsel bir MAĞAZA GÜN SONU ÖZET RAPORU mu? Geçerli olabilmesi için:

@@ -4,6 +4,7 @@ import { useForm, Controller, useWatch, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Banknote, Loader2, Trash2 } from "lucide-react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
 import { trpc } from "@/lib/trpc";
@@ -61,6 +62,7 @@ export function CashAdvanceCard({
   storeId: string;
   date: string;
 }) {
+  const confirmDialog = useConfirm();
   const disabled = !storeId || !date;
   const utils = trpc.useUtils();
 
@@ -337,8 +339,15 @@ export function CashAdvanceCard({
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6 text-destructive hover:text-destructive shrink-0"
-                  onClick={() => {
-                    if (confirm("Bu peşin ödemeyi silmek istediğine emin misin?")) {
+                  onClick={async () => {
+                    if (
+                      await confirmDialog({
+                        title: "Peşin ödeme silinsin mi?",
+                        description: "Bu faturasız peşin ödeme kaydı kaldırılır.",
+                        confirmLabel: "Sil",
+                        destructive: true,
+                      })
+                    ) {
                       del.mutate({ id: a.id });
                     }
                   }}

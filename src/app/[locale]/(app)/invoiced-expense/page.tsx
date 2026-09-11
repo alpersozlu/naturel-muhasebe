@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import {
   Upload as UploadIcon,
@@ -215,6 +216,7 @@ export default function InvoicedExpensePage() {
 }
 
 function DeleteBatchButton({ batchId }: { batchId: string }) {
+  const confirmDialog = useConfirm();
   const utils = trpc.useUtils();
   const del = trpc.invoicedExpense.delete.useMutation({
     onSuccess: () => {
@@ -229,8 +231,16 @@ function DeleteBatchButton({ batchId }: { batchId: string }) {
       size="icon"
       className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
       title="Dönemi sil"
-      onClick={() => {
-        if (confirm("Bu dönemi silmek istediğine emin misin?")) del.mutate({ batch_id: batchId });
+      onClick={async () => {
+        if (
+          await confirmDialog({
+            title: "Dönem silinsin mi?",
+            description: "Bu dönemin faturalı masraf kayıtları kaldırılır.",
+            confirmLabel: "Sil",
+            destructive: true,
+          })
+        )
+          del.mutate({ batch_id: batchId });
       }}
     >
       <Trash2 className="h-4 w-4" />

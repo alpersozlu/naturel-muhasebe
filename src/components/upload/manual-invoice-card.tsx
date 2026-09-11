@@ -4,6 +4,7 @@ import { useForm, Controller, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { FileSignature, Loader2, Trash2 } from "lucide-react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
 import { trpc } from "@/lib/trpc";
@@ -37,6 +38,7 @@ export function ManualInvoiceCard({
   storeId: string;
   date: string;
 }) {
+  const confirmDialog = useConfirm();
   const disabled = !storeId || !date;
   const utils = trpc.useUtils();
 
@@ -298,8 +300,15 @@ export function ManualInvoiceCard({
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6 text-destructive hover:text-destructive shrink-0"
-                  onClick={() => {
-                    if (confirm("Bu el faturasını silmek istediğine emin misin?")) {
+                  onClick={async () => {
+                    if (
+                      await confirmDialog({
+                        title: "El faturası silinsin mi?",
+                        description: "Bu el faturası kaydı kaldırılır.",
+                        confirmLabel: "Sil",
+                        destructive: true,
+                      })
+                    ) {
                       del.mutate({ id: inv.id });
                     }
                   }}

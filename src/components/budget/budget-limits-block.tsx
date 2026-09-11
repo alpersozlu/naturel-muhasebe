@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Target, Plus, AlertTriangle, AlertCircle, CheckCircle2, Trash2, Pencil, Store as StoreIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -226,6 +227,7 @@ function BudgetLimitCard({
   limit: BudgetLimitStatus;
   onEdit: () => void;
 }) {
+  const confirmDialog = useConfirm();
   const tone = statusTone(limit.alert_status);
   const Icon = tone.icon;
   const utils = trpc.useUtils();
@@ -300,8 +302,15 @@ function BudgetLimitCard({
             size="sm"
             variant="ghost"
             className="h-7 w-7 p-0 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
-            onClick={() => {
-              if (confirm("Bu limit silinsin mi?")) {
+            onClick={async () => {
+              if (
+                await confirmDialog({
+                  title: "Limit silinsin mi?",
+                  description: "Bu bütçe limiti kaldırılır; uyarılar durur.",
+                  confirmLabel: "Sil",
+                  destructive: true,
+                })
+              ) {
                 del.mutate({ id: limit.id });
               }
             }}

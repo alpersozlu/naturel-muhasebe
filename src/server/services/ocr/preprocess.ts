@@ -220,12 +220,31 @@ export async function preprocessReceipt(
     return { tiles, mediaType: "image/jpeg", crop, rotation, cropBy };
   }
 
+  // Documents get a native-resolution look at their header as the LAST tile.
+  // The date and the document number sit there, and at page scale they are
+  // tiny: a 4032 px photo shrinks to 1568, a dot-matrix "TARİH 03.09.2026"
+  // stamp on a Done "Alacak Fişi" becomes 12 px and read as 02.09.2025 in
+  // one run and 06.09.2025 in the next. The header is the top 30% at up to
+  // full resolution, taken from the UN-enhanced crop: CLAHE + sharpening
+  // turn a faint dot-matrix stamp into paper-grain noise (the enhanced
+  // header still read 05.09.2025), plain grey + normalize keeps the dots.
+  // The model is told this tile repeats the top of the page.
+  const headerTile = async (): Promise<Buffer> =>
+    sharp(region)
+      .extract({ left: 0, top: 0, width: cw, height: Math.max(1, Math.round(ch * 0.3)) })
+      .grayscale()
+      .normalize()
+      .resize({ width: CLAUDE_MAX_EDGE, height: CLAUDE_MAX_EDGE, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 85, mozjpeg: true })
+      .toBuffer();
+
   if (ch / cw <= TILE_RATIO) {
     const single = await sharp(enhanced)
       .resize({ width: 2400, height: 2400, fit: "inside" })
       .jpeg({ quality: 82, mozjpeg: true })
       .toBuffer();
-    return { tiles: [single], mediaType: "image/jpeg", crop, rotation, cropBy };
+    const tiles = kind === "document" ? [single, await headerTile()] : [single];
+    return { tiles, mediaType: "image/jpeg", crop, rotation, cropBy };
   }
 
   const n = Math.ceil(ch / cw / TARGET_TILE_RATIO);
@@ -249,6 +268,7 @@ export async function preprocessReceipt(
         .toBuffer()
     );
   }
+  if (kind === "document") tiles.push(await headerTile());
   return { tiles, mediaType: "image/jpeg", crop, rotation, cropBy };
 }
 

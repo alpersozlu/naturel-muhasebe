@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
@@ -155,6 +156,7 @@ type UploadRow = {
 };
 
 export function UploadList({ storeId, date }: { storeId: string; date: string }) {
+  const confirmDialog = useConfirm();
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.upload.listForStoreDate.useQuery(
     { store_id: storeId, date },
@@ -251,8 +253,15 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                 key={u.id}
                 upload={u as unknown as UploadRow}
                 onOpen={() => openFile(u.id)}
-                onDelete={() => {
-                  if (confirm("Bu dosyayı silmek istediğine emin misin?")) {
+                onDelete={async () => {
+                  if (
+                    await confirmDialog({
+                      title: "Dosya silinsin mi?",
+                      description: `${TYPE_META[u.type as UploadRow["type"]]?.label ?? "Belge"} ve ondan okunan kayıtlar bu günden kaldırılır.`,
+                      confirmLabel: "Sil",
+                      destructive: true,
+                    })
+                  ) {
                     del.mutate({ id: u.id });
                   }
                 }}
@@ -260,11 +269,14 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                 onRetry={() => retry.mutate({ id: u.id })}
                 onAcceptGap={
                   isAdmin
-                    ? () => {
+                    ? async () => {
                         if (
-                          confirm(
-                            "Basılı rapor doğru, Nebim'deki fark bilerek kabul edilsin mi? Özet yeniden okunacak."
-                          )
+                          await confirmDialog({
+                            title: "Nebim farkı bilerek kabul edilsin mi?",
+                            description:
+                              "Basılı rapor doğru sayılır ve özet Nebim kontrolü olmadan yeniden okunur.",
+                            confirmLabel: "Kabul et",
+                          })
                         ) {
                           acceptGap.mutate({ id: u.id });
                         }
