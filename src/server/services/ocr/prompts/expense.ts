@@ -60,7 +60,7 @@ Eğer fatura/makbuz İSE:
   "amount": "ondalık sayı veya null (KDV DAHİL toplam ödenen tutar)",
   "vat_rate": "ondalık sayı veya null (KDV oranı, %18 ise 18, %20 ise 20)",
   "vat_included": true,
-  "category": "rent | electricity | water | internet | stationery | cleaning | maintenance | salary | bonus | supplies | food | marketing | labor | tailor | other",
+  "category": "rent | electricity | water | internet | stationery | cleaning | maintenance | salary | bonus | supplies | food | marketing | labor | tailor | glazier | other",
   "description": "string veya null (kısa açıklama, en fazla 100 karakter)",
   "currency": "TRY | USD | EUR | GBP (TRY varsayılan)"
 }
@@ -76,6 +76,7 @@ Kategori tahmin rehberi (vendor adına bakarak otomatik seç):
 - "Tamir", "Bakım", "Servis" → maintenance
 - "Reklam", "Marketing", "İlan" → marketing
 - "Terzi", "Terzihane", "Tadilat", "Dikiş", "Paça", "Boy kısaltma" → tailor
+- "Camcı", "Cam", "Vitrin camı", "Cam değişimi", "Cam tamiri", "Temperli cam" → glazier
 - "İşçi", "Yevmiye", "Hamal", "Nakliye işçisi" → labor
 - "İkramiye", "Prim" → bonus
 - "Sarf Malzeme", "Stok", "Tedarik" → supplies

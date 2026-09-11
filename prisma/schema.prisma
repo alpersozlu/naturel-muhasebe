@@ -77,6 +77,7 @@ enum ExpenseCategory {
   marketing // Pazarlama
   labor // İşçi parası (yevmiyeli/dışarıdan işçi)
   tailor // Terzi (paça, tadilat, dikiş — mağaza adına yaptırılan)
+  glazier // Camcı (vitrin/cam değişimi, cam tamiri)
   other // Diğer
 }
 

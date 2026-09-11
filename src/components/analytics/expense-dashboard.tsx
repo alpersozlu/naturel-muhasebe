@@ -61,6 +61,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   marketing: "Pazarlama",
   labor: "İşçi Parası",
   tailor: "Terzi",
+  glazier: "Camcı",
   other: "Diğer",
 };
 
