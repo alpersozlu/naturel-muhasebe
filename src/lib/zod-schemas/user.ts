@@ -41,6 +41,13 @@ export const userSetPasswordSchema = z.object({
   password: z.string().min(8, "En az 8 karakter"),
 });
 
+/** Admin sends the invitation e-mail: the temporary password is set at the same time. */
+export const userSendInviteSchema = z.object({
+  id: z.string().uuid(),
+  password: z.string().min(8, "En az 8 karakter"),
+  login_url: z.string().url().max(300),
+});
+
 export const userSetActiveSchema = z.object({
   id: z.string().uuid(),
   is_active: z.boolean(),

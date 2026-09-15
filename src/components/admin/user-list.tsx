@@ -431,6 +431,15 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
   const setPassword = trpc.user.setPassword.useMutation({
     onError: (e) => toast.error(e.message),
   });
+  // Outgoing e-mail exists only when SMTP is configured on the server.
+  const { data: mailReady } = trpc.user.mailConfigured.useQuery();
+  const sendInvite = trpc.user.sendInvite.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Davet e-postası gönderildi: ${r.to}`);
+      onClose();
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const loginUrl = `${origin}/tr/login`;
   const storeNames = user.store_access.map((a) => a.store.name).join(", ");
@@ -484,8 +493,9 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
         <DialogHeader>
           <DialogTitle>Davet gönder</DialogTitle>
           <DialogDescription>
-            Sistem kendisi e-posta göndermez. Aşağıdaki mesajı kopyalayıp WhatsApp ile iletin ya da
-            e-posta uygulamanızda açın. Gönderirken geçici şifre bu kullanıcıya atanır.
+            {mailReady
+              ? "Giriş bilgileri kullanıcının e-postasına gönderilir; gönderirken geçici şifre hesaba atanır. İstersen mesajı kopyalayıp WhatsApp ile de iletebilirsin."
+              : "Otomatik e-posta için SMTP ayarı yapılmamış. Mesajı kopyalayıp WhatsApp ile iletin ya da e-posta uygulamanızda açın; gönderirken geçici şifre hesaba atanır."}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-1">
@@ -509,17 +519,32 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
             />
           </div>
         </div>
-        <DialogFooter className="gap-2">
-          <Button variant="outline" disabled={setPassword.isPending} onClick={onClose}>
+        <DialogFooter className="gap-2 flex-wrap">
+          <Button variant="outline" disabled={setPassword.isPending || sendInvite.isPending} onClick={onClose}>
             Kapat
           </Button>
-          <Button variant="outline" disabled={setPassword.isPending || pw.length < 8} onClick={openMail}>
-            <Mail className="h-4 w-4 mr-1.5" /> E-posta ile aç
-          </Button>
-          <Button disabled={setPassword.isPending || pw.length < 8} onClick={copy}>
+          {!mailReady ? (
+            <Button variant="outline" disabled={setPassword.isPending || pw.length < 8} onClick={openMail}>
+              <Mail className="h-4 w-4 mr-1.5" /> E-posta ile aç
+            </Button>
+          ) : null}
+          <Button
+            variant={mailReady ? "outline" : "default"}
+            disabled={setPassword.isPending || sendInvite.isPending || pw.length < 8}
+            onClick={copy}
+          >
             {setPassword.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Copy className="h-4 w-4 mr-1.5" />}
             {applied ? "Mesajı kopyala" : "Şifreyi ayarla ve kopyala"}
           </Button>
+          {mailReady ? (
+            <Button
+              disabled={sendInvite.isPending || setPassword.isPending || pw.length < 8}
+              onClick={() => sendInvite.mutate({ id: user.id, password: pw, login_url: loginUrl })}
+            >
+              {sendInvite.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />}
+              E-posta gönder
+            </Button>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -9,7 +9,9 @@ import {
   userIdSchema,
   userSetPasswordSchema,
   userSetActiveSchema,
+  userSendInviteSchema,
 } from "@/lib/zod-schemas/user";
+import { isMailConfigured, sendMail } from "@/server/services/mail";
 
 const userAdmin = withAudit("User");
 
@@ -101,6 +103,76 @@ export const userRouter = router({
       }
       return { ok: true };
     }),
+
+  /** Is outgoing e-mail set up (SMTP env)? The invite dialog offers "send" only then. */
+  mailConfigured: adminProcedure.query(() => isMailConfigured()),
+
+  /**
+   * Invitation e-mail (admin): sets the temporary password on the account
+   * and mails the login address, e-mail, password and store to the person,
+   * so what is sent always matches what is set.
+   */
+  sendInvite: userAdmin.input(userSendInviteSchema).mutation(async ({ ctx, input }) => {
+    if (!isMailConfigured()) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "E-posta gönderimi yapılandırılmamış (Vercel: SMTP_HOST, SMTP_USER, SMTP_PASS).",
+      });
+    }
+    const user = await ctx.prisma.user.findUnique({
+      where: { id: input.id },
+      include: { store_access: { include: { store: true } } },
+    });
+    if (!user) throw new TRPCError({ code: "NOT_FOUND" });
+
+    const supabase = createAdminClient();
+    const { error } = await supabase.auth.admin.updateUserById(input.id, {
+      password: input.password,
+    });
+    if (error) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Supabase: ${error.message}` });
+    }
+
+    const stores = user.store_access.map((a) => a.store.name).join(", ");
+    const greeting = user.full_name ? `Merhaba ${user.full_name},` : "Merhaba,";
+    const lines = [
+      greeting,
+      "",
+      "Naturel Ticaret muhasebe sistemine erişiminiz açıldı.",
+      `Giriş adresi: ${input.login_url}`,
+      `E-posta: ${user.email}`,
+      `Geçici şifre: ${input.password}`,
+      ...(stores ? [`Mağaza: ${stores}`] : []),
+      "",
+      "Giriş yaptıktan sonra şifrenizi değiştirmek isterseniz yöneticinize yazın.",
+    ];
+    const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.6;color:#111">
+      <p>${esc(greeting)}</p>
+      <p>Naturel Ticaret muhasebe sistemine erişiminiz açıldı.</p>
+      <table style="border-collapse:collapse;font-size:15px">
+        <tr><td style="padding:4px 12px 4px 0;color:#666">Giriş adresi</td><td><a href="${esc(input.login_url)}">${esc(input.login_url)}</a></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666">E-posta</td><td>${esc(user.email)}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666">Geçici şifre</td><td><code style="font-size:16px">${esc(input.password)}</code></td></tr>
+        ${stores ? `<tr><td style="padding:4px 12px 4px 0;color:#666">Mağaza</td><td>${esc(stores)}</td></tr>` : ""}
+      </table>
+      <p style="color:#666">Giriş yaptıktan sonra şifrenizi değiştirmek isterseniz yöneticinize yazın.</p>
+    </div>`;
+    try {
+      await sendMail({
+        to: user.email,
+        subject: "Naturel Ticaret muhasebe — giriş bilgileriniz",
+        text: lines.join("\n"),
+        html,
+      });
+    } catch (e) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: `E-posta gönderilemedi: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
+    return { ok: true, to: user.email };
+  }),
 
   /** Devre dışı bırak / aktifleştir (admin) — is_active + Supabase ban. */
   setActive: userAdmin
