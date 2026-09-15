@@ -56,6 +56,13 @@ export function UserCreateForm() {
   const storeMissing = storeRequired && storeId === NO_STORE;
   const canSubmit =
     email.trim().length > 3 && password.length >= 8 && !storeMissing;
+  // Say WHY the button is off — an admin typed a 7-character password and
+  // saw only a greyed button.
+  const missing = [
+    email.trim().length <= 3 ? "e-posta" : null,
+    password.length < 8 ? `şifre en az 8 karakter (şu an ${password.length})` : null,
+    storeMissing ? "mağaza seçimi" : null,
+  ].filter((x): x is string => x !== null);
 
   const submit = () => {
     create.mutate({
@@ -97,6 +104,11 @@ export function UserCreateForm() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Başlangıç şifresini belirle (en az 8)"
               />
+              {password.length > 0 && password.length < 8 ? (
+                <p className="text-xs text-rose-600 mt-1">
+                  En az 8 karakter olmalı — şu an {password.length}.
+                </p>
+              ) : null}
             </Field>
             <Field label="Rol">
               <Select value={role} onValueChange={(v) => setRole(v as UserRole)}>
@@ -171,6 +183,11 @@ export function UserCreateForm() {
             )}
             Kullanıcı Oluştur
           </Button>
+          {!canSubmit && missing.length > 0 ? (
+            <p className="text-xs text-muted-foreground text-center">
+              Oluşturmak için eksik: {missing.join(" · ")}
+            </p>
+          ) : null}
         </div>
       </CardContent>
     </Card>
