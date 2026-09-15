@@ -14,6 +14,9 @@ import {
   Power,
   Trash2,
   Loader2,
+  Send,
+  Copy,
+  Mail,
 } from "lucide-react";
 import type { UserRole } from "@prisma/client";
 import { trpc } from "@/lib/trpc";
@@ -74,6 +77,7 @@ export function UserList() {
 
   const [editUser, setEditUser] = useState<Row | null>(null);
   const [pwUser, setPwUser] = useState<Row | null>(null);
+  const [inviteUser, setInviteUser] = useState<Row | null>(null);
   const [delUser, setDelUser] = useState<Row | null>(null);
 
   const setActive = trpc.user.setActive.useMutation({
@@ -202,6 +206,14 @@ export function UserList() {
                           >
                             <KeyRound className="h-3.5 w-3.5" /> Şifre
                           </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                            onClick={() => setInviteUser(u)}
+                          >
+                            <Send className="h-3.5 w-3.5" /> Davet
+                          </Button>
                           {!isSelf ? (
                             <>
                               <Button
@@ -249,6 +261,9 @@ export function UserList() {
       ) : null}
       {pwUser ? (
         <PasswordDialog user={pwUser} onClose={() => setPwUser(null)} />
+      ) : null}
+      {inviteUser ? (
+        <InviteDialog user={inviteUser} onClose={() => setInviteUser(null)} />
       ) : null}
 
       {/* Silme onayı */}
@@ -387,6 +402,123 @@ function PasswordDialog({ user, onClose }: { user: Row; onClose: () => void }) {
           >
             {setPassword.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
             Şifreyi Güncelle
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Unambiguous temporary password: no 0/O, 1/l/I. */
+function tempPassword(): string {
+  const letters = "ABCDEFGHJKMNPQRSTUVWXYZ";
+  const mixed = "abcdefghjkmnpqrstuvwxyz23456789";
+  const pick = (a: string, n: number) =>
+    Array.from({ length: n }, () => a[Math.floor(Math.random() * a.length)]).join("");
+  return `${pick(letters, 2)}-${pick(mixed, 4)}-${pick("23456789", 2)}`;
+}
+
+/**
+ * The app sends no e-mail itself (Supabase's built-in mailer only reaches
+ * project members). The invitation is a ready message — login address,
+ * e-mail, a fresh temporary password, store — that the admin copies into
+ * WhatsApp or opens in their own mail app. Setting the password and
+ * copying happen together so the message never carries a stale one.
+ */
+function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
+  const [pw, setPw] = useState(() => tempPassword());
+  const [applied, setApplied] = useState(false);
+  const setPassword = trpc.user.setPassword.useMutation({
+    onError: (e) => toast.error(e.message),
+  });
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const loginUrl = `${origin}/tr/login`;
+  const storeNames = user.store_access.map((a) => a.store.name).join(", ");
+  const message = [
+    `Merhaba ${user.full_name ?? ""}`.trim() + ",",
+    "",
+    "Naturel Ticaret muhasebe sistemine erişiminiz açıldı.",
+    `Giriş adresi: ${loginUrl}`,
+    `E-posta: ${user.email}`,
+    `Geçici şifre: ${pw}`,
+    storeNames ? `Mağaza: ${storeNames}` : null,
+    "",
+    "Giriş yaptıktan sonra şifrenizi değiştirmek isterseniz yöneticinize yazın.",
+  ]
+    .filter((l): l is string => l !== null)
+    .join("\n");
+  const subject = "Naturel Ticaret muhasebe — giriş bilgileriniz";
+  const mailto = `mailto:${encodeURIComponent(user.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+
+  const apply = async (): Promise<boolean> => {
+    if (applied) return true;
+    if (pw.length < 8) {
+      toast.error("Şifre en az 8 karakter olmalı");
+      return false;
+    }
+    try {
+      await setPassword.mutateAsync({ id: user.id, password: pw });
+      setApplied(true);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const copy = async () => {
+    if (!(await apply())) return;
+    try {
+      await navigator.clipboard.writeText(message);
+      toast.success("Şifre ayarlandı, mesaj panoya kopyalandı");
+    } catch {
+      toast.error("Panoya kopyalanamadı — metni elle seçip kopyalayın");
+    }
+  };
+  const openMail = async () => {
+    if (!(await apply())) return;
+    window.location.href = mailto;
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && !setPassword.isPending && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Davet gönder</DialogTitle>
+          <DialogDescription>
+            Sistem kendisi e-posta göndermez. Aşağıdaki mesajı kopyalayıp WhatsApp ile iletin ya da
+            e-posta uygulamanızda açın. Gönderirken geçici şifre bu kullanıcıya atanır.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="space-y-1.5">
+            <Label>Geçici şifre</Label>
+            <Input
+              type="text"
+              value={pw}
+              disabled={applied}
+              onChange={(e) => setPw(e.target.value)}
+            />
+            {pw.length < 8 ? <p className="text-xs text-rose-600">En az 8 karakter olmalı</p> : null}
+          </div>
+          <div className="space-y-1.5">
+            <Label>Mesaj</Label>
+            <textarea
+              readOnly
+              value={message}
+              rows={9}
+              className="w-full rounded-md border border-input bg-muted/30 px-3 py-2 text-sm leading-relaxed font-mono"
+            />
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" disabled={setPassword.isPending} onClick={onClose}>
+            Kapat
+          </Button>
+          <Button variant="outline" disabled={setPassword.isPending || pw.length < 8} onClick={openMail}>
+            <Mail className="h-4 w-4 mr-1.5" /> E-posta ile aç
+          </Button>
+          <Button disabled={setPassword.isPending || pw.length < 8} onClick={copy}>
+            {setPassword.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Copy className="h-4 w-4 mr-1.5" />}
+            {applied ? "Mesajı kopyala" : "Şifreyi ayarla ve kopyala"}
           </Button>
         </DialogFooter>
       </DialogContent>
