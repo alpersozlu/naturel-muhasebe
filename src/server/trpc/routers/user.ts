@@ -107,6 +107,34 @@ export const userRouter = router({
   /** Is outgoing e-mail set up (SMTP env)? The invite dialog offers "send" only then. */
   mailConfigured: adminProcedure.query(() => isMailConfigured()),
 
+  /** Admin: a test message to their own address — proves the mail setup without touching any account. */
+  sendTestMail: adminProcedure.mutation(async ({ ctx }) => {
+    if (!isMailConfigured()) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "E-posta gönderimi yapılandırılmamış (Vercel: RESEND_API_KEY ya da SMTP_*).",
+      });
+    }
+    const when = new Date().toLocaleString("tr-TR", { timeZone: "Asia/Nicosia" });
+    try {
+      await sendMail({
+        to: ctx.user.email,
+        subject: `Naturel Muhasebe — test e-postası (${when})`,
+        text: `Bu bir test mesajıdır. Bu mesajı aldıysanız Naturel Muhasebe e-posta gönderimi çalışıyor.\nGönderim: ${when}`,
+        html: `<div style="font-family:-apple-system,'Segoe UI',Roboto,sans-serif;font-size:15px;line-height:1.6;color:#111827">
+          <p>Bu bir test mesajıdır. Bu mesajı aldıysanız <strong>Naturel Muhasebe</strong> e-posta gönderimi çalışıyor.</p>
+          <p style="color:#6b7280;font-size:13px">Gönderim: ${when}</p>
+        </div>`,
+      });
+    } catch (e) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: `E-posta gönderilemedi: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
+    return { to: ctx.user.email };
+  }),
+
   /**
    * Invitation e-mail (admin): sets the temporary password on the account
    * and mails the login address, e-mail, password and store to the person,

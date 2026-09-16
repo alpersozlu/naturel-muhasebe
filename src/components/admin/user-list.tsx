@@ -441,6 +441,10 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
     },
     onError: (e) => toast.error(e.message),
   });
+  const sendTest = trpc.user.sendTestMail.useMutation({
+    onSuccess: (r) => toast.success(`Test e-postası gönderildi: ${r.to}`),
+    onError: (e) => toast.error(e.message),
+  });
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const loginUrl = `${origin}/tr/login`;
   const storeNames = user.store_access.map((a) => a.store.name).join(", ");
@@ -510,6 +514,16 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
               : "Otomatik e-posta için RESEND_API_KEY tanımlanmamış. Mesajı kopyalayıp WhatsApp ile iletin ya da e-posta uygulamanızda açın; gönderirken geçici şifre hesaba atanır."}
           </DialogDescription>
         </DialogHeader>
+        {mailReady ? (
+          <button
+            type="button"
+            disabled={sendTest.isPending}
+            onClick={() => sendTest.mutate()}
+            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground text-left disabled:opacity-50"
+          >
+            {sendTest.isPending ? "Test gönderiliyor…" : "Önce kendi adresine test e-postası gönder"}
+          </button>
+        ) : null}
         <div className="space-y-3 py-1">
           <div className="space-y-1.5">
             <Label>Hitap</Label>
