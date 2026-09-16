@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetting, setResetting] = useState(false);
   // The invitation e-mail links here with ?email=…, so the person only
   // types the password.
   useEffect(() => {
@@ -45,6 +46,30 @@ export default function LoginPage() {
       router.refresh();
     } finally {
       setLoading(false);
+    }
+  };
+
+  // "Şifremi unuttum": Supabase mails a recovery link that lands on
+  // /reset-password with a code; that page sets the new password.
+  const forgot = async () => {
+    if (!email.trim()) {
+      toast.error("Önce e-posta adresinizi yazın");
+      return;
+    }
+    setResetting(true);
+    try {
+      const supabase = createClient();
+      const locale = window.location.pathname.split("/")[1] || "tr";
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${window.location.origin}/${locale}/reset-password`,
+      });
+      if (error) {
+        toast.error(`Bağlantı gönderilemedi: ${error.message}`);
+        return;
+      }
+      toast.success("Şifre sıfırlama bağlantısı e-postanıza gönderildi. Bu tarayıcıda açın.");
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -86,6 +111,14 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Giriş yapılıyor…" : t("signIn")}
             </Button>
+            <button
+              type="button"
+              onClick={forgot}
+              disabled={resetting}
+              className="block w-full text-center text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:opacity-50"
+            >
+              {resetting ? "Gönderiliyor…" : "Şifremi unuttum"}
+            </button>
           </form>
         </CardContent>
       </Card>

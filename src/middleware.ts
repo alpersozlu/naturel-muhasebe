@@ -5,7 +5,7 @@ import { routing } from "@/i18n/routing";
 
 const intlMiddleware = createIntlMiddleware(routing);
 
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/reset-password"];
 const LOCALE_RE = /^\/(tr|en)(\/|$)/;
 
 function stripLocale(pathname: string): string {
@@ -55,8 +55,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL(`/${locale}/login`, request.url));
   }
 
-  // Login'deyken zaten girişliyse → /admin'e
-  if (user && isPublic) {
+  // Login'deyken zaten girişliyse → /admin'e. The reset page is the
+  // exception: the recovery link logs the person in, and they still need
+  // the page to set the new password.
+  if (user && isPublic && !stripLocale(pathname).startsWith("/reset-password")) {
     const locale = pathname.match(LOCALE_RE)?.[1] ?? routing.defaultLocale;
     return NextResponse.redirect(new URL(`/${locale}/admin`, request.url));
   }
