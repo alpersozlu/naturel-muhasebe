@@ -116,7 +116,7 @@ export const userRouter = router({
     if (!isMailConfigured()) {
       throw new TRPCError({
         code: "PRECONDITION_FAILED",
-        message: "E-posta gönderimi yapılandırılmamış (Vercel: SMTP_HOST, SMTP_USER, SMTP_PASS).",
+        message: "E-posta gönderimi yapılandırılmamış (Vercel: RESEND_API_KEY ya da SMTP_*).",
       });
     }
     const user = await ctx.prisma.user.findUnique({

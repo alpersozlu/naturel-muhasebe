@@ -495,7 +495,7 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
           <DialogDescription>
             {mailReady
               ? "Giriş bilgileri kullanıcının e-postasına gönderilir; gönderirken geçici şifre hesaba atanır. İstersen mesajı kopyalayıp WhatsApp ile de iletebilirsin."
-              : "Otomatik e-posta için SMTP ayarı yapılmamış. Mesajı kopyalayıp WhatsApp ile iletin ya da e-posta uygulamanızda açın; gönderirken geçici şifre hesaba atanır."}
+              : "Otomatik e-posta için RESEND_API_KEY tanımlanmamış. Mesajı kopyalayıp WhatsApp ile iletin ya da e-posta uygulamanızda açın; gönderirken geçici şifre hesaba atanır."}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-1">
