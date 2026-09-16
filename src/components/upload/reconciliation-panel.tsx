@@ -936,8 +936,8 @@ function ComparisonTable({
   difference: number;
 }) {
   return (
-    <div className="mt-4 rounded-lg border border-border overflow-hidden">
-      <table className="w-full text-sm">
+    <div className="mt-4 rounded-lg border border-border overflow-x-auto">
+      <table className="w-full min-w-[560px] text-sm">
         <thead>
           <tr className="bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">
             <th className="text-left font-medium py-2 px-3">Belge Türü</th>

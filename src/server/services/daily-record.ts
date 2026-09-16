@@ -1,4 +1,5 @@
 import "server-only";
+import { isStoreOpen, storeCodeFromName } from "@/server/services/nebim/calendar";
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
 
@@ -38,7 +39,9 @@ export async function getOrCreateDailyRecord(
  *
  * Admin muaftır — geçmişe dönük düzeltme yapabilmesi gerekir.
  */
-export const LOCK_ENFORCEMENT_FROM = "2026-09-01";
+// Go-live day for the stores (Derimod Lefkoşa first, 16.09.2026). Days before
+// it were the admin's test uploads and must not block the manager's first day.
+export const LOCK_ENFORCEMENT_FROM = "2026-09-16";
 
 export async function assertPriorDaysLocked(
   prisma: PrismaClient,
@@ -49,7 +52,17 @@ export async function assertPriorDaysLocked(
   if (user.role === "admin") return;
   if (date <= LOCK_ENFORCEMENT_FROM) return;
 
-  const open = await prisma.dailyRecord.findFirst({
+  // Days of the same merge group (Derimod "Gün Birleşmesi") are closed
+  // together by the group's summary day; a sibling must never block the
+  // next sibling, or step 2 of the wizard is dead.
+  const target = await prisma.dailyRecord.findUnique({
+    where: { store_id_date: { store_id: storeId, date: new Date(`${date}T00:00:00.000Z`) } },
+    select: { merge_group_id: true },
+  });
+  const store = await prisma.store.findUnique({ where: { id: storeId }, select: { name: true } });
+  const storeCode = store ? storeCodeFromName(store.name) : null;
+
+  const candidates = await prisma.dailyRecord.findMany({
     where: {
       store_id: storeId,
       date: {
@@ -57,6 +70,9 @@ export async function assertPriorDaysLocked(
         lt: new Date(`${date}T00:00:00.000Z`),
       },
       status: { not: "locked" },
+      ...(target?.merge_group_id
+        ? { NOT: { merge_group_id: target.merge_group_id } }
+        : {}),
       // BOŞ gün kaydı kilit istemez. Bir yükleme başlatılıp silinince ya da
       // kapalı bir güne (Derimod Mağusa pazarları) yanlışlıkla dokunulunca
       // içi boş bir "draft" kalıyor; bunu kilitlemeye zorlamak müdürü hiç
@@ -70,14 +86,19 @@ export async function assertPriorDaysLocked(
         { cash_advances: { some: {} } },
         { corporate_purchases: { some: {} } },
         { expenses: { some: {} } },
-        { reported_cash_try: { not: null } },
-        { gift_voucher_try: { not: null } },
-        { mavi_gift_voucher_try: { not: null } },
+        // A saved 0 (a closed Sunday touched by mistake) is not content.
+        { reported_cash_try: { gt: 0 } },
+        { gift_voucher_try: { gt: 0 } },
+        { mavi_gift_voucher_try: { gt: 0 } },
       ],
     },
     orderBy: { date: "asc" },
     select: { date: true },
   });
+  // A closed day (Derimod Mağusa Sundays) never needs locking.
+  const open = candidates.find(
+    (c) => isStoreOpen(storeCode, c.date)
+  );
   if (!open) return;
 
   const tr = open.date.toLocaleDateString("tr-TR", {
@@ -91,6 +112,7 @@ export async function assertPriorDaysLocked(
     message:
       `Önce ${tr} gününü kilitlemelisin. Her gün, yüklemeler bitince ` +
       `"Günü Kilitle" ile kapatılmak zorundadır — kapatılmayan gün varken ` +
-      `yeni güne kayıt girilemez.`,
+      `yeni güne kayıt girilemez. Tarih alanından ${tr} gününe gidip sayfanın ` +
+      `altındaki "Günü Kilitle" düğmesine basın.`,
   });
 }

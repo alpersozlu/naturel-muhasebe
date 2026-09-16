@@ -67,8 +67,11 @@ export function CashAdvanceCard({
   const disabled = !storeId || !date;
   const utils = trpc.useUtils();
 
+  // user.list is admin-only; a manager's page must not fire it (FORBIDDEN
+  // on every load, empty dropdown).
+  const { data: me } = trpc.user.me.useQuery();
   const { data: employees } = trpc.user.list.useQuery(undefined, {
-    enabled: !disabled,
+    enabled: !disabled && me?.role === "admin",
   });
   const { data: advances } = trpc.cashAdvance.listForStoreDate.useQuery(
     { store_id: storeId, date },

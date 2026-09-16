@@ -114,6 +114,9 @@ export const corporatePurchaseRouter = router({
       });
       if (!row) throw new TRPCError({ code: "NOT_FOUND" });
       await assertCanAccessStore(ctx.user, row.daily_record.store_id);
+      if (row.daily_record.status === "locked" && ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Gün kilitli, yalnızca admin değiştirebilir" });
+      }
       return ctx.prisma.corporatePurchase.update({
         where: { id: input.id },
         data: { is_paid: input.is_paid },

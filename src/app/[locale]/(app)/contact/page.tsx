@@ -12,7 +12,15 @@ export default function ContactPage() {
       <Card>
         <CardContent className="py-12 text-center text-muted-foreground">
           <Mail className="h-12 w-12 mx-auto mb-3 opacity-30" />
-          <div>İletişim formu yakında.</div>
+          <div className="text-foreground font-medium">Takıldığınız bir şey olursa yöneticinize yazın</div>
+          <div className="mt-2 text-sm">
+            Alp Ersözlü — <a className="underline underline-offset-2" href="mailto:alpersozlu1@gmail.com">alpersozlu1@gmail.com</a>
+          </div>
+          <div className="mt-1 text-sm">WhatsApp üzerinden de ulaşabilirsiniz.</div>
+          <div className="mt-4 text-xs leading-relaxed max-w-md mx-auto">
+            Bir belge okunamadıysa önce satırdaki &quot;Yeniden analiz et&quot; düğmesini deneyin; sürerse
+            fotoğrafı dik, yakından ve gölgesiz çekip tekrar yükleyin.
+          </div>
         </CardContent>
       </Card>
     </div>

@@ -253,6 +253,12 @@ export async function parseStoreSummary(opts: {
   if (!raw) {
     throw new Error(`Claude returned non-JSON output: ${rawText.slice(0, 200)}`);
   }
+  // Constrained decoders emit "" where the prompt says null; "" fails the
+  // date regex and the upload would fail with a Zod issue list.
+  for (const k of ["summary_date", "period_start", "period_end", "store_name_on_report", "store_code_on_report", "rejection_reason"] as const) {
+    const v = (raw as Record<string, unknown>)[k];
+    if (typeof v === "string" && v.trim() === "") (raw as Record<string, unknown>)[k] = null;
+  }
   // Strict re-validation (date regex, currency default); `raw` keeps
   // check_notes for raw_ocr_json.
   const parsed = storeSummaryOcrSchema.parse(raw);
@@ -324,7 +330,7 @@ async function retranscribeTryColumn(
         },
       ],
       output_config: { format: zodOutputFormat(tryColumnSchema) },
-    });
+    }, { timeout: 15_000 });
     return response.parsed_output?.amounts ?? null;
   } catch (e) {
     console.warn("[OCR] TRY column re-transcription failed", e);

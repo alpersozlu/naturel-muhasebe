@@ -209,10 +209,15 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
   });
 
   const openFile = async (id: string) => {
+    // iOS Safari only honours window.open inside the tap itself; open the
+    // tab first, then point it at the signed URL.
+    const tab = window.open("", "_blank");
     try {
       const res = await utils.upload.signedUrl.fetch({ id });
-      window.open(res.url, "_blank", "noopener");
+      if (tab) tab.location.href = res.url;
+      else window.location.assign(res.url);
     } catch (e) {
+      tab?.close();
       toast.error(e instanceof Error ? e.message : String(e));
     }
   };
@@ -225,7 +230,8 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
         <div className="px-5 py-3 border-b">
           <div className="font-semibold">Bu güne ait yüklemeler</div>
           <div className="text-xs text-muted-foreground">
-            {date} — {data?.length ?? 0} dosya
+            {new Date(`${date}T00:00:00.000Z`).toLocaleDateString("tr-TR", { timeZone: "UTC" })} —{" "}
+            {data?.length ?? 0} dosya
           </div>
         </div>
 
@@ -456,6 +462,17 @@ function UploadRowItem({
                 Okunan: {readCheckNotes(upload.raw_ocr_json)}
               </span>
             ) : null}
+            {/* The icon in the action column has no label on a phone; say it
+                in words where the error is read. */}
+            {onRetry ? (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="block mt-2 text-[11px] font-medium underline underline-offset-2 text-rose-800 hover:text-rose-900"
+              >
+                Aynı fotoğrafı yeniden analiz et
+              </button>
+            ) : null}
             {/* Nebim cross-check rejections: the photo may be right and the
                 bridge wrong (a cancelled document). Admin decides. */}
             {onAcceptGap &&
@@ -583,7 +600,7 @@ function ParsedFields({
             ? new Date(p.slip_date).toLocaleDateString("tr-TR")
             : "—";
           return (
-            <div key={p.id} className="grid grid-cols-4 gap-4 w-full">
+            <div key={p.id} className="grid grid-cols-2 lg:grid-cols-4 gap-4 w-full">
               <MiniField label="Banka" value={p.bank_name ?? "—"} />
               <MiniField label="Tarih" value={dateStr} />
               <MiniField label="Terminal" value={p.terminal_no ?? "—"} />
@@ -605,7 +622,7 @@ function ParsedFields({
       ? new Date(`${expectedDate}T00:00:00.000Z`).toLocaleDateString("tr-TR")
       : "—";
     return (
-      <div className="grid grid-cols-4 gap-4 w-full">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 w-full">
         <MiniField label="Tarih" value={dateStr} />
         <MiniField label="Nakit" value={`${TRY_FMT.format(num(s.cash_sales))} ₺`} />
         <MiniField

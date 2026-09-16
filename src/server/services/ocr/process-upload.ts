@@ -127,13 +127,46 @@ export async function processUpload(uploadId: string): Promise<void> {
     else if (upload.type === "z_report") await runZReport(upload, buffer);
     else if (upload.type === "dealer_daily_report") await runDealerDailyReport(upload, buffer);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error("[OCR] failed", { uploadId, type: upload.type, error: msg });
+    const raw = e instanceof Error ? e.message : String(e);
+    console.error("[OCR] failed", { uploadId, type: upload.type, error: raw });
     await prisma.upload.update({
       where: { id: uploadId },
-      data: { status: "failed", error_message: msg.slice(0, 1000) },
+      data: { status: "failed", error_message: humanizeOcrError(e).slice(0, 1000) },
     });
   }
+}
+
+/**
+ * Domain errors are already Turkish and actionable; everything else
+ * (SDK timeouts, 5xx, sharp/heic decode errors, Zod re-validation of the
+ * model's output) reached the cashier verbatim — "Request timed out.",
+ * a JSON issue array. Map those to one line that says what to do.
+ */
+function humanizeOcrError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  const name = e instanceof Error ? e.constructor.name : "";
+  if (name === "ZodError" || msg.trimStart().startsWith("[")) {
+    return "Belgeden okunan değerler beklenen biçimde değil. Görseli dik, yakından ve net çekip yeniden yükleyin.";
+  }
+  if (/timed out|ETIMEDOUT|APIConnectionTimeout/i.test(msg)) {
+    return "Okuma servisi zamanında yanıt vermedi. \"Yeniden analiz et\" ile tekrar deneyin.";
+  }
+  if (/overloaded|529|rate limit|429|500|502|503|APIError|Internal server error/i.test(msg) && !/[çğıöşü]/i.test(msg)) {
+    return "Okuma servisi geçici olarak yanıt vermiyor. Birkaç dakika sonra \"Yeniden analiz et\" ile tekrar deneyin.";
+  }
+  if (/credit balance|insufficient|billing/i.test(msg)) {
+    return "Okuma servisi bakiyesi bitti — yöneticinize bildirin.";
+  }
+  if (/unsupported image|Input buffer|heic|heif|VipsJpeg|corrupt|Input file/i.test(msg) && !/[çğıöşü]/i.test(msg)) {
+    return "Görsel dosyası açılamadı (bozuk ya da desteklenmeyen biçim). Fotoğrafı yeniden çekip yükleyin.";
+  }
+  if (/non-JSON|Claude returned/i.test(msg)) {
+    return "Belge okunamadı (okuma servisi beklenmeyen yanıt verdi). \"Yeniden analiz et\" ile tekrar deneyin.";
+  }
+  if (/Unique constraint|P2002/i.test(msg)) {
+    return "Bu güne aynı türde bir belge zaten kayıtlı. Önce mevcut kaydı silin.";
+  }
+  return msg;
 }
 
 async function downloadUpload(upload: Upload): Promise<Buffer | null> {
@@ -364,8 +397,10 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     periodStart = g.start_date;
     periodEnd = g.end_date;
   } else {
-    // Normal tek gün — eski katı tarih kontrolü
-    await assertDateMatch(
+    // Normal tek gün — eski katı tarih kontrolü. The resolved date (year
+    // leniency) is what gets persisted, or a "2025" misread would land in
+    // the wrong year and skip the Nebim cross-check.
+    parsed.summary_date = await assertDateMatch(
       upload.daily_record_id,
       parsed.summary_date,
       "Mağaza özeti"
@@ -652,7 +687,7 @@ async function runBankReceipt(upload: Upload, buffer: Buffer): Promise<void> {
         "Bu bir İban dekontu gibi görünmüyor. Lütfen IBAN'lı bir banka transferi/havale dekontu yükleyin."
     );
   }
-  await assertDateMatch(upload.daily_record_id, parsed.deposit_date, "İban dekontu");
+  parsed.deposit_date = await assertDateMatch(upload.daily_record_id, parsed.deposit_date, "İban dekontu");
   if (parsed.amount === null) {
     throw new Error(
       "İban dekontundan tutar okunamadı — manuel düzenleme gerekli"

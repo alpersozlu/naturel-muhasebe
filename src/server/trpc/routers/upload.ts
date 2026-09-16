@@ -21,8 +21,29 @@ import { processUpload } from "@/server/services/ocr/process-upload";
 import { checkZApproval } from "@/server/services/verification/z-rule";
 import { waitUntil } from "@vercel/functions";
 
-/** OCR'ın makul üst sınırının (maxDuration=60s) çok üstü — canlı işi vurmaz. */
-const STALE_PROCESSING_MS = 5 * 60 * 1000;
+/**
+ * A background OCR killed by the 60 s function limit never reaches its
+ * catch; the row stays "processing" and counts as content for the
+ * prior-day lock gate. 90 s is safely above the limit and short enough
+ * that a manager who closed the tab is not blocked the next morning.
+ */
+const STALE_PROCESSING_MS = 90_000;
+
+async function sweepStale(prisma: typeof import("@/lib/prisma").prisma, where: { daily_record_id?: string; daily_record?: { store_id: string } }) {
+  await prisma.upload.updateMany({
+    where: {
+      ...where,
+      status: { in: ["processing", "pending"] },
+      uploaded_at: { lt: new Date(Date.now() - STALE_PROCESSING_MS) },
+    },
+    data: {
+      status: "failed",
+      error_message:
+        "İşlem zaman aşımına uğradı — belge okunurken süre sınırı doldu. " +
+        "\"Yeniden analiz et\" ile tekrar deneyin; olmazsa görseli biraz daha küçük çekin.",
+    },
+  });
+}
 
 export const uploadRouter = router({
   /**
@@ -52,6 +73,9 @@ export const uploadRouter = router({
           message: "Bu gün kilitli, yükleme yapılamaz",
         });
       }
+
+      // Dead "processing" rows of earlier days would trip the prior-day gate.
+      await sweepStale(ctx.prisma, { daily_record: { store_id: input.store_id } });
 
       const buffer = Buffer.from(input.file_base64, "base64");
       const file_hash = createHash("sha256").update(buffer).digest("hex");
@@ -134,20 +158,7 @@ export const uploadRouter = router({
       // catch bloğu hiç çalışmaz; kayıt "processing"de asılı kalır. Bu liste
       // her 3 sn'de bir çekildiği için ölü kayıtları burada süpürüyoruz:
       // maxDuration'ın çok üstünde bir yaş, canlı bir işi yakalamaz.
-      const staleBefore = new Date(Date.now() - STALE_PROCESSING_MS);
-      await ctx.prisma.upload.updateMany({
-        where: {
-          daily_record_id: dr.id,
-          status: { in: ["processing", "pending"] },
-          uploaded_at: { lt: staleBefore },
-        },
-        data: {
-          status: "failed",
-          error_message:
-            "İşlem zaman aşımına uğradı — belge okunurken süre sınırı doldu. " +
-            "Lütfen tekrar yükleyin; olmazsa görseli biraz daha küçük çekin.",
-        },
-      });
+      await sweepStale(ctx.prisma, { daily_record_id: dr.id });
 
       return ctx.prisma.upload.findMany({
         where: { daily_record_id: dr.id },
@@ -246,8 +257,19 @@ export const uploadRouter = router({
           message: "Gün kilitli, yalnızca admin silebilir",
         });
       }
-      await deleteFromStorage(upload.file_url);
+      if (upload.type === "corporate_receipt") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Kurumsal alışveriş fişi tek başına silinemez; Kurumsal & Yönetim kartından alışveriş kaydını silin.",
+        });
+      }
       await ctx.prisma.upload.delete({ where: { id: input.id } });
+      // Storage last: a failed object delete costs a stray file, a failed
+      // row delete after the object is gone leaves a row that can never
+      // be re-read.
+      await deleteFromStorage(upload.file_url).catch((e) =>
+        console.error("[upload.delete] storage cleanup failed", e)
+      );
       return { ok: true };
     }),
 

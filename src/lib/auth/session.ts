@@ -18,7 +18,7 @@ export async function getSession(): Promise<SessionUser | null> {
 
   // DB'de bu kullanıcının kaydı var mı? Soft-deleted ise oturum geçersiz.
   const dbUser = await prisma.user.findUnique({ where: { email: user.email } });
-  if (!dbUser || dbUser.deleted_at) return null;
+  if (!dbUser || dbUser.deleted_at || !dbUser.is_active) return null;
 
   return { ...dbUser, authUserId: user.id, email: user.email };
 }

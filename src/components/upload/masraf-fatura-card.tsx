@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { inferFileMime } from "@/lib/file-mime";
 import { toast } from "sonner";
 import { Upload, Loader2, Wallet } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -58,7 +59,7 @@ async function compressImageIfNeeded(file: File): Promise<{
   mimeType: string;
   filename: string;
 }> {
-  const t = file.type;
+  const t = inferFileMime(file);
   const isCompressible =
     t === "image/jpeg" || t === "image/png" || t === "image/webp";
   if (!isCompressible) return { blob: file, mimeType: t, filename: file.name };
@@ -100,6 +101,11 @@ async function compressImageIfNeeded(file: File): Promise<{
 }
 
 function humanizeUploadError(msg: string): string {
+  if (msg.trimStart().startsWith("[")) {
+    return "Dosya türü desteklenmiyor. JPG, PNG, HEIC ya da PDF yükleyin.";
+  }
+  if (msg === "UNAUTHORIZED") return "Oturumunuz kapanmış — sayfayı yenileyip yeniden giriş yapın.";
+  if (msg === "FORBIDDEN") return "Bu işlem için yetkiniz yok.";
   if (
     msg.includes("Unexpected token") ||
     msg.includes("not valid JSON") ||

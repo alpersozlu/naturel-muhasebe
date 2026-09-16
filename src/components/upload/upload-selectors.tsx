@@ -1,6 +1,7 @@
 "use client";
 
 import { trpc } from "@/lib/trpc";
+import { useEffect } from "react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import {
@@ -29,6 +30,19 @@ export function UploadSelectors({
     { brand_id: value.brandId },
     { enabled: !!value.brandId }
   );
+
+  // A manager with one brand and one store should not have to pick them
+  // every morning: choose the only option automatically.
+  useEffect(() => {
+    if (!value.brandId && brands?.length === 1) {
+      onChange({ ...value, brandId: brands[0]!.id, storeId: "" });
+    }
+  }, [brands, value, onChange]);
+  useEffect(() => {
+    if (value.brandId && !value.storeId && stores?.length === 1) {
+      onChange({ ...value, storeId: stores[0]!.id });
+    }
+  }, [stores, value, onChange]);
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">

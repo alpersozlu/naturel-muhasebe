@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { inferFileMime } from "@/lib/file-mime";
 import { toast } from "sonner";
 import { Upload, Loader2, type LucideIcon } from "lucide-react";
 import type { UploadType } from "@prisma/client";
@@ -39,7 +40,7 @@ async function compressImageIfNeeded(file: File): Promise<{
   mimeType: string;
   filename: string;
 }> {
-  const t = file.type;
+  const t = inferFileMime(file);
   const isCompressible =
     t === "image/jpeg" || t === "image/png" || t === "image/webp";
 
@@ -93,6 +94,12 @@ async function compressImageIfNeeded(file: File): Promise<{
  * Yükleme hatası gelirse kullanıcı dostu mesaja çevir.
  */
 function humanizeUploadError(msg: string): string {
+  // Zod issue list (e.g. an unknown MIME type) — not a sentence for staff.
+  if (msg.trimStart().startsWith("[")) {
+    return "Dosya türü desteklenmiyor. JPG, PNG, HEIC ya da PDF yükleyin.";
+  }
+  if (msg === "UNAUTHORIZED") return "Oturumunuz kapanmış — sayfayı yenileyip yeniden giriş yapın.";
+  if (msg === "FORBIDDEN") return "Bu işlem için yetkiniz yok.";
   if (
     msg.includes("Unexpected token") ||
     msg.includes("not valid JSON") ||

@@ -57,7 +57,7 @@ export async function detectOrientation(image: Buffer): Promise<QuarterTurn> {
       max_tokens: 64,
       messages: [{ role: "user", content }],
       output_config: { format: zodOutputFormat(pickSchema) },
-    });
+    }, { timeout: 12_000 });
     const idx = Number(response.parsed_output?.upright_image ?? "1") - 1;
     return CANDIDATES[idx] ?? 0;
   } catch (e) {

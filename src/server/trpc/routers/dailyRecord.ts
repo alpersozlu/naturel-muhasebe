@@ -143,16 +143,26 @@ export const dailyRecordRouter = router({
       const result = await computeDay(ctx.prisma, input.id);
       await persistVerification(ctx.prisma, input.id, result);
 
-      return ctx.prisma.dailyRecord.update({
+      const now = new Date();
+      const locked = await ctx.prisma.dailyRecord.update({
         where: { id: input.id },
         data: {
           status: "locked",
           approved_by: ctx.user.id,
-          approved_at: new Date(),
-          locked_at: new Date(),
+          approved_at: now,
+          locked_at: now,
         },
         include: { verification: true },
       });
+      // A merge group closes as one: the summary lives on its last day and
+      // the earlier days have no summary of their own to lock with.
+      if (dr.merge_group_id) {
+        await ctx.prisma.dailyRecord.updateMany({
+          where: { merge_group_id: dr.merge_group_id, status: { not: "locked" } },
+          data: { status: "locked", approved_by: ctx.user.id, approved_at: now, locked_at: now },
+        });
+      }
+      return locked;
     }),
 
   /**
@@ -457,6 +467,17 @@ export const dailyRecordRouter = router({
         input.date
       );
       const dateObj = new Date(`${input.date}T00:00:00.000Z`);
+      // Locked day: refuse BEFORE writing (the old order saved the value
+      // and then threw, changing a closed day's evidence).
+      {
+        const cur = await ctx.prisma.dailyRecord.findUnique({
+          where: { store_id_date: { store_id: input.store_id, date: dateObj } },
+          select: { status: true },
+        });
+        if (cur?.status === "locked" && !isAdmin(ctx.user)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Gün kilitli, yalnızca admin değiştirebilir" });
+        }
+      }
 
       // DailyRecord yoksa oluştur (lazy)
       const dr = await ctx.prisma.dailyRecord.upsert({
@@ -522,6 +543,17 @@ export const dailyRecordRouter = router({
         input.date
       );
       const dateObj = new Date(`${input.date}T00:00:00.000Z`);
+      // Locked day: refuse BEFORE writing (the old order saved the value
+      // and then threw, changing a closed day's evidence).
+      {
+        const cur = await ctx.prisma.dailyRecord.findUnique({
+          where: { store_id_date: { store_id: input.store_id, date: dateObj } },
+          select: { status: true },
+        });
+        if (cur?.status === "locked" && !isAdmin(ctx.user)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Gün kilitli, yalnızca admin değiştirebilir" });
+        }
+      }
 
       const dr = await ctx.prisma.dailyRecord.upsert({
         where: {
@@ -587,6 +619,17 @@ export const dailyRecordRouter = router({
         input.date
       );
       const dateObj = new Date(`${input.date}T00:00:00.000Z`);
+      // Locked day: refuse BEFORE writing (the old order saved the value
+      // and then threw, changing a closed day's evidence).
+      {
+        const cur = await ctx.prisma.dailyRecord.findUnique({
+          where: { store_id_date: { store_id: input.store_id, date: dateObj } },
+          select: { status: true },
+        });
+        if (cur?.status === "locked" && !isAdmin(ctx.user)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Gün kilitli, yalnızca admin değiştirebilir" });
+        }
+      }
 
       const dr = await ctx.prisma.dailyRecord.upsert({
         where: {
@@ -652,6 +695,17 @@ export const dailyRecordRouter = router({
         });
       }
       const dateObj = new Date(`${input.date}T00:00:00.000Z`);
+      // Locked day: refuse BEFORE writing (the old order saved the value
+      // and then threw, changing a closed day's evidence).
+      {
+        const cur = await ctx.prisma.dailyRecord.findUnique({
+          where: { store_id_date: { store_id: input.store_id, date: dateObj } },
+          select: { status: true },
+        });
+        if (cur?.status === "locked" && !isAdmin(ctx.user)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Gün kilitli, yalnızca admin değiştirebilir" });
+        }
+      }
       const prevObj = new Date(`${input.prev_date}T00:00:00.000Z`);
 
       const prev = await ctx.prisma.dailyRecord.findUnique({

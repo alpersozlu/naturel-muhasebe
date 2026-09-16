@@ -74,7 +74,19 @@ export async function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-pathname", pathname);
   const withPath = NextResponse.next({ request: { headers: requestHeaders } });
-  response.headers.forEach((v, k) => withPath.headers.set(k, v));
+  // next-intl's response carries its own x-middleware-override-headers
+  // list; copying it verbatim replaced ours and dropped x-pathname, so the
+  // layout never saw the path and its non-admin redirect never ran. Merge
+  // the two lists instead.
+  const ours = withPath.headers.get("x-middleware-override-headers") ?? "";
+  const theirs = response.headers.get("x-middleware-override-headers") ?? "";
+  response.headers.forEach((v, k) => {
+    if (k !== "x-middleware-override-headers") withPath.headers.set(k, v);
+  });
+  const merged = Array.from(
+    new Set(`${ours},${theirs}`.split(",").map((h) => h.trim()).filter(Boolean))
+  ).join(",");
+  if (merged) withPath.headers.set("x-middleware-override-headers", merged);
   for (const c of response.cookies.getAll()) withPath.cookies.set(c);
   return withPath;
 }

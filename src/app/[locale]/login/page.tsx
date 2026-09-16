@@ -31,7 +31,15 @@ export default function LoginPage() {
       const supabase = createClient();
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
-        toast.error(t("invalidCredentials"));
+        const code = (error as { code?: string }).code ?? "";
+        const msg = error.message ?? "";
+        if (code === "user_banned" || /banned/i.test(msg)) {
+          toast.error("Hesabınız devre dışı bırakılmış — yöneticinize başvurun.");
+        } else if (/fetch|network/i.test(msg)) {
+          toast.error("Bağlantı hatası — internetinizi kontrol edip tekrar deneyin.");
+        } else {
+          toast.error(t("invalidCredentials"));
+        }
         return;
       }
       router.refresh();
@@ -76,7 +84,7 @@ export default function LoginPage() {
               />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "..." : t("signIn")}
+              {loading ? "Giriş yapılıyor…" : t("signIn")}
             </Button>
           </form>
         </CardContent>
