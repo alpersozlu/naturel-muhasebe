@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -17,6 +17,12 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  // The invitation e-mail links here with ?email=…, so the person only
+  // types the password.
+  useEffect(() => {
+    const preset = new URLSearchParams(window.location.search).get("email");
+    if (preset) setEmail(preset);
+  }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

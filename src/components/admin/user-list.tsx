@@ -428,6 +428,7 @@ function tempPassword(): string {
 function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
   const [pw, setPw] = useState(() => tempPassword());
   const [applied, setApplied] = useState(false);
+  const [salutation, setSalutation] = useState<"none" | "hanim" | "bey">("none");
   const setPassword = trpc.user.setPassword.useMutation({
     onError: (e) => toast.error(e.message),
   });
@@ -443,20 +444,31 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const loginUrl = `${origin}/tr/login`;
   const storeNames = user.store_access.map((a) => a.store.name).join(", ");
+  const firstName = (user.full_name ?? "").trim().split(/\s+/)[0] ?? "";
+  const addressee =
+    salutation === "hanim" && firstName
+      ? `${firstName} Hanım`
+      : salutation === "bey" && firstName
+        ? `${firstName} Bey`
+        : (user.full_name ?? "").trim();
+  const subject = addressee
+    ? `Naturel Muhasebe'ye hoş geldiniz, ${addressee}`
+    : "Naturel Muhasebe'ye hoş geldiniz";
+  const link = `${loginUrl}?email=${encodeURIComponent(user.email)}`;
   const message = [
-    `Merhaba ${user.full_name ?? ""}`.trim() + ",",
+    subject,
     "",
-    "Naturel Ticaret muhasebe sistemine erişiminiz açıldı.",
-    `Giriş adresi: ${loginUrl}`,
+    "Hesabınız hazır. Aşağıdaki bağlantıyı açıp e-posta adresiniz ve geçici şifrenizle giriş yapabilirsiniz.",
+    "",
+    `Giriş: ${link}`,
     `E-posta: ${user.email}`,
     `Geçici şifre: ${pw}`,
     storeNames ? `Mağaza: ${storeNames}` : null,
     "",
-    "Giriş yaptıktan sonra şifrenizi değiştirmek isterseniz yöneticinize yazın.",
+    "Şifrenizi değiştirmek isterseniz yöneticinize yazmanız yeterli.",
   ]
     .filter((l): l is string => l !== null)
     .join("\n");
-  const subject = "Naturel Ticaret muhasebe — giriş bilgileriniz";
   const mailto = `mailto:${encodeURIComponent(user.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
 
   const apply = async (): Promise<boolean> => {
@@ -500,6 +512,19 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
         </DialogHeader>
         <div className="space-y-3 py-1">
           <div className="space-y-1.5">
+            <Label>Hitap</Label>
+            <Select value={salutation} onValueChange={(v) => setSalutation(v as "none" | "hanim" | "bey")}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{(user.full_name ?? user.email).trim() || user.email}</SelectItem>
+                {firstName ? <SelectItem value="hanim">{firstName} Hanım</SelectItem> : null}
+                {firstName ? <SelectItem value="bey">{firstName} Bey</SelectItem> : null}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
             <Label>Geçici şifre</Label>
             <Input
               type="text"
@@ -514,7 +539,7 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
             <textarea
               readOnly
               value={message}
-              rows={9}
+              rows={11}
               className="w-full rounded-md border border-input bg-muted/30 px-3 py-2 text-sm leading-relaxed font-mono"
             />
           </div>
@@ -539,7 +564,7 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
           {mailReady ? (
             <Button
               disabled={sendInvite.isPending || setPassword.isPending || pw.length < 8}
-              onClick={() => sendInvite.mutate({ id: user.id, password: pw, login_url: loginUrl })}
+              onClick={() => sendInvite.mutate({ id: user.id, password: pw, login_url: loginUrl, salutation })}
             >
               {sendInvite.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />}
               E-posta gönder

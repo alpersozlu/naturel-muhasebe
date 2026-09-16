@@ -134,34 +134,49 @@ export const userRouter = router({
     }
 
     const stores = user.store_access.map((a) => a.store.name).join(", ");
-    const greeting = user.full_name ? `Merhaba ${user.full_name},` : "Merhaba,";
+    const firstName = (user.full_name ?? "").trim().split(/\s+/)[0] ?? "";
+    const addressee =
+      input.salutation === "hanim" && firstName
+        ? `${firstName} Hanım`
+        : input.salutation === "bey" && firstName
+          ? `${firstName} Bey`
+          : (user.full_name ?? "").trim();
+    const title = addressee ? `Naturel Muhasebe'ye hoş geldiniz, ${addressee}` : "Naturel Muhasebe'ye hoş geldiniz";
+    const link = `${input.login_url}?email=${encodeURIComponent(user.email)}`;
     const lines = [
-      greeting,
+      title,
       "",
-      "Naturel Ticaret muhasebe sistemine erişiminiz açıldı.",
-      `Giriş adresi: ${input.login_url}`,
+      "Hesabınız hazır. Aşağıdaki bağlantıyı açıp e-posta adresiniz ve geçici şifrenizle giriş yapabilirsiniz.",
+      "",
+      `Giriş: ${link}`,
       `E-posta: ${user.email}`,
       `Geçici şifre: ${input.password}`,
       ...(stores ? [`Mağaza: ${stores}`] : []),
       "",
-      "Giriş yaptıktan sonra şifrenizi değiştirmek isterseniz yöneticinize yazın.",
+      "Şifrenizi değiştirmek isterseniz yöneticinize yazmanız yeterli.",
     ];
     const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.6;color:#111">
-      <p>${esc(greeting)}</p>
-      <p>Naturel Ticaret muhasebe sistemine erişiminiz açıldı.</p>
-      <table style="border-collapse:collapse;font-size:15px">
-        <tr><td style="padding:4px 12px 4px 0;color:#666">Giriş adresi</td><td><a href="${esc(input.login_url)}">${esc(input.login_url)}</a></td></tr>
-        <tr><td style="padding:4px 12px 4px 0;color:#666">E-posta</td><td>${esc(user.email)}</td></tr>
-        <tr><td style="padding:4px 12px 4px 0;color:#666">Geçici şifre</td><td><code style="font-size:16px">${esc(input.password)}</code></td></tr>
-        ${stores ? `<tr><td style="padding:4px 12px 4px 0;color:#666">Mağaza</td><td>${esc(stores)}</td></tr>` : ""}
-      </table>
-      <p style="color:#666">Giriş yaptıktan sonra şifrenizi değiştirmek isterseniz yöneticinize yazın.</p>
+    const row = (k: string, v: string) =>
+      `<tr><td style="padding:6px 16px 6px 0;color:#6b7280;white-space:nowrap">${k}</td><td style="padding:6px 0;color:#111827">${v}</td></tr>`;
+    const html = `<div style="margin:0;padding:32px 16px;background:#f6f6f7;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+      <div style="max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:32px">
+        <p style="margin:0 0 4px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#6b7280">Naturel Ticaret · Muhasebe</p>
+        <h1 style="margin:0 0 16px;font-size:22px;line-height:1.3;color:#111827">${esc(title)}</h1>
+        <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#374151">Hesabınız hazır. Aşağıdaki düğmeye tıklayın, e-posta adresiniz ve geçici şifrenizle giriş yapın.</p>
+        <p style="margin:0 0 28px"><a href="${esc(link)}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 22px;border-radius:8px">Sisteme giriş yap</a></p>
+        <table style="border-collapse:collapse;font-size:15px;width:100%">
+          ${row("E-posta", esc(user.email))}
+          ${row("Geçici şifre", `<code style="font-size:16px;background:#f3f4f6;padding:2px 8px;border-radius:6px">${esc(input.password)}</code>`)}
+          ${stores ? row("Mağaza", esc(stores)) : ""}
+        </table>
+        <p style="margin:24px 0 0;font-size:13px;line-height:1.6;color:#6b7280">Düğme açılmazsa bu adresi tarayıcınıza yapıştırın:<br><a href="${esc(link)}" style="color:#374151">${esc(link)}</a></p>
+        <p style="margin:16px 0 0;font-size:13px;line-height:1.6;color:#6b7280">Şifrenizi değiştirmek isterseniz yöneticinize yazmanız yeterli.</p>
+      </div>
     </div>`;
     try {
       await sendMail({
         to: user.email,
-        subject: "Naturel Ticaret muhasebe — giriş bilgileriniz",
+        subject: title,
         text: lines.join("\n"),
         html,
       });

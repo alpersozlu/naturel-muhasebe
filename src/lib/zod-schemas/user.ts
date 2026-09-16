@@ -46,6 +46,8 @@ export const userSendInviteSchema = z.object({
   id: z.string().uuid(),
   password: z.string().min(8, "En az 8 karakter"),
   login_url: z.string().url().max(300),
+  /** How to address the person: "Döne Hanım", "Ali Bey" or the full name. The admin picks; never inferred. */
+  salutation: z.enum(["none", "hanim", "bey"]).default("none"),
 });
 
 export const userSetActiveSchema = z.object({
