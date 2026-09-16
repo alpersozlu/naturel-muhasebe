@@ -371,7 +371,7 @@ function PasswordDialog({ user, onClose }: { user: Row; onClose: () => void }) {
     },
     onError: (e) => toast.error(e.message),
   });
-  const tooShort = pw.length > 0 && pw.length < 8;
+  const tooShort = pw.length > 0 && pw.length < 6;
   return (
     <Dialog open onOpenChange={(o) => !o && !setPassword.isPending && onClose()}>
       <DialogContent className="sm:max-w-md">
@@ -387,17 +387,17 @@ function PasswordDialog({ user, onClose }: { user: Row; onClose: () => void }) {
             type="text"
             value={pw}
             onChange={(e) => setPw(e.target.value)}
-            placeholder="En az 8 karakter"
+            placeholder="En az 6 karakter"
             autoFocus
           />
-          {tooShort ? <p className="text-xs text-rose-600">En az 8 karakter olmalı</p> : null}
+          {tooShort ? <p className="text-xs text-rose-600">En az 6 karakter olmalı</p> : null}
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" disabled={setPassword.isPending} onClick={onClose}>
             Vazgeç
           </Button>
           <Button
-            disabled={setPassword.isPending || pw.length < 8}
+            disabled={setPassword.isPending || pw.length < 6}
             onClick={() => setPassword.mutate({ id: user.id, password: pw })}
           >
             {setPassword.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
@@ -409,30 +409,22 @@ function PasswordDialog({ user, onClose }: { user: Row; onClose: () => void }) {
   );
 }
 
-/** Unambiguous temporary password: no 0/O, 1/l/I. */
-function tempPassword(): string {
-  const letters = "ABCDEFGHJKMNPQRSTUVWXYZ";
-  const mixed = "abcdefghjkmnpqrstuvwxyz23456789";
-  const pick = (a: string, n: number) =>
-    Array.from({ length: n }, () => a[Math.floor(Math.random() * a.length)]).join("");
-  return `${pick(letters, 2)}-${pick(mixed, 4)}-${pick("23456789", 2)}`;
-}
-
 /**
- * The app sends no e-mail itself (Supabase's built-in mailer only reaches
- * project members). The invitation is a ready message — login address,
- * e-mail, a fresh temporary password, store — that the admin copies into
- * WhatsApp or opens in their own mail app. Setting the password and
- * copying happen together so the message never carries a stale one.
+ * Invitation: the admin decides the password (or leaves it as it is) and
+ * where the message goes. The mail carries the login address, the account
+ * e-mail, the password only if one was typed here, and the store. Sending
+ * or copying sets the typed password on the account at that moment, so
+ * what goes out always matches the account.
  */
 function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
-  const [pw, setPw] = useState(() => tempPassword());
+  const [pw, setPw] = useState("");
+  const [to, setTo] = useState(user.email);
   const [applied, setApplied] = useState(false);
   const [salutation, setSalutation] = useState<"none" | "hanim" | "bey">("none");
   const setPassword = trpc.user.setPassword.useMutation({
     onError: (e) => toast.error(e.message),
   });
-  // Outgoing e-mail exists only when SMTP is configured on the server.
+  // Outgoing e-mail exists only when Resend / SMTP is configured on the server.
   const { data: mailReady } = trpc.user.mailConfigured.useQuery();
   const sendInvite = trpc.user.sendInvite.useMutation({
     onSuccess: (r) => {
@@ -459,26 +451,30 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
     ? `Naturel Muhasebe'ye hoş geldiniz, ${addressee}`
     : "Naturel Muhasebe'ye hoş geldiniz";
   const link = `${loginUrl}?email=${encodeURIComponent(user.email)}`;
+  const pwTooShort = pw.length > 0 && pw.length < 6;
+  const toValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.trim());
   const message = [
     subject,
     "",
-    "Hesabınız hazır. Aşağıdaki bağlantıyı açıp e-posta adresiniz ve geçici şifrenizle giriş yapabilirsiniz.",
+    "Hesabınız hazır. Aşağıdaki bağlantıyı açıp e-posta adresiniz ve şifrenizle giriş yapabilirsiniz.",
     "",
     `Giriş: ${link}`,
     `E-posta: ${user.email}`,
-    `Geçici şifre: ${pw}`,
+    pw ? `Şifre: ${pw}` : "Şifre: yöneticiniz size ayrıca iletecek.",
     storeNames ? `Mağaza: ${storeNames}` : null,
     "",
     "Şifrenizi değiştirmek isterseniz yöneticinize yazmanız yeterli.",
   ]
     .filter((l): l is string => l !== null)
     .join("\n");
-  const mailto = `mailto:${encodeURIComponent(user.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+  const mailto = `mailto:${encodeURIComponent(to.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
 
+  // Set the typed password on the account (once); nothing to do when the
+  // field is empty — the account keeps whatever the admin set before.
   const apply = async (): Promise<boolean> => {
-    if (applied) return true;
-    if (pw.length < 8) {
-      toast.error("Şifre en az 8 karakter olmalı");
+    if (!pw || applied) return true;
+    if (pw.length < 6) {
+      toast.error("Şifre en az 6 karakter olmalı");
       return false;
     }
     try {
@@ -493,7 +489,7 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
     if (!(await apply())) return;
     try {
       await navigator.clipboard.writeText(message);
-      toast.success("Şifre ayarlandı, mesaj panoya kopyalandı");
+      toast.success(pw ? "Şifre ayarlandı, mesaj panoya kopyalandı" : "Mesaj panoya kopyalandı");
     } catch {
       toast.error("Panoya kopyalanamadı — metni elle seçip kopyalayın");
     }
@@ -502,16 +498,17 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
     if (!(await apply())) return;
     window.location.href = mailto;
   };
+  const busy = setPassword.isPending || sendInvite.isPending;
 
   return (
-    <Dialog open onOpenChange={(o) => !o && !setPassword.isPending && onClose()}>
+    <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Davet gönder</DialogTitle>
           <DialogDescription>
             {mailReady
-              ? "Giriş bilgileri kullanıcının e-postasına gönderilir; gönderirken geçici şifre hesaba atanır. İstersen mesajı kopyalayıp WhatsApp ile de iletebilirsin."
-              : "Otomatik e-posta için RESEND_API_KEY tanımlanmamış. Mesajı kopyalayıp WhatsApp ile iletin ya da e-posta uygulamanızda açın; gönderirken geçici şifre hesaba atanır."}
+              ? "Giriş bilgileri aşağıdaki adrese gönderilir. Şifre alanını boş bırakırsan hesabın şifresi değişmez ve mailde şifre yazmaz; yazarsan o şifre hesaba atanır ve mailde yer alır."
+              : "Otomatik e-posta için RESEND_API_KEY tanımlanmamış. Mesajı kopyalayıp WhatsApp ile iletin ya da e-posta uygulamanızda açın. Şifre alanı boşsa hesabın şifresi değişmez."}
           </DialogDescription>
         </DialogHeader>
         {mailReady ? (
@@ -525,28 +522,36 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
           </button>
         ) : null}
         <div className="space-y-3 py-1">
-          <div className="space-y-1.5">
-            <Label>Hitap</Label>
-            <Select value={salutation} onValueChange={(v) => setSalutation(v as "none" | "hanim" | "bey")}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">{(user.full_name ?? user.email).trim() || user.email}</SelectItem>
-                {firstName ? <SelectItem value="hanim">{firstName} Hanım</SelectItem> : null}
-                {firstName ? <SelectItem value="bey">{firstName} Bey</SelectItem> : null}
-              </SelectContent>
-            </Select>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Hitap</Label>
+              <Select value={salutation} onValueChange={(v) => setSalutation(v as "none" | "hanim" | "bey")}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{(user.full_name ?? user.email).trim() || user.email}</SelectItem>
+                  {firstName ? <SelectItem value="hanim">{firstName} Hanım</SelectItem> : null}
+                  {firstName ? <SelectItem value="bey">{firstName} Bey</SelectItem> : null}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Gönderilecek adres</Label>
+              <Input type="email" value={to} onChange={(e) => setTo(e.target.value)} />
+              {!toValid ? <p className="text-xs text-rose-600">Geçerli bir e-posta yazın</p> : null}
+            </div>
           </div>
           <div className="space-y-1.5">
-            <Label>Geçici şifre</Label>
+            <Label>Şifre (isteğe bağlı)</Label>
             <Input
               type="text"
               value={pw}
               disabled={applied}
               onChange={(e) => setPw(e.target.value)}
+              placeholder="Boş bırak: şifre değişmez, mailde yazmaz"
             />
-            {pw.length < 8 ? <p className="text-xs text-rose-600">En az 8 karakter olmalı</p> : null}
+            {pwTooShort ? <p className="text-xs text-rose-600">En az 6 karakter olmalı</p> : null}
           </div>
           <div className="space-y-1.5">
             <Label>Mesaj</Label>
@@ -559,26 +564,30 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
           </div>
         </div>
         <DialogFooter className="gap-2 flex-wrap">
-          <Button variant="outline" disabled={setPassword.isPending || sendInvite.isPending} onClick={onClose}>
+          <Button variant="outline" disabled={busy} onClick={onClose}>
             Kapat
           </Button>
           {!mailReady ? (
-            <Button variant="outline" disabled={setPassword.isPending || pw.length < 8} onClick={openMail}>
+            <Button variant="outline" disabled={busy || pwTooShort || !toValid} onClick={openMail}>
               <Mail className="h-4 w-4 mr-1.5" /> E-posta ile aç
             </Button>
           ) : null}
-          <Button
-            variant={mailReady ? "outline" : "default"}
-            disabled={setPassword.isPending || sendInvite.isPending || pw.length < 8}
-            onClick={copy}
-          >
+          <Button variant={mailReady ? "outline" : "default"} disabled={busy || pwTooShort} onClick={copy}>
             {setPassword.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Copy className="h-4 w-4 mr-1.5" />}
-            {applied ? "Mesajı kopyala" : "Şifreyi ayarla ve kopyala"}
+            {pw && !applied ? "Şifreyi ayarla ve kopyala" : "Mesajı kopyala"}
           </Button>
           {mailReady ? (
             <Button
-              disabled={sendInvite.isPending || setPassword.isPending || pw.length < 8}
-              onClick={() => sendInvite.mutate({ id: user.id, password: pw, login_url: loginUrl, salutation })}
+              disabled={busy || pwTooShort || !toValid}
+              onClick={() =>
+                sendInvite.mutate({
+                  id: user.id,
+                  password: pw || undefined,
+                  to: to.trim() !== user.email ? to.trim() : undefined,
+                  login_url: loginUrl,
+                  salutation,
+                })
+              }
             >
               {sendInvite.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />}
               E-posta gönder

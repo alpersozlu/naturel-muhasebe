@@ -153,12 +153,14 @@ export const userRouter = router({
     });
     if (!user) throw new TRPCError({ code: "NOT_FOUND" });
 
-    const supabase = createAdminClient();
-    const { error } = await supabase.auth.admin.updateUserById(input.id, {
-      password: input.password,
-    });
-    if (error) {
-      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Supabase: ${error.message}` });
+    if (input.password) {
+      const supabase = createAdminClient();
+      const { error } = await supabase.auth.admin.updateUserById(input.id, {
+        password: input.password,
+      });
+      if (error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Supabase: ${error.message}` });
+      }
     }
 
     const stores = user.store_access.map((a) => a.store.name).join(", ");
@@ -178,7 +180,7 @@ export const userRouter = router({
       "",
       `Giriş: ${link}`,
       `E-posta: ${user.email}`,
-      `Geçici şifre: ${input.password}`,
+      ...(input.password ? [`Şifre: ${input.password}`] : ["Şifre: yöneticiniz size ayrıca iletecek."]),
       ...(stores ? [`Mağaza: ${stores}`] : []),
       "",
       "Şifrenizi değiştirmek isterseniz yöneticinize yazmanız yeterli.",
@@ -194,7 +196,9 @@ export const userRouter = router({
         <p style="margin:0 0 28px"><a href="${esc(link)}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 22px;border-radius:8px">Sisteme giriş yap</a></p>
         <table style="border-collapse:collapse;font-size:15px;width:100%">
           ${row("E-posta", esc(user.email))}
-          ${row("Geçici şifre", `<code style="font-size:16px;background:#f3f4f6;padding:2px 8px;border-radius:6px">${esc(input.password)}</code>`)}
+          ${input.password
+            ? row("Şifre", `<code style="font-size:16px;background:#f3f4f6;padding:2px 8px;border-radius:6px">${esc(input.password)}</code>`)
+            : row("Şifre", "yöneticiniz size ayrıca iletecek")}
           ${stores ? row("Mağaza", esc(stores)) : ""}
         </table>
         <p style="margin:24px 0 0;font-size:13px;line-height:1.6;color:#6b7280">Düğme açılmazsa bu adresi tarayıcınıza yapıştırın:<br><a href="${esc(link)}" style="color:#374151">${esc(link)}</a></p>
@@ -203,7 +207,7 @@ export const userRouter = router({
     </div>`;
     try {
       await sendMail({
-        to: user.email,
+        to: input.to ?? user.email,
         subject: title,
         text: lines.join("\n"),
         html,
@@ -214,7 +218,7 @@ export const userRouter = router({
         message: `E-posta gönderilemedi: ${e instanceof Error ? e.message : String(e)}`,
       });
     }
-    return { ok: true, to: user.email };
+    return { ok: true, to: input.to ?? user.email };
   }),
 
   /** Devre dışı bırak / aktifleştir (admin) — is_active + Supabase ban. */

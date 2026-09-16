@@ -45,8 +45,8 @@ export default function ResetPasswordPage() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (pw.length < 8) {
-      toast.error("Şifre en az 8 karakter olmalı");
+    if (pw.length < 6) {
+      toast.error("Şifre en az 6 karakter olmalı");
       return;
     }
     if (pw !== pw2) {
@@ -105,7 +105,7 @@ export default function ResetPasswordPage() {
                   value={pw}
                   onChange={(e) => setPw(e.target.value)}
                   autoComplete="new-password"
-                  placeholder="En az 8 karakter"
+                  placeholder="En az 6 karakter"
                   autoFocus
                 />
               </div>
@@ -119,7 +119,7 @@ export default function ResetPasswordPage() {
                   autoComplete="new-password"
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={saving || pw.length < 8 || pw !== pw2}>
+              <Button type="submit" className="w-full" disabled={saving || pw.length < 6 || pw !== pw2}>
                 {saving ? "Kaydediliyor…" : "Şifreyi kaydet ve giriş yap"}
               </Button>
             </form>

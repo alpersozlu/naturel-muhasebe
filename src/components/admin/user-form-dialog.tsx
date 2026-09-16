@@ -11,7 +11,7 @@ import { userRoleEnum } from "@/lib/zod-schemas/user";
 
 const formSchema = z.object({
   email: z.string().trim().toLowerCase().email("Geçerli bir e-posta gir"),
-  password: z.string().min(8, "En az 8 karakter"),
+  password: z.string().min(6, "En az 6 karakter"),
   full_name: z.string().trim().max(80),
   role: userRoleEnum,
 });
@@ -101,7 +101,7 @@ export function UserCreateDialog() {
             <Input
               id="password"
               type="password"
-              placeholder="En az 8 karakter"
+              placeholder="En az 6 karakter"
               autoComplete="new-password"
               {...register("password")}
             />

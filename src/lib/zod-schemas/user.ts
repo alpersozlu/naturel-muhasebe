@@ -8,7 +8,7 @@ export const STORE_SCOPED_ROLES = ["store_manager", "cashier"] as const;
 export const userCreateSchema = z
   .object({
     email: z.string().trim().toLowerCase().email("Geçerli bir e-posta gir"),
-    password: z.string().min(8, "En az 8 karakter"),
+    password: z.string().min(6, "En az 6 karakter"),
     full_name: z
       .string()
       .trim()
@@ -38,13 +38,16 @@ export const userCreateSchema = z
 
 export const userSetPasswordSchema = z.object({
   id: z.string().uuid(),
-  password: z.string().min(8, "En az 8 karakter"),
+  password: z.string().min(6, "En az 6 karakter"),
 });
 
 /** Admin sends the invitation e-mail: the temporary password is set at the same time. */
 export const userSendInviteSchema = z.object({
   id: z.string().uuid(),
-  password: z.string().min(8, "En az 8 karakter"),
+  /** Optional: when given it is set on the account and written in the mail; otherwise the mail carries no password. */
+  password: z.string().min(6, "En az 6 karakter").optional(),
+  /** Where to send; defaults to the account's e-mail. */
+  to: z.string().trim().toLowerCase().email("Geçerli bir e-posta gir").optional(),
   login_url: z.string().url().max(300),
   /** How to address the person: "Döne Hanım", "Ali Bey" or the full name. The admin picks; never inferred. */
   salutation: z.enum(["none", "hanim", "bey"]).default("none"),

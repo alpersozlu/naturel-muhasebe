@@ -55,12 +55,12 @@ export function UserCreateForm() {
   const storeRequired = storeAssignable;
   const storeMissing = storeRequired && storeId === NO_STORE;
   const canSubmit =
-    email.trim().length > 3 && password.length >= 8 && !storeMissing;
+    email.trim().length > 3 && password.length >= 6 && !storeMissing;
   // Say WHY the button is off — an admin typed a 7-character password and
   // saw only a greyed button.
   const missing = [
     email.trim().length <= 3 ? "e-posta" : null,
-    password.length < 8 ? `şifre en az 8 karakter (şu an ${password.length})` : null,
+    password.length < 6 ? `şifre en az 6 karakter (şu an ${password.length})` : null,
     storeMissing ? "mağaza seçimi" : null,
   ].filter((x): x is string => x !== null);
 
@@ -104,9 +104,9 @@ export function UserCreateForm() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Başlangıç şifresini belirle (en az 8)"
               />
-              {password.length > 0 && password.length < 8 ? (
+              {password.length > 0 && password.length < 6 ? (
                 <p className="text-xs text-rose-600 mt-1">
-                  En az 8 karakter olmalı — şu an {password.length}.
+                  En az 6 karakter olmalı — şu an {password.length}.
                 </p>
               ) : null}
             </Field>
