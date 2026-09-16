@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { LogOut } from "lucide-react";
+import { LogOut, KeyRound } from "lucide-react";
+import { ChangePasswordDialog } from "@/components/layout/change-password-dialog";
 import { createClient } from "@/lib/supabase/client";
 import {
   DropdownMenu,
@@ -19,6 +21,7 @@ export function UserMenu({ email, name }: { email: string; name?: string | null 
   const t = useTranslations("auth");
 
   const initial = (name ?? email)[0]?.toUpperCase() ?? "?";
+  const [pwOpen, setPwOpen] = useState(false);
 
   const signOut = async () => {
     const supabase = createClient();
@@ -39,11 +42,16 @@ export function UserMenu({ email, name }: { email: string; name?: string | null 
           <div className="text-xs text-muted-foreground">{email}</div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => setPwOpen(true)}>
+          <KeyRound className="h-4 w-4 mr-2" />
+          Şifremi değiştir
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={signOut} className="text-destructive">
           <LogOut className="h-4 w-4 mr-2" />
           {t("signOut")}
         </DropdownMenuItem>
       </DropdownMenuContent>
+      <ChangePasswordDialog open={pwOpen} onClose={() => setPwOpen(false)} />
     </DropdownMenu>
   );
 }

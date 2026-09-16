@@ -2,6 +2,7 @@ import { router, publicProcedure } from "../trpc";
 import { brandRouter } from "./brand";
 import { storeRouter } from "./store";
 import { userRouter } from "./user";
+import { authRouter } from "./auth";
 import { userStoreAccessRouter } from "./userStoreAccess";
 import { auditRouter } from "./audit";
 import { uploadRouter } from "./upload";
@@ -27,6 +28,7 @@ export const appRouter = router({
   brand: brandRouter,
   store: storeRouter,
   user: userRouter,
+  auth: authRouter,
   userStoreAccess: userStoreAccessRouter,
   audit: auditRouter,
   upload: uploadRouter,

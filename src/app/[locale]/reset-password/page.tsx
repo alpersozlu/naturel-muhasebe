@@ -20,6 +20,7 @@ import { NrLogo } from "@/components/brand/nr-logo";
 export default function ResetPasswordPage() {
   const router = useRouter();
   const [ready, setReady] = useState<"checking" | "ok" | "invalid">("checking");
+  const [reason, setReason] = useState<string | null>(null);
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const [saving, setSaving] = useState(false);
@@ -27,7 +28,17 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     const supabase = createClient();
     const run = async () => {
-      const code = new URLSearchParams(window.location.search).get("code");
+      // Supabase reports an expired / used link as ?error_description=… or
+      // #error_description=…; say so instead of a generic "invalid".
+      const q = new URLSearchParams(window.location.search);
+      const h = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const desc = q.get("error_description") ?? h.get("error_description");
+      if (desc) {
+        setReason(/expired/i.test(desc) ? "Bağlantının süresi dolmuş." : desc);
+        setReady("invalid");
+        return;
+      }
+      const code = q.get("code");
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) {
@@ -86,10 +97,10 @@ export default function ResetPasswordPage() {
             <p className="text-sm text-muted-foreground">Bağlantı doğrulanıyor…</p>
           ) : ready === "invalid" ? (
             <div className="text-sm space-y-3">
-              <p>Bu bağlantı geçersiz ya da süresi dolmuş.</p>
+              <p>{reason ?? "Bu bağlantı geçersiz ya da süresi dolmuş."}</p>
               <p className="text-muted-foreground">
-                Bağlantıyı, şifre sıfırlamayı istediğiniz tarayıcıda açın. Olmazsa giriş sayfasından
-                &quot;Şifremi unuttum&quot; ile yeni bağlantı isteyin.
+                Giriş sayfasından &quot;Şifremi unuttum&quot; ile yeni bir bağlantı isteyin. Bağlantı
+                bir saat geçerlidir ve bir kez kullanılır.
               </p>
               <Button variant="outline" className="w-full" onClick={() => router.replace("/tr/login")}>
                 Giriş sayfasına dön

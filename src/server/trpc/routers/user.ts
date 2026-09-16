@@ -183,7 +183,7 @@ export const userRouter = router({
       ...(input.password ? [`Şifre: ${input.password}`] : ["Şifre: yöneticiniz size ayrıca iletecek."]),
       ...(stores ? [`Mağaza: ${stores}`] : []),
       "",
-      "Şifrenizi değiştirmek isterseniz yöneticinize yazmanız yeterli.",
+      "Giriş yaptıktan sonra sağ üstteki menüden \"Şifremi değiştir\" ile kendi şifrenizi belirleyebilirsiniz.",
     ];
     const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const row = (k: string, v: string) =>
@@ -202,7 +202,7 @@ export const userRouter = router({
           ${stores ? row("Mağaza", esc(stores)) : ""}
         </table>
         <p style="margin:24px 0 0;font-size:13px;line-height:1.6;color:#6b7280">Düğme açılmazsa bu adresi tarayıcınıza yapıştırın:<br><a href="${esc(link)}" style="color:#374151">${esc(link)}</a></p>
-        <p style="margin:16px 0 0;font-size:13px;line-height:1.6;color:#6b7280">Şifrenizi değiştirmek isterseniz yöneticinize yazmanız yeterli.</p>
+        <p style="margin:16px 0 0;font-size:13px;line-height:1.6;color:#6b7280">Giriş yaptıktan sonra sağ üstteki menüden &quot;Şifremi değiştir&quot; ile kendi şifrenizi belirleyebilirsiniz.</p>
       </div>
     </div>`;
     try {

@@ -463,7 +463,7 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
     pw ? `Şifre: ${pw}` : "Şifre: yöneticiniz size ayrıca iletecek.",
     storeNames ? `Mağaza: ${storeNames}` : null,
     "",
-    "Şifrenizi değiştirmek isterseniz yöneticinize yazmanız yeterli.",
+    "Giriş yaptıktan sonra sağ üstteki menüden \"Şifremi değiştir\" ile kendi şifrenizi belirleyebilirsiniz.",
   ]
     .filter((l): l is string => l !== null)
     .join("\n");

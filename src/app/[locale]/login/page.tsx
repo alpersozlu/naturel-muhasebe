@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +19,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const forgotMut = trpc.auth.forgotPassword.useMutation();
   // The invitation e-mail links here with ?email=…, so the person only
   // types the password.
   useEffect(() => {
@@ -64,16 +66,25 @@ export default function LoginPage() {
     }
     setResetting(true);
     try {
-      const supabase = createClient();
-      const locale = window.location.pathname.split("/")[1] || "tr";
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${window.location.origin}/${locale}/reset-password`,
-      });
-      if (error) {
-        toast.error(`Bağlantı gönderilemedi: ${error.message}`);
+      const locale = (window.location.pathname.split("/")[1] === "en" ? "en" : "tr") as "tr" | "en";
+      // Server first: with the app's own mail transport the link works from
+      // any browser and reaches every user. Otherwise Supabase's mailer.
+      const r = await forgotMut.mutateAsync({ email: email.trim(), origin: window.location.origin, locale });
+      if (r.via === "supabase") {
+        const supabase = createClient();
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: `${window.location.origin}/${locale}/reset-password`,
+        });
+        if (error) {
+          toast.error(`Bağlantı gönderilemedi: ${error.message}`);
+          return;
+        }
+        toast.success("Şifre sıfırlama bağlantısı e-postanıza gönderildi. Bu tarayıcıda açın.");
         return;
       }
-      toast.success("Şifre sıfırlama bağlantısı e-postanıza gönderildi. Bu tarayıcıda açın.");
+      toast.success("Bu adres kayıtlıysa şifre sıfırlama bağlantısı gönderildi; gelen kutunuzu (ve Spam'i) kontrol edin.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       setResetting(false);
     }

@@ -4,6 +4,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
 import { UserMenu } from "@/components/layout/user-menu";
 import { getSession } from "@/lib/auth/session";
+import { DisabledAccount } from "@/components/layout/disabled-account";
 
 // ALLOWLIST (varsayılan-yasak): admin DIŞI kullanıcılar SADECE bu yollara
 // erişebilir; diğer her şey kapalıdır. Yeni eklenen herhangi bir sayfa
@@ -56,6 +57,10 @@ export default async function AppLayout({
   ) {
     redirect(`/${locale}/upload`);
   }
+
+  // The middleware only lets signed-in people through; no app session here
+  // means the account is inactive or gone.
+  if (!session) return <DisabledAccount />;
 
   return (
     <div className="min-h-screen bg-background">
