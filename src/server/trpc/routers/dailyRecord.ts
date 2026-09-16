@@ -74,13 +74,23 @@ export const dailyRecordRouter = router({
   approveAndLock: dailyScoped
     .input(dailyRecordIdSchema)
     .mutation(async ({ ctx, input }) => {
+      const lockInclude = {
+        store_summary: true,
+        dealer_daily_report: true,
+        store: { include: { brand: true } },
+        uploads: { select: { status: true } },
+        z_reports: { select: { id: true } },
+        manual_invoices: { select: { id: true } },
+        pos_slips: { select: { upload: { select: { status: true } } } },
+        cumulative_prev: {
+          select: {
+            store_summary: { select: { sales_total_try: true, loyalty_points_total_try: true } },
+          },
+        },
+      } as const;
       const dr = await ctx.prisma.dailyRecord.findUnique({
         where: { id: input.id },
-        include: {
-          store_summary: true,
-          dealer_daily_report: true,
-          store: { include: { brand: true } },
-        },
+        include: lockInclude,
       });
       if (!dr) throw new TRPCError({ code: "NOT_FOUND" });
       await assertCanAccessStore(ctx.user, dr.store_id);
@@ -98,6 +108,39 @@ export const dailyRecordRouter = router({
         });
       }
 
+      // Completeness — the button used to accept a day with a failed Z
+      // upload and no POS slip at all. Admin may still force a lock.
+      if (!isAdmin(ctx.user)) {
+        const agg = dr.merge_group_id
+          ? await ctx.prisma.dailyRecord.findMany({
+              where: { merge_group_id: dr.merge_group_id },
+              include: lockInclude,
+            })
+          : [dr];
+        const inflight = agg.flatMap((r) => r.uploads).filter((u) =>
+          u.status === "failed" || u.status === "pending" || u.status === "processing"
+        );
+        if (inflight.length > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Başarısız ya da hâlâ işlenen bir yükleme varken gün kilitlenemez. " +
+              "Kırmızı satırı silin ya da \"Yeniden analiz et\" ile tekrar okutun.",
+          });
+        }
+        const hasZ = agg.some((r) => r.z_reports.length > 0 || r.manual_invoices.length > 0);
+        const posCount = agg
+          .flatMap((r) => r.pos_slips)
+          .filter((p) => p.upload.status === "parsed" || p.upload.status === "confirmed").length;
+        if (!hasZ || posCount === 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Z raporu (ya da el faturası) ve en az bir POS fişi yüklenmeden gün kilitlenemez.",
+          });
+        }
+      }
+
       // ── 3. Aşama: SAP Bayi Raporu kontrolü (Mavi mağazalar için zorunlu) ──
       const brandLower = dr.store.brand.name.toLocaleLowerCase("tr");
       const isMaviBrand = brandLower.includes("mavi");
@@ -112,8 +155,15 @@ export const dailyRecordRouter = router({
         const TOL = 5;
         const sapNet = dr.dealer_daily_report.net_sales_try?.toNumber() ?? 0;
         const sapLoy = dr.dealer_daily_report.loyalty_try?.toNumber() ?? 0;
-        const sumNet = dr.store_summary.sales_total_try?.toNumber() ?? 0;
-        const sumLoy = dr.store_summary.loyalty_points_total_try?.toNumber() ?? 0;
+        // A cumulative day's summary includes the previous day; SAP is
+        // always single-day — compare like the reconciliation engine does.
+        const prevSum = dr.cumulative_prev?.store_summary ?? null;
+        const sumNet =
+          (dr.store_summary.sales_total_try?.toNumber() ?? 0) -
+          (prevSum?.sales_total_try?.toNumber() ?? 0);
+        const sumLoy =
+          (dr.store_summary.loyalty_points_total_try?.toNumber() ?? 0) -
+          (prevSum?.loyalty_points_total_try?.toNumber() ?? 0);
         const netDiff = sapNet - sumNet;
         const loyDiff = sapLoy - sumLoy;
         if (Math.abs(netDiff) > TOL || Math.abs(loyDiff) > TOL) {

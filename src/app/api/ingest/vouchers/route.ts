@@ -40,7 +40,7 @@ export async function POST(req: Request) {
       { status: 422 }
     );
   }
-  const { company_code, txns, cards, final } = parsed.data;
+  const { company_code, txns, cards, final, total_txns, total_cards } = parsed.data;
 
   const stores = await prisma.store.findMany({
     where: {
@@ -124,7 +124,23 @@ export async function POST(req: Request) {
     ]);
     const capT = Math.max(20, Math.ceil(txnAll * 0.03));
     const capC = Math.max(20, Math.ceil(cardAll * 0.03));
-    if (txnStale > capT || cardStale > capC) {
+    // A partial run (a failed 2.000-card chunk) must neither prune nor
+    // leave the untouched cards looking "deleted in Nebim" to the
+    // missing-card rule (voucher-snapshot.ts): touch them all instead.
+    const gotT = txnAll - txnStale;
+    const gotC = cardAll - cardStale;
+    const slack = (t: number) => Math.max(5, Math.ceil(t * 0.01));
+    const incomplete =
+      (total_txns != null && gotT + slack(total_txns) < total_txns) ||
+      (total_cards != null && gotC + slack(total_cards) < total_cards);
+    if (incomplete) {
+      prune_skipped = `incomplete run: txns ${gotT}/${total_txns ?? "?"}, cards ${gotC}/${total_cards ?? "?"}`;
+      console.warn("[ingest/vouchers] prune skipped:", prune_skipped);
+      await prisma.nebimVoucher.updateMany({
+        where: { company_code, updated_at: { lt: cutoff } },
+        data: { updated_at: new Date() },
+      });
+    } else if (txnStale > capT || cardStale > capC) {
       prune_skipped = `txns ${txnStale}/${capT}, cards ${cardStale}/${capC}`;
       console.warn("[ingest/vouchers] prune skipped:", prune_skipped);
     } else {

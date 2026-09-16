@@ -55,9 +55,18 @@ export const mergeGroupRouter = router({
           store_id: input.store_id,
           date: { in: dates },
         },
-        select: { id: true, date: true, status: true, merge_group_id: true },
+        select: { id: true, date: true, status: true, merge_group_id: true, store_summary: { select: { id: true } } },
       });
+      const lastIso = input.end_date;
       for (const dr of existing) {
+        // The group's summary lives on its LAST day; an earlier day that
+        // already has its own summary would be picked as the group's.
+        if (dr.store_summary && dr.date.toISOString().slice(0, 10) !== lastIso) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `${dr.date.toISOString().slice(0, 10)} gününde zaten bir Mağaza Özeti var; birleşmede özet yalnız son güne yüklenir. Önce o özeti silin.`,
+          });
+        }
         if (dr.status === "locked") {
           throw new TRPCError({
             code: "FORBIDDEN",

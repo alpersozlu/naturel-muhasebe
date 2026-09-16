@@ -38,6 +38,9 @@ export const nebimVoucherIngestSchema = z.object({
    *  gönderildiğinden, bu çalışmada dokunulmayan satırlar Nebim'de silinmiş
    *  demektir → temizlenir. */
   final: z.boolean().optional(),
+  /** Rows the bridge posted in this run; prune only when all arrived. */
+  total_txns: z.number().int().min(0).optional(),
+  total_cards: z.number().int().min(0).optional(),
 });
 
 export type NebimVoucherIngestInput = z.infer<typeof nebimVoucherIngestSchema>;

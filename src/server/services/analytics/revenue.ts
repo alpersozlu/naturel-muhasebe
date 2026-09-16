@@ -1,4 +1,5 @@
 import "server-only";
+import { effectiveSummary, cumulativePrevSummarySelect } from "@/server/services/verification/effective-summary";
 import type { PrismaClient } from "@prisma/client";
 import type { AnalyticsFilter } from "@/lib/zod-schemas/analytics";
 
@@ -92,7 +93,12 @@ export async function revenueSummary(
       daily_record: { date: { gte: extStart, lt: currentEnd }, ...storeScope },
     },
     include: {
-      daily_record: { include: { store: { include: { brand: true } } } },
+      daily_record: {
+        include: {
+          store: { include: { brand: true } },
+          cumulative_prev: { select: cumulativePrevSummarySelect },
+        },
+      },
     },
   });
 
@@ -130,10 +136,12 @@ export async function revenueSummary(
   for (const s of extSummaries) {
     const date = s.daily_record.date;
     const mk = monthKey(date);
-    const sTotal = num(s.sales_total_try);
-    const sCash = num(s.cash_sales_try);
-    const sCC = num(s.credit_card_total_try);
-    const sLoyalty = num(s.loyalty_points_total_try);
+    // Cumulative (Mavi) days: subtract the previous day's summary.
+    const eff = effectiveSummary(s, s.daily_record.cumulative_prev?.store_summary);
+    const sTotal = eff.sales;
+    const sCash = eff.cash;
+    const sCC = eff.cc;
+    const sLoyalty = eff.loyalty;
     const brandId = s.daily_record.store.brand_id;
     const brandName = s.daily_record.store.brand.name;
     brandNames[brandId] = brandName;

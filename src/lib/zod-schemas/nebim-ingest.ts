@@ -69,6 +69,8 @@ export const nebimIngestSchema = z.object({
    * bayraklamıyor, SİLİYOR; DocuFlow da aynı şeyi yapmalı.
    */
   final: z.boolean().optional(),
+  /** Lines the bridge posted in this run; the final chunk prunes only when all arrived. */
+  total_lines: z.number().int().min(0).optional(),
 });
 
 export type NebimSaleLineInput = z.infer<typeof nebimSaleLineSchema>;

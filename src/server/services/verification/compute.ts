@@ -399,7 +399,14 @@ export async function computeDay(
     });
   }
 
-  const status: DayComputeResult["status"] = rows[rows.length - 1].matches
+  // Every comparison row must hold, not only GENEL TOPLAM: a missing POS
+  // slip (−1.000 on the card row) and an over-counted cash (+1.000) used
+  // to cancel out and show the day as matched. Info rows (Kartuş Puan,
+  // Kurumsal) and the Z floor are not comparisons.
+  const comparisonRows = rows.filter(
+    (r) => !r.z_compliance && r.label !== "Kartuş Puan" && !r.label.startsWith("Kurumsal")
+  );
+  const status: DayComputeResult["status"] = comparisonRows.every((r) => r.matches)
     ? "match"
     : "mismatch";
 

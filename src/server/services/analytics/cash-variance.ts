@@ -1,4 +1,5 @@
 import "server-only";
+import { effectiveSummary, cumulativePrevSummarySelect } from "@/server/services/verification/effective-summary";
 import type { PrismaClient } from "@prisma/client";
 import type { AnalyticsFilter } from "@/lib/zod-schemas/analytics";
 import { TOLERANCE_TL } from "@/lib/constants";
@@ -92,8 +93,11 @@ export async function cashVarianceSummary(
           cash_sales_try: true,
           loyalty_points_total_try: true,
           sales_total_try: true,
+          credit_card_total_try: true,
         },
       },
+      cumulative_prev: { select: cumulativePrevSummarySelect },
+      verification: { select: { difference: true } },
       pos_slips: {
         select: {
           net_amount_try: true,
@@ -138,16 +142,22 @@ export async function cashVarianceSummary(
     );
     const posSum = includedPos.reduce((s, p) => s + num(p.net_amount_try), 0);
 
-    const summaryCash = num(dr.store_summary.cash_sales_try);
-    const loyalty = num(dr.store_summary.loyalty_points_total_try);
-    const summarySales = num(dr.store_summary.sales_total_try);
+    // Cumulative (Mavi) days: the summary includes the previous day.
+    const eff = effectiveSummary(dr.store_summary, dr.cumulative_prev?.store_summary);
+    const summaryCash = eff.cash;
+    const loyalty = eff.loyalty;
+    const summarySales = eff.sales;
     const reportedCash = dr.reported_cash_try ? num(dr.reported_cash_try) : null;
     const effectiveCash = reportedCash ?? summaryCash;
 
+    // The reconciliation engine's result is the truth for a day that has
+    // been verified (it knows vouchers, expenses, bank receipts, wire,
+    // corporate purchases and merge groups); the inline formula is only
+    // the fallback for days nobody has reconciled yet.
     const documents = posSum + effectiveCash + loyalty;
     const summary = summarySales;
     // Sign konvansiyonu: docs − summary (elime geçen − olması gereken)
-    const diff = documents - summary;
+    const diff = dr.verification ? num(dr.verification.difference) : documents - summary;
 
     // Tolerans içindeyse yine de net_diff'e ekle ama days listesine alma
     const bucket = byStoreMap[dr.store_id];

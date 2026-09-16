@@ -441,6 +441,8 @@ def post_vouchers(cfg: dict, txns: list[dict], cards: list[dict]) -> None:
         payload = {"company_code": company, **p}
         if i == len(parts):
             payload["final"] = True   # sunucu bu calismada gelmeyen hareket/kartlari siler
+            payload["total_txns"] = len(txns)    # eksik parca varsa silme yapmaz
+            payload["total_cards"] = len(cards)
         LOG.info("POST %s (parca %d/%d: %d hareket, %d kart)",
                  url, i, len(parts), len(p["txns"]), len(p["cards"]))
         resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
@@ -582,6 +584,7 @@ def post_ingest(cfg: dict, lines: list[dict], since=None, run_id: str = "") -> N
             payload["run_id"] = run_id
             payload["pull_since"] = since.isoformat()
             payload["final"] = (start + len(part) >= total)
+            payload["total_lines"] = total   # sunucu eksik parca varsa silme yapmaz
         last_err = None
         for attempt in range(1, max_retries + 1):
             try:

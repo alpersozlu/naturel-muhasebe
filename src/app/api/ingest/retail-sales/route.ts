@@ -43,7 +43,7 @@ export async function POST(req: Request) {
       { status: 422 }
     );
   }
-  const { company_code, currency, lines, run_id, pull_since, final } = parsed.data;
+  const { company_code, currency, lines, run_id, pull_since, final, total_lines } = parsed.data;
   const sourceTag = run_id ? `nebim:${run_id}` : "nebim";
 
   // Derimod mağazalarını yükle ve ad→id çözücüyü kur.
@@ -155,7 +155,17 @@ export async function POST(req: Request) {
       }),
     ]);
     const cap = Math.max(20, Math.ceil(inRange * 0.03));
-    if (stale.length > cap) {
+    // A chunk that failed (5xx, timeout) leaves its lines with the old
+    // stamp; they would look "deleted in Nebim". Prune only when every
+    // line of the run made it in.
+    const received = total_lines != null
+      ? await prisma.nebimSaleLine.count({ where: { ...range, source: sourceTag } })
+      : null;
+    const slackL = total_lines != null ? Math.max(5, Math.ceil(total_lines * 0.01)) : 0;
+    if (total_lines != null && received !== null && received + slackL < total_lines) {
+      prune_skipped = `incomplete run: received=${received} < total_lines=${total_lines}`;
+      console.warn("[ingest/retail-sales] prune skipped:", prune_skipped);
+    } else if (stale.length > cap) {
       prune_skipped = `stale=${stale.length} > cap=${cap} (in_range=${inRange})`;
       console.warn("[ingest/retail-sales] prune skipped:", prune_skipped);
     } else if (stale.length > 0) {

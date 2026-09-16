@@ -1,4 +1,5 @@
 import "server-only";
+import { effectiveSummary, cumulativePrevSummarySelect } from "@/server/services/verification/effective-summary";
 import type { PrismaClient } from "@prisma/client";
 import type { AnalyticsFilter } from "@/lib/zod-schemas/analytics";
 import { TOLERANCE_TL } from "@/lib/constants";
@@ -155,8 +156,10 @@ export async function zAnalysisSummary(
           cash_sales_try: true,
           sales_total_try: true,
           credit_card_total_try: true,
+          loyalty_points_total_try: true,
         },
       },
+      cumulative_prev: { select: cumulativePrevSummarySelect },
       pos_slips: {
         select: {
           net_amount_try: true,
@@ -209,8 +212,11 @@ export async function zAnalysisSummary(
 
     // Cari ay verisi
     if (dr.date >= currentStart && dr.date < currentEnd) {
-      const cash = dr.store_summary ? num(dr.store_summary.cash_sales_try) : 0;
-      const sales = dr.store_summary ? num(dr.store_summary.sales_total_try) : 0;
+      const eff = dr.store_summary
+        ? effectiveSummary(dr.store_summary, dr.cumulative_prev?.store_summary)
+        : null;
+      const cash = eff ? eff.cash : 0;
+      const sales = eff ? eff.sales : 0;
 
       currentMonthByStore[dr.store_id] ??= {
         z_report: 0,

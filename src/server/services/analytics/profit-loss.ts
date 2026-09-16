@@ -1,4 +1,5 @@
 import "server-only";
+import { effectiveSummary, cumulativePrevSummarySelect } from "@/server/services/verification/effective-summary";
 import type { PrismaClient } from "@prisma/client";
 import type { AnalyticsFilter } from "@/lib/zod-schemas/analytics";
 import { DEFAULT_COMMISSION_RATE } from "./bank-commission";
@@ -76,8 +77,12 @@ export async function profitLossSummary(
       },
       select: {
         sales_total_try: true,
+        cash_sales_try: true,
+        credit_card_total_try: true,
         loyalty_points_total_try: true,
-        daily_record: { select: { date: true } },
+        daily_record: {
+          select: { date: true, cumulative_prev: { select: cumulativePrevSummarySelect } },
+        },
       },
     }),
     prisma.posSlip.findMany({
@@ -116,8 +121,9 @@ export async function profitLossSummary(
 
   for (const s of summaries) {
     const k = monthKey(s.daily_record.date);
-    revByMonth[k] = (revByMonth[k] ?? 0) + num(s.sales_total_try);
-    loyByMonth[k] = (loyByMonth[k] ?? 0) + num(s.loyalty_points_total_try);
+    const eff = effectiveSummary(s, s.daily_record.cumulative_prev?.store_summary);
+    revByMonth[k] = (revByMonth[k] ?? 0) + eff.sales;
+    loyByMonth[k] = (loyByMonth[k] ?? 0) + eff.loyalty;
   }
   for (const p of slips) {
     const k = monthKey(p.daily_record.date);
