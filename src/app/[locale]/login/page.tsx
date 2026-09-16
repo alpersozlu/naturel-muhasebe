@@ -38,8 +38,14 @@ export default function LoginPage() {
           toast.error("Hesabınız devre dışı bırakılmış — yöneticinize başvurun.");
         } else if (/fetch|network/i.test(msg)) {
           toast.error("Bağlantı hatası — internetinizi kontrol edip tekrar deneyin.");
+        } else if (code === "invalid_credentials" || /invalid login credentials/i.test(msg)) {
+          toast.error("E-posta veya şifre hatalı. Tarayıcı eski şifreyi doldurmuş olabilir; kutuyu temizleyip elle yazın.");
+        } else if (code === "over_request_rate_limit" || /rate limit/i.test(msg)) {
+          toast.error("Çok fazla deneme yapıldı — bir dakika bekleyip tekrar deneyin.");
         } else {
-          toast.error(t("invalidCredentials"));
+          // Anything else: say what Supabase said, so a real fault is not
+          // read as a typo.
+          toast.error(`Giriş yapılamadı: ${msg || t("invalidCredentials")}`);
         }
         return;
       }
