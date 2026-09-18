@@ -834,6 +834,21 @@ const EMPTY_SUMMARY = {
 
 export const nebimSalesRouter = router({
   /**
+   * When the bridge last delivered anything. The store PC's scheduled run
+   * stopped for 8 days in September 2026 and nothing on screen said so; the
+   * page now shows the age of the data and warns when it goes stale.
+   */
+  freshness: adminProcedure.query(async ({ ctx }) => {
+    const agg = await ctx.prisma.nebimSaleLine.aggregate({
+      _max: { updated_at: true, invoice_date: true },
+    });
+    return {
+      last_ingest_at: agg._max.updated_at ?? null,
+      last_invoice_date: agg._max.invoice_date?.toISOString().slice(0, 10) ?? null,
+    };
+  }),
+
+  /**
    * Filtreli, sayfalı (cursor) NEBIM perakende satış listesi + filtre-geneli özet.
    * Admin tüm mağazaları görür; diğer kullanıcılar yalnız erişimli mağazaları.
    */

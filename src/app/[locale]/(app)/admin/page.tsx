@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { AdminStats } from "@/components/admin/admin-stats";
 import { OrgHierarchy } from "@/components/admin/org-hierarchy";
 import { CreateBrandButton } from "@/components/admin/brand-form-dialog";
+import { BridgeFreshness } from "@/components/nebim-sales/bridge-freshness";
 
 export default function AdminPage() {
   return (
@@ -15,6 +16,8 @@ export default function AdminPage() {
         />
         <CreateBrandButton />
       </div>
+
+      <BridgeFreshness onlyWhenStale />
 
       <AdminStats />
 

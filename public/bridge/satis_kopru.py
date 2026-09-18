@@ -288,6 +288,85 @@ def resolve_since(cfg: dict, since_override=None):
     return since_override or (datetime.now() - timedelta(days=lookback)).date()
 
 
+# Zamanlanmis calisma gunlerce durursa (PC kapali, gorev bozuk — 11-15.09.2026'da
+# yasandi) sabit 3 gunluk geri bakis aradaki gunleri SESSIZCE kaybeder. Sunucuya
+# "son parti ne zaman geldi" diye sorup araligi bosluk kadar genisletir.
+GAP_FILL_MAX_DAYS = 60
+
+
+def auto_since_for_gap(cfg: dict):
+    """Sunucudaki son aktarim lookback'ten eskiyse o gunun bir oncesinden cek.
+    Her hata sessizce None doner (normal lookback ile devam)."""
+    try:
+        import requests
+        base = (cfg.get("webapp_url") or "").rstrip("/")
+        token = cfg.get("ingest_token") or ""
+        if not base or not token:
+            return None
+        resp = requests.get(f"{base}/api/ingest/retail-sales",
+                            headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        if resp.status_code != 200:
+            LOG.info("Durum sorgusu HTTP %s (eski sunucu olabilir) - normal lookback.", resp.status_code)
+            return None
+        last = (resp.json() or {}).get("last_ingest_at")
+        if not last:
+            return None
+        last_day = datetime.strptime(last[:10], "%Y-%m-%d").date()
+        default_since = resolve_since(cfg)
+        wanted = last_day - timedelta(days=1)
+        if wanted >= default_since:
+            return None
+        floor = (datetime.now() - timedelta(days=GAP_FILL_MAX_DAYS)).date()
+        wanted = max(wanted, floor)
+        LOG.warning("BOSLUK: sunucuya son aktarim %s. Aralik %s'ten itibaren genisletildi "
+                    "(normalde %s).", last[:16], wanted, default_since)
+        return wanted
+    except Exception as exc:  # noqa: BLE001 - durum sorgusu asla kopruyu durdurmasin
+        LOG.info("Durum sorgusu yapilamadi (%s) - normal lookback.", exc)
+        return None
+
+
+# Kredi ceki anlik goruntusu buyuk (~15 bin kayit). Saatlik otomatik calismada
+# her seferinde gondermek gereksiz; --auto modunda en fazla 4 saatte bir gider.
+VOUCHER_MIN_INTERVAL_HOURS = 4
+STATE_FILE = "kopru_durum.json"
+
+
+def _state_path() -> str:
+    return os.path.join(HERE, STATE_FILE)
+
+
+def _read_state() -> dict:
+    try:
+        with open(_state_path(), "r", encoding="utf-8") as fh:
+            return json.load(fh) or {}
+    except Exception:
+        return {}
+
+
+def _write_state(patch: dict) -> None:
+    try:
+        st = _read_state()
+        st.update(patch)
+        with open(_state_path(), "w", encoding="utf-8") as fh:
+            json.dump(st, fh)
+    except Exception as exc:  # noqa: BLE001
+        LOG.info("Durum dosyasi yazilamadi: %s", exc)
+
+
+def vouchers_due(auto: bool) -> bool:
+    if not auto:
+        return True
+    last = _read_state().get("last_voucher_post")
+    if not last:
+        return True
+    try:
+        age = datetime.now() - datetime.strptime(last, "%Y-%m-%dT%H:%M:%S")
+    except Exception:
+        return True
+    return age >= timedelta(hours=VOUCHER_MIN_INTERVAL_HOURS)
+
+
 def fetch_sales(conn, cfg: dict, since_override=None) -> list[dict]:
     company = cfg.get("company_code", 1)
     since = resolve_since(cfg, since_override)
@@ -675,6 +754,8 @@ def main(argv=None) -> int:
     g = p.add_mutually_exclusive_group()
     g.add_argument("--dry-run", action="store_true", help="Sadece cek + ozet; GONDERME.")
     g.add_argument("--probe-stores", action="store_true", help="Sadece magaza kodlarini yaz.")
+    p.add_argument("--auto", action="store_true",
+                   help="Zamanlanmis (saatlik) calisma: kredi cekleri en fazla 4 saatte bir gider.")
     args = p.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -692,6 +773,13 @@ def main(argv=None) -> int:
         since_override = datetime.strptime(args.since, "%Y-%m-%d").date()
     elif args.days is not None:
         since_override = (datetime.now() - timedelta(days=args.days)).date()
+    elif not (args.probe_stores or args.dry_run):
+        since_override = auto_since_for_gap(cfg)
+
+    send_vouchers = vouchers_due(args.auto)
+    if not send_vouchers:
+        LOG.info("Kredi cekleri bu calismada atlandi (son gonderim %d saatten yeni).",
+                 VOUCHER_MIN_INTERVAL_HOURS)
 
     try:
         conn = connect(cfg)
@@ -701,7 +789,8 @@ def main(argv=None) -> int:
             rows = fetch_sales(conn, cfg, since_override)
             # Kredi çeki (kod 7) — satış aktarımını asla bozmasın.
             try:
-                v_txns_raw, v_cards_raw = fetch_vouchers(conn, cfg, since_override)
+                if send_vouchers:
+                    v_txns_raw, v_cards_raw = fetch_vouchers(conn, cfg, since_override)
             except Exception as vexc:
                 LOG.warning("Kredi ceki sorgusu basarisiz (satislar etkilenmez): %s", vexc)
         finally:
@@ -729,8 +818,10 @@ def main(argv=None) -> int:
         if v_txns or v_cards:
             try:
                 post_vouchers(cfg, v_txns, v_cards)
+                _write_state({"last_voucher_post": datetime.now().strftime("%Y-%m-%dT%H:%M:%S")})
             except Exception as vexc:
                 LOG.warning("Kredi ceki gonderimi basarisiz (satislar gonderildi): %s", vexc)
+        _write_state({"last_success": datetime.now().strftime("%Y-%m-%dT%H:%M:%S")})
         LOG.info("Kopru calismasi tamamlandi.")
         return 0
     except Exception as exc:

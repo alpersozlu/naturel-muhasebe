@@ -15,6 +15,7 @@ import { NebimAnaliz } from "@/components/nebim-sales/nebim-analiz";
 import { NebimSuspicious } from "@/components/nebim-sales/nebim-suspicious";
 import { NebimCustomers } from "@/components/nebim-sales/nebim-customers";
 import { NebimHareketOzeti } from "@/components/nebim-sales/nebim-hareket-ozeti";
+import { BridgeFreshness } from "@/components/nebim-sales/bridge-freshness";
 
 function defaultSelection(): NebimSalesSelection {
   const now = new Date();
@@ -53,6 +54,7 @@ export default function NebimSalesPage() {
         title="Derimod Satışları (NEBIM)"
         description="NEBIM'den otomatik aktarılan perakende satışlar. Mağaza ve tarihe göre filtreleyebilirsin."
       />
+      <BridgeFreshness />
 
       {/* Sekme seçici + Excel'e aktar */}
       <div className="flex items-center justify-between gap-3 mb-4">

@@ -22,6 +22,30 @@ function configuredToken(): string {
   return (process.env.INGEST_API_TOKEN || "").trim();
 }
 
+/**
+ * Bridge status: when the last batch arrived and the newest invoice day on
+ * file. The bridge reads this before each run and widens its pull window to
+ * cover any gap — measured 2026-09-18: the scheduled run on the store PC
+ * stopped for 8 days and the fixed 3-day look-back silently lost the days in
+ * between until someone refilled them by hand.
+ */
+export async function GET(req: Request) {
+  const token = configuredToken();
+  const auth = (req.headers.get("authorization") || "").trim();
+  if (!token || auth !== `Bearer ${token}`) {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+  const agg = await prisma.nebimSaleLine.aggregate({
+    _max: { updated_at: true, invoice_date: true },
+  });
+  return NextResponse.json({
+    ok: true,
+    last_ingest_at: agg._max.updated_at?.toISOString() ?? null,
+    last_invoice_date: agg._max.invoice_date?.toISOString().slice(0, 10) ?? null,
+    server_time: new Date().toISOString(),
+  });
+}
+
 export async function POST(req: Request) {
   const token = configuredToken();
   const auth = (req.headers.get("authorization") || "").trim();
