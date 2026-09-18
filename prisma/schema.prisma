@@ -1081,3 +1081,23 @@ model PeopleCountHour {
   @@unique([store_code, date, hour])
   @@index([date])
 }
+
+// Sign-in attempts and password events, kept for support: Supabase keeps no
+// record of a rejected password, so without this "the right password was
+// refused" cannot be investigated afterwards. Never stores a password.
+// Rows older than 90 days are pruned on insert.
+model AuthEvent {
+  id         String   @id @default(uuid())
+  created_at DateTime @default(now())
+  email      String
+  // login_ok | login_failed | recovery_requested | recovery_completed |
+  // password_changed | password_set_by_admin
+  kind       String
+  // Machine-readable reason (invalid_credentials, no_such_user, inactive…)
+  reason     String?
+  ip         String?
+  user_agent String?  @db.Text
+
+  @@index([created_at])
+  @@index([email, created_at])
+}

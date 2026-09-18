@@ -3,6 +3,7 @@ import { Link } from "@/i18n/navigation";
 import { PageHeader } from "@/components/shared/page-header";
 import { UserList } from "@/components/admin/user-list";
 import { UserCreateForm } from "@/components/admin/user-create-form";
+import { AuthEvents } from "@/components/admin/auth-events";
 
 export default function UsersPage() {
   return (
@@ -28,6 +29,10 @@ export default function UsersPage() {
       <section className="mt-8">
         <h2 className="text-base font-semibold mb-3">Yeni Kullanıcı Ekle</h2>
         <UserCreateForm />
+      </section>
+
+      <section className="mt-8">
+        <AuthEvents />
       </section>
     </div>
   );

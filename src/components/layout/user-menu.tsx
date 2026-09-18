@@ -25,7 +25,7 @@ export function UserMenu({ email, name }: { email: string; name?: string | null 
 
   const signOut = async () => {
     const supabase = createClient();
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
     router.refresh();
   };
 
@@ -51,7 +51,7 @@ export function UserMenu({ email, name }: { email: string; name?: string | null 
           {t("signOut")}
         </DropdownMenuItem>
       </DropdownMenuContent>
-      <ChangePasswordDialog open={pwOpen} onClose={() => setPwOpen(false)} />
+      <ChangePasswordDialog open={pwOpen} onClose={() => setPwOpen(false)} email={email} />
     </DropdownMenu>
   );
 }

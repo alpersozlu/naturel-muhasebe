@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 export function DisabledAccount() {
   const router = useRouter();
   const signOut = async () => {
-    await createClient().auth.signOut();
+    await createClient().auth.signOut({ scope: "local" });
     router.replace("/tr/login");
     router.refresh();
   };

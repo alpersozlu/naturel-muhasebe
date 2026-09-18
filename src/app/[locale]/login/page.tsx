@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { NrLogo } from "@/components/brand/nr-logo";
@@ -19,12 +20,22 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [failed, setFailed] = useState(0);
   const forgotMut = trpc.auth.forgotPassword.useMutation();
+  const noteFailed = trpc.auth.noteFailedLogin.useMutation();
+  const noteLogin = trpc.auth.noteLogin.useMutation();
   // The invitation e-mail links here with ?email=…, so the person only
   // types the password.
   useEffect(() => {
     const preset = new URLSearchParams(window.location.search).get("email");
     if (preset) setEmail(preset);
+    // An older recovery mail (Supabase redirect style) lands on the site
+    // root with the tokens in the hash and is bounced here; the hash
+    // survives the bounce. Hand it to the reset page instead of losing it.
+    if (/type=recovery/.test(window.location.hash) && /access_token=/.test(window.location.hash)) {
+      const locale = window.location.pathname.split("/")[1] === "en" ? "en" : "tr";
+      window.location.replace(`/${locale}/reset-password${window.location.hash}`);
+    }
   }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -32,16 +43,20 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const supabase = createClient();
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const cleanEmail = email.trim().toLowerCase();
+      const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
       if (error) {
         const code = (error as { code?: string }).code ?? "";
         const msg = error.message ?? "";
+        setFailed((n) => n + 1);
+        // Support log: which address, which reason. Never the password.
+        noteFailed.mutate({ email: cleanEmail, code: (code || msg).slice(0, 60) });
         if (code === "user_banned" || /banned/i.test(msg)) {
           toast.error("Hesabınız devre dışı bırakılmış — yöneticinize başvurun.");
         } else if (/fetch|network/i.test(msg)) {
           toast.error("Bağlantı hatası — internetinizi kontrol edip tekrar deneyin.");
         } else if (code === "invalid_credentials" || /invalid login credentials/i.test(msg)) {
-          toast.error("E-posta veya şifre hatalı. Tarayıcı eski şifreyi doldurmuş olabilir; kutuyu temizleyip elle yazın.");
+          toast.error("E-posta veya şifre hatalı. Göz simgesiyle yazdığınız şifreyi kontrol edin.");
         } else if (code === "over_request_rate_limit" || /rate limit/i.test(msg)) {
           toast.error("Çok fazla deneme yapıldı — bir dakika bekleyip tekrar deneyin.");
         } else {
@@ -51,6 +66,7 @@ export default function LoginPage() {
         }
         return;
       }
+      noteLogin.mutate({ kind: "login_ok" });
       router.refresh();
     } finally {
       setLoading(false);
@@ -69,7 +85,7 @@ export default function LoginPage() {
       const locale = (window.location.pathname.split("/")[1] === "en" ? "en" : "tr") as "tr" | "en";
       // Server first: with the app's own mail transport the link works from
       // any browser and reaches every user. Otherwise Supabase's mailer.
-      const r = await forgotMut.mutateAsync({ email: email.trim(), origin: window.location.origin, locale });
+      const r = await forgotMut.mutateAsync({ email: email.trim(), locale });
       if (r.via === "supabase") {
         const supabase = createClient();
         const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
@@ -116,15 +132,21 @@ export default function LoginPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">{t("password")}</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 autoComplete="current-password"
               />
             </div>
+            {failed > 0 ? (
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Giriş reddedildi. Göz simgesine basıp yazdığınız şifreye bakın: tarayıcı eski bir
+                şifreyi kendisi doldurmuş, Caps Lock açık ya da klavye dili farklı olabilir.
+                {failed >= 2 ? " Emin değilseniz aşağıdaki \"Şifremi unuttum\" ile yenisini belirleyin." : ""}
+              </p>
+            ) : null}
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Giriş yapılıyor…" : t("signIn")}
             </Button>

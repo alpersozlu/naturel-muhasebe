@@ -11,6 +11,7 @@ import {
   userSetActiveSchema,
   userSendInviteSchema,
 } from "@/lib/zod-schemas/user";
+import { recordAuthEvent } from "@/server/services/auth-events";
 import { isMailConfigured, sendMail } from "@/server/services/mail";
 
 const userAdmin = withAudit("User");
@@ -90,7 +91,7 @@ export const userRouter = router({
   /** Şifre değiştir (admin) — Supabase auth üzerinden. */
   setPassword: userAdmin
     .input(userSetPasswordSchema)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const supabase = createAdminClient();
       const { error } = await supabase.auth.admin.updateUserById(input.id, {
         password: input.password,
@@ -100,6 +101,10 @@ export const userRouter = router({
           code: "INTERNAL_SERVER_ERROR",
           message: `Supabase: ${error.message}`,
         });
+      }
+      const target = await ctx.prisma.user.findUnique({ where: { id: input.id }, select: { email: true } });
+      if (target) {
+        await recordAuthEvent({ email: target.email, kind: "password_set_by_admin", reason: `by ${ctx.user.email}` });
       }
       return { ok: true };
     }),
@@ -161,6 +166,7 @@ export const userRouter = router({
       if (error) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Supabase: ${error.message}` });
       }
+      await recordAuthEvent({ email: user.email, kind: "password_set_by_admin", reason: `invite by ${ctx.user.email}` });
     }
 
     const stores = user.store_access.map((a) => a.store.name).join(", ");
