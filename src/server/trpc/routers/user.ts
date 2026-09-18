@@ -178,7 +178,9 @@ export const userRouter = router({
           ? `${firstName} Bey`
           : (user.full_name ?? "").trim();
     const title = addressee ? `Naturel Muhasebe'ye hoş geldiniz, ${addressee}` : "Naturel Muhasebe'ye hoş geldiniz";
-    const link = `${input.login_url}?email=${encodeURIComponent(user.email)}`;
+    // "@" is legal in a query string; keeping it readable avoids the puzzling
+    // "%40" in the message. Everything else stays encoded.
+    const link = `${input.login_url}?email=${encodeURIComponent(user.email).replace(/%40/g, "@")}`;
     const lines = [
       title,
       "",

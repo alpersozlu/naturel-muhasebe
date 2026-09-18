@@ -450,7 +450,9 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
   const subject = addressee
     ? `Naturel Muhasebe'ye hoş geldiniz, ${addressee}`
     : "Naturel Muhasebe'ye hoş geldiniz";
-  const link = `${loginUrl}?email=${encodeURIComponent(user.email)}`;
+  // "@" is legal in a query string; keeping it readable avoids the puzzling
+  // "%40" in the message. Everything else stays encoded.
+  const link = `${loginUrl}?email=${encodeURIComponent(user.email).replace(/%40/g, "@")}`;
   const pwTooShort = pw.length > 0 && pw.length < 6;
   const toValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.trim());
   const message = [
