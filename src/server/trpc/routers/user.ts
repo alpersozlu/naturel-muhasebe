@@ -12,7 +12,7 @@ import {
   userSendInviteSchema,
 } from "@/lib/zod-schemas/user";
 import { recordAuthEvent } from "@/server/services/auth-events";
-import { isMailConfigured, sendMail } from "@/server/services/mail";
+import { explainMailError, isMailConfigured, isMailSandbox, sendMail } from "@/server/services/mail";
 
 const userAdmin = withAudit("User");
 
@@ -112,6 +112,9 @@ export const userRouter = router({
   /** Is outgoing e-mail set up (SMTP env)? The invite dialog offers "send" only then. */
   mailConfigured: adminProcedure.query(() => isMailConfigured()),
 
+  /** True while mail can only reach the account owner (no verified domain yet). */
+  mailSandbox: adminProcedure.query(() => isMailSandbox()),
+
   /** Admin: a test message to their own address — proves the mail setup without touching any account. */
   sendTestMail: adminProcedure.mutation(async ({ ctx }) => {
     if (!isMailConfigured()) {
@@ -134,7 +137,7 @@ export const userRouter = router({
     } catch (e) {
       throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
-        message: `E-posta gönderilemedi: ${e instanceof Error ? e.message : String(e)}`,
+        message: `E-posta gönderilemedi: ${explainMailError(e)}`,
       });
     }
     return { to: ctx.user.email };
@@ -223,7 +226,7 @@ export const userRouter = router({
     } catch (e) {
       throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
-        message: `E-posta gönderilemedi: ${e instanceof Error ? e.message : String(e)}`,
+        message: `E-posta gönderilemedi: ${explainMailError(e)}`,
       });
     }
     return { ok: true, to: input.to ?? user.email };

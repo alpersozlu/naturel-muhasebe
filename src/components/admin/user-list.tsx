@@ -426,6 +426,9 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
   });
   // Outgoing e-mail exists only when Resend / SMTP is configured on the server.
   const { data: mailReady } = trpc.user.mailConfigured.useQuery();
+  // No verified sending domain yet: mail reaches the admin's own address only.
+  const { data: mailSandbox } = trpc.user.mailSandbox.useQuery();
+  const { data: me } = trpc.user.me.useQuery();
   const sendInvite = trpc.user.sendInvite.useMutation({
     onSuccess: (r) => {
       toast.success(`Davet e-postası gönderildi: ${r.to}`);
@@ -455,6 +458,8 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
   const link = `${loginUrl}?email=${encodeURIComponent(user.email).replace(/%40/g, "@")}`;
   const pwTooShort = pw.length > 0 && pw.length < 6;
   const toValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.trim());
+  const blockedBySandbox =
+    !!mailSandbox && !!me?.email && toValid && to.trim().toLowerCase() !== me.email.toLowerCase();
   const message = [
     subject,
     "",
@@ -544,6 +549,13 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
               {!toValid ? <p className="text-xs text-rose-600">Geçerli bir e-posta yazın</p> : null}
             </div>
           </div>
+          {blockedBySandbox ? (
+            <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+              Bu adrese e-posta şu an <span className="font-medium">ulaşmaz</span>: posta hesabının alan adı henüz
+              doğrulanmadı, mail yalnız {me?.email ?? "kendi adresinize"} adresine gidebiliyor. Mesajı{" "}
+              <span className="font-medium">&quot;Mesajı kopyala&quot;</span> ile WhatsApp&apos;tan gönderin.
+            </p>
+          ) : null}
           <div className="space-y-1.5">
             <Label>Şifre (isteğe bağlı)</Label>
             <Input
@@ -580,7 +592,7 @@ function InviteDialog({ user, onClose }: { user: Row; onClose: () => void }) {
           </Button>
           {mailReady ? (
             <Button
-              disabled={busy || pwTooShort || !toValid}
+              disabled={busy || pwTooShort || !toValid || blockedBySandbox}
               onClick={() =>
                 sendInvite.mutate({
                   id: user.id,

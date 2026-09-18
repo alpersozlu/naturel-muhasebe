@@ -16,6 +16,29 @@ import nodemailer from "nodemailer";
  */
 const DEFAULT_FROM = "Naturel Ticaret <onboarding@resend.dev>";
 
+/**
+ * Resend without a verified domain: the shared onboarding@resend.dev sender
+ * only delivers to the Resend account owner's own address; every other
+ * recipient is refused with a 403. The UI says so up front instead of
+ * letting the admin wait for a mail that cannot arrive.
+ */
+export function isMailSandbox(): boolean {
+  if (!process.env.RESEND_API_KEY) return false;
+  return /resend\.dev/i.test(process.env.MAIL_FROM ?? DEFAULT_FROM);
+}
+
+/** Turkish, actionable wording for the transport errors an admin can meet. */
+export function explainMailError(e: unknown): string {
+  const m = e instanceof Error ? e.message : String(e);
+  if (/only send testing emails|verify a domain|own email address/i.test(m)) {
+    return "Posta hesabının alan adı henüz doğrulanmadı; şimdilik yalnız hesap sahibinin kendi adresine mail gidebiliyor. Bu kişiye mesajı \"Mesajı kopyala\" ile WhatsApp'tan gönderin.";
+  }
+  if (/Resend 401|API key is invalid/i.test(m)) {
+    return "Posta anahtarı geçersiz — Vercel'deki RESEND_API_KEY değerini yenileyin.";
+  }
+  return m;
+}
+
 export function isMailConfigured(): boolean {
   return !!process.env.RESEND_API_KEY || !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
