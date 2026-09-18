@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { trpc } from "@/lib/trpc";
@@ -15,7 +14,6 @@ import { NrLogo } from "@/components/brand/nr-logo";
 
 export default function LoginPage() {
   const t = useTranslations("auth");
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -41,6 +39,7 @@ export default function LoginPage() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    let keepBusy = false; // stay on "Giriş yapılıyor…" while the browser navigates
     try {
       const supabase = createClient();
       const cleanEmail = email.trim().toLowerCase();
@@ -66,10 +65,23 @@ export default function LoginPage() {
         }
         return;
       }
-      noteLogin.mutate({ kind: "login_ok" });
-      router.refresh();
+      // Full page load to the person's own landing page. The old
+      // router.refresh() went login → (middleware) /admin → (layout) /upload
+      // as two soft redirects, and the store PC was left on a blank white
+      // page until a manual reload (reported 2026-09-18). A hard navigation
+      // is what that manual reload did; it also drops any data cached from
+      // a previous user of a shared computer.
+      let role: string | null = null;
+      try {
+        role = (await noteLogin.mutateAsync({ kind: "login_ok" })).role;
+      } catch {
+        role = null; // inactive account etc. — the server decides what to show
+      }
+      const locale = window.location.pathname.split("/")[1] === "en" ? "en" : "tr";
+      keepBusy = true;
+      window.location.assign(`/${locale}/${role && role !== "admin" ? "upload" : "admin"}`);
     } finally {
-      setLoading(false);
+      if (!keepBusy) setLoading(false);
     }
   };
 

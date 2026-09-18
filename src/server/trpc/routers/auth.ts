@@ -150,7 +150,7 @@ export const authRouter = router({
     .input(z.object({ kind: z.enum(["login_ok", "recovery_completed"]).default("login_ok") }))
     .mutation(async ({ ctx, input }) => {
       await recordAuthEvent({ email: ctx.user.email, kind: input.kind });
-      return { ok: true };
+      return { ok: true, role: ctx.user.role };
     }),
 
   /**

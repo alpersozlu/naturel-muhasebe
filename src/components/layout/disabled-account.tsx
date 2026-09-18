@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,11 +10,9 @@ import { Button } from "@/components/ui/button";
  * no menu and every request failed.
  */
 export function DisabledAccount() {
-  const router = useRouter();
   const signOut = async () => {
     await createClient().auth.signOut({ scope: "local" });
-    router.replace("/tr/login");
-    router.refresh();
+    window.location.assign("/tr/login");
   };
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">

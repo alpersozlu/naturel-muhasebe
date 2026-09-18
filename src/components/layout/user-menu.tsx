@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { LogOut, KeyRound } from "lucide-react";
 import { ChangePasswordDialog } from "@/components/layout/change-password-dialog";
@@ -17,7 +16,6 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 export function UserMenu({ email, name }: { email: string; name?: string | null }) {
-  const router = useRouter();
   const t = useTranslations("auth");
 
   const initial = (name ?? email)[0]?.toUpperCase() ?? "?";
@@ -26,7 +24,9 @@ export function UserMenu({ email, name }: { email: string; name?: string | null 
   const signOut = async () => {
     const supabase = createClient();
     await supabase.auth.signOut({ scope: "local" });
-    router.refresh();
+    // Full load: a soft refresh through the middleware redirect can leave a
+    // blank page, and a shared store PC must not keep the last user's data.
+    window.location.assign(`/${window.location.pathname.split("/")[1] === "en" ? "en" : "tr"}/login`);
   };
 
   return (

@@ -119,11 +119,16 @@ export default function ResetPasswordPage() {
         }
         return;
       }
-      noteLogin.mutate({ kind: "recovery_completed" });
+      let role: string | null = null;
+      try {
+        role = (await noteLogin.mutateAsync({ kind: "recovery_completed" })).role;
+      } catch {
+        role = null;
+      }
       toast.success("Şifreniz güncellendi");
       const locale = window.location.pathname.split("/")[1] || "tr";
-      router.replace(`/${locale}/upload`);
-      router.refresh();
+      // Hard navigation — see the login page for why.
+      window.location.assign(`/${locale}/${role && role !== "admin" ? "upload" : "admin"}`);
     } finally {
       setSaving(false);
     }
