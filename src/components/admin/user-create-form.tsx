@@ -102,7 +102,7 @@ export function UserCreateForm() {
                 type="text"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Başlangıç şifresini belirle (en az 8)"
+                placeholder="Başlangıç şifresini belirle (en az 6)"
               />
               {password.length > 0 && password.length < 6 ? (
                 <p className="text-xs text-rose-600 mt-1">
