@@ -770,10 +770,19 @@ model DealerDailyReport {
   // ── ANA ALANLAR ─────────
   // Tüm satırların Net Tutar toplamı (iadelerle nette)
   net_sales_try Decimal @db.Decimal(14, 2)
-  // Tüm satırların Kartuş Kart toplamı (sadakat puanı kullanımı, TL)
+  // Kartuş Kart (sadakat puanı kullanımı, TL) — fiş başına BİR KEZ sayılır;
+  // kolon fişin her satırında aynı değerle tekrar eder.
   loyalty_try Decimal @db.Decimal(14, 2)
-  // Tüm satırların Hediye Kart toplamı
+  // Hediye Kart ödemeleri (fiş başına bir kez — kolon her satırda tekrar eder)
   gift_card_try Decimal? @db.Decimal(14, 2)
+  // Payment breakdown from the receipt head rows (2026-09-19). Per day:
+  // net = cash + card + gift_card + loyalty + wire + other. Null on reports
+  // parsed before these columns existed.
+  cash_try         Decimal? @db.Decimal(14, 2)
+  card_try         Decimal? @db.Decimal(14, 2)
+  wire_try         Decimal? @db.Decimal(14, 2)
+  other_try        Decimal? @db.Decimal(14, 2)
+  refund_total_try Decimal? @db.Decimal(14, 2) // Σ refund receipts (negative)
 
   // ── METADATA ─────────
   transaction_count Int // Benzersiz fiş sayısı

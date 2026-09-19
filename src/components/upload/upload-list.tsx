@@ -694,9 +694,25 @@ function ParsedFields({
           label="Kartuş Puan"
           value={`${TRY_FMT.format(num(d.loyalty_try))} ₺`}
         />
+        {d.cash_try != null ? (
+          <MiniField label="Nakit" value={`${TRY_FMT.format(num(d.cash_try))} ₺`} />
+        ) : null}
+        {d.card_try != null ? (
+          <MiniField label="Kredi Kartı" value={`${TRY_FMT.format(num(d.card_try))} ₺`} />
+        ) : null}
+        {d.gift_card_try != null && Math.abs(num(d.gift_card_try)) > 0.005 ? (
+          <MiniField label="Hediye Kart" value={`${TRY_FMT.format(num(d.gift_card_try))} ₺`} />
+        ) : null}
         <MiniField label="Fiş Sayısı" value={String(d.transaction_count)} />
         <MiniField label="Satır" value={String(d.line_count)} />
-        <MiniField label="İade" value={String(d.refund_count)} />
+        <MiniField
+          label="İade"
+          value={
+            d.refund_total_try != null && Math.abs(num(d.refund_total_try)) > 0.005
+              ? `${d.refund_count} satır · ${TRY_FMT.format(num(d.refund_total_try))} ₺`
+              : String(d.refund_count)
+          }
+        />
       </div>
     );
   }

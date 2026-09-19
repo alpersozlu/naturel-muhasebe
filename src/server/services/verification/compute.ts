@@ -397,6 +397,40 @@ export async function computeDay(
       difference: loyDiff,
       matches: Math.abs(loyDiff) <= TOLERANCE_TL,
     });
+    // Payment breakdown (reports parsed from 2026-09-19 on). Checked against
+    // three real days: SAP Nakit = summary nakit and Σ bank = summary kredi
+    // kartı, to the kuruş. A summary that keeps the total but shifts money
+    // between cash and card is caught here.
+    if (sapReport.cash_try !== null && sapReport.card_try !== null) {
+      const sapCash = num(sapReport.cash_try);
+      const sapCard = num(sapReport.card_try);
+      rows.splice(rows.length - 1, 0, {
+        label: "SAP Nakit (Bayi Raporu)",
+        document_total: sapCash,
+        summary_total: summaryCash,
+        difference: sapCash - summaryCash,
+        matches: Math.abs(sapCash - summaryCash) <= TOLERANCE_TL,
+      });
+      rows.splice(rows.length - 1, 0, {
+        label: "SAP Kredi Kartı (Bayi Raporu)",
+        document_total: sapCard,
+        summary_total: ccTotal,
+        difference: sapCard - ccTotal,
+        matches: Math.abs(sapCard - ccTotal) <= TOLERANCE_TL,
+      });
+    }
+    // Gift-card payments are part of SAP net sales; shown for context when a
+    // day's net differs from the summary. Information only.
+    const sapGift = num(sapReport.gift_card_try);
+    if (Math.abs(sapGift) > 0.005) {
+      rows.splice(rows.length - 1, 0, {
+        label: "SAP Hediye Kart (bilgi)",
+        document_total: sapGift,
+        summary_total: sapGift,
+        difference: 0,
+        matches: true,
+      });
+    }
   }
 
   // Every comparison row must hold, not only GENEL TOPLAM: a missing POS
