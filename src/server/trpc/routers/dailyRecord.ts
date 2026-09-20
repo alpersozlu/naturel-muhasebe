@@ -141,6 +141,26 @@ export const dailyRecordRouter = router({
         }
       }
 
+      // A document flagged by the authenticity screening waits for an admin.
+      // Until then only an admin can close the day.
+      if (!isAdmin(ctx.user)) {
+        const flagged = await ctx.prisma.upload.count({
+          where: {
+            authenticity_verdict: "suspicious",
+            daily_record: dr.merge_group_id
+              ? { merge_group_id: dr.merge_group_id }
+              : { id: dr.id },
+          },
+        });
+        if (flagged > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Bu günde yönetici incelemesi bekleyen bir belge var. İnceleme bitince gün kilitlenebilir.",
+          });
+        }
+      }
+
       // ── 3. Aşama: SAP Bayi Raporu kontrolü (Mavi mağazalar için zorunlu) ──
       const brandLower = dr.store.brand.name.toLocaleLowerCase("tr");
       const isMaviBrand = brandLower.includes("mavi");

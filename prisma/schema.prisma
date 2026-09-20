@@ -365,6 +365,13 @@ model Upload {
   error_message    String? // OCR fail olursa
   date_mismatch    Boolean      @default(false) // slip_date != daily_record.date
   duplicate_of_id  String? // Bu upload bir başkasının kopyası ise FK
+  // Authenticity screening (2026-09-20, after a machine-generated POS slip for
+  // exactly the day's missing amount). ok | suspicious | synthetic | cleared.
+  // The report (reasons, file traces, vision notes) is for admins only.
+  authenticity_verdict    String?
+  authenticity_json       Json?
+  authenticity_checked_at DateTime?
+  authenticity_cleared_by String?
 
   pos_slips           PosSlip[]
   store_summary       StoreSummary?
@@ -376,6 +383,7 @@ model Upload {
 
   @@index([daily_record_id])
   @@index([type])
+  @@index([authenticity_verdict])
   @@index([status])
   @@index([daily_record_id, file_hash])
 }

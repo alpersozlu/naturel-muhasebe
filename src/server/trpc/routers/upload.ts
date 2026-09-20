@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 import { router, protectedProcedure, adminProcedure } from "../trpc";
 import {
   uploadCreateSchema,
@@ -160,7 +161,7 @@ export const uploadRouter = router({
       // maxDuration'ın çok üstünde bir yaş, canlı bir işi yakalamaz.
       await sweepStale(ctx.prisma, { daily_record_id: dr.id });
 
-      return ctx.prisma.upload.findMany({
+      const rows = await ctx.prisma.upload.findMany({
         where: { daily_record_id: dr.id },
         orderBy: { uploaded_at: "desc" },
         include: {
@@ -173,6 +174,60 @@ export const uploadRouter = router({
           dealer_daily_report: true,
         },
       });
+      // The authenticity report explains HOW a fabricated document was
+      // noticed; only admins get it. Everyone else sees that a document is
+      // under review, nothing more.
+      if (ctx.user.role === "admin") return rows;
+      return rows.map((r) => ({ ...r, authenticity_json: null }));
+    }),
+
+  /**
+   * Admin: close an authenticity flag after looking at the document.
+   * "cleared" accepts it (a refused upload is read again, this time without
+   * screening); "confirmed_fake" keeps it out for good.
+   */
+  reviewAuthenticity: adminProcedure
+    .input(z.object({ id: z.string().uuid(), decision: z.enum(["cleared", "confirmed_fake"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const upload = await ctx.prisma.upload.findUnique({ where: { id: input.id } });
+      if (!upload) throw new TRPCError({ code: "NOT_FOUND" });
+      if (input.decision === "confirmed_fake") {
+        await ctx.prisma.$transaction([
+          ctx.prisma.posSlip.deleteMany({ where: { upload_id: upload.id } }),
+          ctx.prisma.storeSummary.deleteMany({ where: { upload_id: upload.id } }),
+          ctx.prisma.bankReceipt.deleteMany({ where: { upload_id: upload.id } }),
+          ctx.prisma.expense.deleteMany({ where: { upload_id: upload.id } }),
+          ctx.prisma.zReport.deleteMany({ where: { upload_id: upload.id } }),
+          ctx.prisma.upload.update({
+            where: { id: upload.id },
+            data: {
+              status: "failed",
+              authenticity_verdict: "synthetic",
+              authenticity_cleared_by: ctx.user.id,
+              error_message:
+                "Bu görsel yönetici incelemesinde geçersiz bulundu. Belgenin aslını telefonla çekip yeniden yükleyin.",
+            },
+          }),
+        ]);
+        return { ok: true, reprocessing: false };
+      }
+      const wasRefused = upload.status === "failed" && upload.authenticity_verdict === "synthetic";
+      await ctx.prisma.upload.update({
+        where: { id: upload.id },
+        data: {
+          authenticity_verdict: "cleared",
+          authenticity_cleared_by: ctx.user.id,
+          ...(wasRefused ? { status: "pending" as const, error_message: null, uploaded_at: new Date() } : {}),
+        },
+      });
+      if (wasRefused) {
+        waitUntil(
+          processUpload(upload.id).catch((e) => {
+            console.error("[upload.reviewAuthenticity] async OCR failed", e);
+          })
+        );
+      }
+      return { ok: true, reprocessing: wasRefused };
     }),
 
   /** Get a short-lived signed URL for downloading/previewing an upload. */

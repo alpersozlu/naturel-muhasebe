@@ -11,6 +11,8 @@ import { parseStoreSummary } from "./parsers/store-summary";
 import { parseBankReceipt } from "./parsers/bank-receipt";
 import { parseExpense } from "./parsers/expense";
 import { parseZReport } from "./parsers/z-report";
+import { ASSESSED_TYPES, inspectUpload } from "@/server/services/authenticity/assess";
+import { applyAuthenticity } from "@/server/services/authenticity/apply";
 import {
   parseMaviSapBuffer,
   pickDay,
@@ -114,11 +116,20 @@ export async function processUpload(uploadId: string): Promise<void> {
     data: { status: "processing", error_message: null },
   });
 
+  // Authenticity screening runs ALONGSIDE the OCR call (no extra wall-clock)
+  // and is applied once OCR has finished, whatever its outcome. An admin who
+  // reviewed and accepted a document ("cleared") is not second-guessed.
+  let screening: ReturnType<typeof inspectUpload> | null = null;
+
   try {
     const buffer = await downloadUpload(upload);
     if (!buffer) {
       // Eskiden sessizce dönüyordu → kayıt sonsuza kadar "processing" kalıyordu.
       throw new Error("Dosya depodan indirilemedi. Lütfen tekrar yükleyin.");
+    }
+    if (ASSESSED_TYPES.has(upload.type) && upload.authenticity_verdict !== "cleared") {
+      screening = inspectUpload({ buffer, mimeType: upload.mime_type });
+      screening.catch(() => undefined); // awaited below; never an unhandled rejection
     }
     if (upload.type === "pos_slip") await runPosSlip(upload, buffer);
     else if (upload.type === "store_summary") await runStoreSummary(upload, buffer);
@@ -133,6 +144,11 @@ export async function processUpload(uploadId: string): Promise<void> {
       where: { id: uploadId },
       data: { status: "failed", error_message: humanizeOcrError(e).slice(0, 1000) },
     });
+  }
+
+  if (screening) {
+    const phase1 = await screening.catch(() => null);
+    await applyAuthenticity(upload, phase1);
   }
 }
 

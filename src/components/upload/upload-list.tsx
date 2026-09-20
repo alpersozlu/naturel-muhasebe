@@ -20,6 +20,7 @@ import {
   ScanLine,
   Sparkles,
   ShieldCheck,
+  ShieldAlert,
   Building2,
 } from "lucide-react";
 import type {
@@ -147,6 +148,10 @@ type UploadRow = {
   error_message?: string | null;
   /** Modelin ham çıktısı — reddedilen yüklemede de dolu (`stashRaw`). */
   raw_ocr_json?: unknown;
+  /** ok | suspicious | synthetic | cleared — see services/authenticity. */
+  authenticity_verdict?: string | null;
+  /** Admins only (the server blanks it for everyone else). */
+  authenticity_json?: unknown;
   pos_slips?: PosSlip[];
   store_summary?: StoreSummary | null;
   bank_receipt?: BankReceipt | null;
@@ -200,6 +205,14 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
   });
 
   // Failed row → run the OCR again on the same photo (no re-upload).
+  const reviewAuth = trpc.upload.reviewAuthenticity.useMutation({
+    onSuccess: (r) => {
+      toast.success(r.reprocessing ? "Belge kabul edildi, yeniden okunuyor" : "İnceleme kaydedildi");
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+      utils.dailyRecord.reconciliation.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const retry = trpc.upload.retry.useMutation({
     onSuccess: () => {
       toast.success("Yeniden okunuyor…");
@@ -273,6 +286,32 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                 }}
                 onConfirm={() => confirmMut.mutate({ id: u.id })}
                 onRetry={() => retry.mutate({ id: u.id })}
+                onReviewAuthenticity={
+                  isAdmin
+                    ? async (decision) => {
+                        if (
+                          await confirmDialog(
+                            decision === "cleared"
+                              ? {
+                                  title: "Belge gerçek sayılsın mı?",
+                                  description:
+                                    "İşaret kaldırılır ve belge güne sayılır. Reddedilmişse yeniden okunur.",
+                                  confirmLabel: "Gerçek, kabul et",
+                                }
+                              : {
+                                  title: "Belge geçersiz sayılsın mı?",
+                                  description:
+                                    "Bu belgeden okunan kayıtlar günden çıkarılır. Mağaza belgenin aslını yeniden yüklemek zorunda kalır.",
+                                  confirmLabel: "Geçersiz say",
+                                  destructive: true,
+                                }
+                          )
+                        ) {
+                          reviewAuth.mutate({ id: u.id, decision });
+                        }
+                      }
+                    : undefined
+                }
                 onAcceptGap={
                   isAdmin
                     ? async () => {
@@ -299,12 +338,21 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
   );
 }
 
+function readAuthReasons(json: unknown): string[] {
+  if (json && typeof json === "object" && "reasons" in json) {
+    const r = (json as { reasons?: unknown }).reasons;
+    if (Array.isArray(r)) return r.filter((x): x is string => typeof x === "string").slice(0, 8);
+  }
+  return ["Ayrıntı kaydı yok."];
+}
+
 function UploadRowItem({
   upload,
   onOpen,
   onDelete,
   onConfirm,
   onRetry,
+  onReviewAuthenticity,
   onAcceptGap,
   expectedDate,
 }: {
@@ -314,6 +362,8 @@ function UploadRowItem({
   onConfirm: () => void;
   /** Failed rows: run the OCR again on the same file. */
   onRetry?: () => void;
+  /** Admin only: close an authenticity flag. */
+  onReviewAuthenticity?: (decision: "cleared" | "confirmed_fake") => void;
   /** Admin only; set when the row is a store summary rejected by the Nebim cross-check. */
   onAcceptGap?: () => void;
   expectedDate: string;
@@ -447,6 +497,50 @@ function UploadRowItem({
             expectedDate={expectedDate}
           />
         </div>
+      ) : null}
+
+      {/* Authenticity screening. Admins see why and decide; everyone else
+          only learns that the document is being looked at. */}
+      {upload.authenticity_verdict === "suspicious" || upload.authenticity_verdict === "synthetic" ? (
+        onReviewAuthenticity ? (
+          <div className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2.5 text-xs text-rose-900">
+            <div className="flex items-center gap-1.5 font-semibold">
+              <ShieldAlert className="h-3.5 w-3.5" />
+              {upload.authenticity_verdict === "synthetic"
+                ? "Üretilmiş görsel — belge reddedildi"
+                : "Sahtelik şüphesi — incelemenizi bekliyor"}
+            </div>
+            <ul className="mt-1.5 list-disc space-y-0.5 pl-4 leading-relaxed">
+              {readAuthReasons(upload.authenticity_json).map((r, i) => (
+                <li key={i}>{r}</li>
+              ))}
+            </ul>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => onReviewAuthenticity("cleared")}
+                className="rounded-md border border-rose-300 bg-white px-2.5 py-1 text-[11px] font-medium hover:bg-rose-100"
+              >
+                Gerçek, kabul et
+              </button>
+              {upload.authenticity_verdict === "suspicious" ? (
+                <button
+                  type="button"
+                  onClick={() => onReviewAuthenticity("confirmed_fake")}
+                  className="rounded-md border border-rose-400 bg-rose-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-rose-700"
+                >
+                  Sahte, geçersiz say
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : upload.authenticity_verdict === "suspicious" ? (
+          <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            Bu belge yönetici incelemesinde. İnceleme bitene kadar gün kilitlenemez.
+          </div>
+        ) : null
+      ) : upload.authenticity_verdict === "cleared" && onReviewAuthenticity ? (
+        <p className="mt-2 text-[11px] text-muted-foreground">Belge denetimi: yönetici inceledi ve kabul etti.</p>
       ) : null}
 
       {/* Hata mesajı (failed durumu) */}
