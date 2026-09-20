@@ -12,6 +12,7 @@ import {
   ShieldAlert,
   Layers,
   Lock,
+  LockOpen,
   Loader2,
   XCircle,
   Save,
@@ -77,6 +78,19 @@ export function ReconciliationPanel({
   const lockDay = trpc.dailyRecord.approveAndLock.useMutation({
     onSuccess: () => {
       toast.success("Gün kilitlendi — artık değişiklik yapılamaz");
+      utils.dailyRecord.reconciliation.invalidate({ store_id: storeId, date });
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // Admin only (the server enforces it): reopen a locked day to add or fix
+  // documents, then lock it again.
+  const { data: me } = trpc.user.me.useQuery();
+  const isAdminUser = me?.role === "admin";
+  const unlockDay = trpc.dailyRecord.unlock.useMutation({
+    onSuccess: () => {
+      toast.success("Kilit açıldı — belge ekleyip günü yeniden kilitleyebilirsiniz");
       utils.dailyRecord.reconciliation.invalidate({ store_id: storeId, date });
       utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
     },
@@ -438,9 +452,36 @@ export function ReconciliationPanel({
                     {data.locked_by_name}
                   </div>
                 ) : null}
-                <div className="mt-1 text-[11px] text-slate-500">
-                  Kilidi yalnız yönetici açabilir
-                </div>
+                {isAdminUser && data.daily_record_id ? (
+                  <button
+                    type="button"
+                    disabled={unlockDay.isPending}
+                    onClick={async () => {
+                      if (
+                        await confirmDialog({
+                          title: "Kilit açılsın mı?",
+                          description:
+                            "Gün yeniden düzenlenebilir olur: belge eklenebilir, silinebilir. İşiniz bitince günü yeniden kilitleyin.",
+                          confirmLabel: "Kilidi aç",
+                        })
+                      ) {
+                        unlockDay.mutate({ id: data.daily_record_id! });
+                      }
+                    }}
+                    className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {unlockDay.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <LockOpen className="h-3.5 w-3.5" />
+                    )}
+                    Kilidi Aç
+                  </button>
+                ) : (
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    Kilidi yalnız yönetici açabilir
+                  </div>
+                )}
               </div>
             ) : null}
           </div>
@@ -723,7 +764,7 @@ function StatusBanner({ data }: { data: ReconData }) {
         tone="slate"
         icon={<Lock className="h-4 w-4" />}
         title="Gün kilitli"
-        message="Bu gün admin tarafından kilitlenmiş, değişiklik yapılamaz."
+        message="Bu gün kilitlendi; değişiklik yapılamaz. Kilidi yalnız yönetici açabilir."
       />
     );
   }

@@ -22,6 +22,10 @@ import { createHash } from "crypto";
  *    15.093 receipts.
  *  - Refunds ("Refereanslı İade") carry negative amounts, so plain sums net
  *    them out.
+ *  - The September 2026 export renamed a few headers ("Nakit" → "Tutar",
+ *    "SiraNo" → "Sıra No", "Stok Kdv" → "Stok KDV") and added "Açıklama" and
+ *    "Seçme kutusu"; columns are therefore located by normalized name and,
+ *    for cash, by position.
  *  - Per day: Σ Toplam = summary "Toplam Satış", Σ Nakit = summary nakit,
  *    Σ bank = summary kredi kartı, Σ Kartuş (once per receipt) = summary Kartuş.
  *
@@ -128,7 +132,15 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
   const cGift = col("hediye kart");
   const cHead = col("tahsilat");
   const cTotal = col("toplam tutar");
-  const cCash = col("nakit");
+  // Cash: named "Nakit" in the exports up to July 2026; the September 2026
+  // export renamed it to a bare "Tutar" (measured on the live Lefkoşa files of
+  // 18–19.09: that column summed to the summary's nakit to the kuruş). In both
+  // layouts it is the amount column right before "Para Birimi".
+  let cCash = col("nakit");
+  if (cCash < 0) {
+    const cCurrency = col("para birimi");
+    if (cCurrency > 0 && headerKeys[cCurrency - 1] === "tutar") cCash = cCurrency - 1;
+  }
   const cWire = col("havale");
   const cOther = col("diğer");
   // Bank amounts: each "Tutar" that directly follows a "Banka Kodu". The
@@ -230,6 +242,19 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
       const paid = cash + card + gift + loyalty + wire + other;
       if (Math.abs(total - paid) > 0.05 || Math.abs(total - r.net) > 0.05) d.inconsistent_receipts += 1;
     }
+  }
+
+  // Safety net for the next silent header change: when the receipts' own
+  // totals are present but the payments read from the file do not add up to
+  // them, a payment column was not recognised — say so instead of storing a
+  // zero that later reads as "cash missing".
+  const unbalanced = Array.from(byDay.values()).filter(
+    (d) => d.transaction_count > 0 && d.inconsistent_receipts / d.transaction_count > 0.05
+  );
+  if (cTotal >= 0 && unbalanced.length > 0) {
+    throw new Error(
+      "SAP raporundaki ödeme kolonları tanınamadı (fiş toplamları ödemelerle tutmuyor). Dosya biçimi değişmiş olabilir — yöneticinize haber verin."
+    );
   }
 
   const days = Array.from(byDay.values())

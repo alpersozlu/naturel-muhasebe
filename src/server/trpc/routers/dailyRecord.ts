@@ -829,14 +829,21 @@ export const dailyRecordRouter = router({
         where: { id: input.id },
       });
       if (!dr) throw new TRPCError({ code: "NOT_FOUND" });
-      return ctx.prisma.dailyRecord.update({
-        where: { id: input.id },
-        data: {
-          status: "draft",
-          approved_by: null,
-          approved_at: null,
-          locked_at: null,
-        },
-      });
+      const open = {
+        status: "draft" as const,
+        approved_by: null,
+        approved_at: null,
+        locked_at: null,
+      };
+      // Locking closes every day of a merge group together; opening only one
+      // of them would leave the siblings refusing the documents that belong
+      // to the same reconciliation.
+      if (dr.merge_group_id) {
+        await ctx.prisma.dailyRecord.updateMany({
+          where: { merge_group_id: dr.merge_group_id, status: "locked" },
+          data: open,
+        });
+      }
+      return ctx.prisma.dailyRecord.update({ where: { id: input.id }, data: open });
     }),
 });
