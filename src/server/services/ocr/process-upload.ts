@@ -213,6 +213,19 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
         "Bu bir POS gün sonu raporu gibi görünmüyor. Lütfen geçerli bir POS gün sonu slipini yükleyin."
     );
   }
+  // An interim report ("ARA RAPOR" / "X RAPORU") is a running total with the
+  // batch still open — not the day's close. One was accepted and counted on
+  // Mavi Lefkoşa 20.09.2026 (30.790,00 TL at 19:30) before this check. The
+  // printed title is matched here as well, so the refusal does not hang on
+  // the model's classification alone.
+  // Only the verbatim title is matched — the model's own notes may well say
+  // "ara rapor DEĞİL" about a proper day-end slip.
+  const titleSaysInterim = /\bARA\s*RAPOR|\bX\s*RAPOR/i.test(parsed.title_text ?? "");
+  if (parsed.report_kind === "ara_rapor" || titleSaysInterim) {
+    throw new Error(
+      "Bu bir ARA RAPOR — gün sonu raporu değil. Ara rapor günü kapatmaz, yalnızca o saate kadarki tutarı gösterir. POS cihazından GÜN SONU alın ve o slibi yükleyin."
+    );
+  }
   parsed.date = await assertDateMatch(
     upload.daily_record_id,
     parsed.date,

@@ -35,9 +35,21 @@ export const posSlipSectionSchema = z.object({
 });
 export type PosSlipSection = z.infer<typeof posSlipSectionSchema>;
 
+/**
+ * What the slip says it is. A POS terminal prints two look-alike reports:
+ * the day-end close ("GÜN SONU", batch closed, totals final) and the interim
+ * report ("ARA RAPOR" / "X RAPORU": the running total at that moment, batch
+ * still open). Only the close belongs to a day — an interim slip taken at
+ * 19:30 misses every sale after it and can be printed any number of times.
+ */
+export const posReportKindSchema = z.enum(["gun_sonu", "ara_rapor", "diger"]);
+
 export const posSlipOcrSchema = z.object({
   is_pos_slip: z.boolean(),
   rejection_reason: z.string().nullable(),
+  report_kind: posReportKindSchema.optional(),
+  /** Title / closing line exactly as printed ("ARA RAPOR", "GÜNSONU ÖZET"…). */
+  title_text: z.string().max(200).nullable().optional(),
   bank_name: z.string().min(1).nullable(),
   terminal_no: z.string().min(1).nullable(),
   date: z
@@ -91,6 +103,10 @@ const posSlipSectionOutputSchema = z.object({
  */
 export const posSlipOutputSchema = z.object({
   check_notes: z.string(),
+  // Not nullable on purpose: the decoder's nullable budget is nearly spent
+  // (see above); "" / "diger" stand in for "not printed / cannot tell".
+  title_text: z.string(),
+  report_kind: posReportKindSchema,
   is_pos_slip: z.boolean(),
   rejection_reason: z.string().nullable(),
   date: z.string().nullable(),

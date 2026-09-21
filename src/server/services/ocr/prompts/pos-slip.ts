@@ -29,9 +29,25 @@ yok say; slip yoksa reddet.
 DOKÜMAN TÜRÜ:
 Bu görsel bir POS GÜN SONU RAPORU mu? Geçerli POS gün sonu raporu şu özelliklere sahiptir:
 - Banka POS cihazından çıkmış bir slip (İş Bankası, Ziraat, Garanti, Akbank, TEB, Koopbank vb.)
-- "GÜN SONU", "X RAPORU", "BATCH KAPATMA", "Z RAPORU" (banka POS), "GRUP KAPAMA" gibi başlık
+- "GÜN SONU", "GÜNSONU ÖZET", "BATCH KAPATMA", "Z RAPORU" (banka POS), "GRUP KAPAMA" gibi başlık
 - "TERMINAL NO", "İŞ YERİ NO", "ŞUBE NO", "BATCH NO" alanları
 - "SATIŞ ADEDİ", "SATIŞ TUTARI", "İADE", "NET TUTAR", "GENEL TOPLAM" gibi POS özetleme alanları
+
+RAPOR TÜRÜ ("report_kind") — ÇOK ÖNEMLİ:
+POS cihazı birbirine çok benzeyen İKİ rapor basar:
+- "gun_sonu": günü KAPATAN rapor. Başlık/kapanışta "GÜN SONU", "GÜNSONU ÖZET",
+  "GÜNSONU MUTABAKATI", "BATCH KAPATMA", "GRUP KAPAMA", "RAPOR SONU",
+  "GÜNSONU İŞLEMİ BAŞARILI OLARAK TAMAMLANMIŞTIR" yazar.
+- "ara_rapor": günü KAPATMAYAN ara döküm. Başlıkta "ARA RAPOR" ya da "X RAPORU",
+  kapanışta "ARA RAPOR SONU" yazar; TechPOS'ta "SLIP BILGI" başlığı altında
+  işlemler TEK TEK (işlem no, kart no, prov. no, saat, tutar) listelenir.
+  Ara rapor o ANDAKİ birikmiş tutarı gösterir, gün sonu DEĞİLDİR.
+- "diger": ikisi de anlaşılamıyor.
+"title_text": slibin EN ÜSTÜNDEKİ başlık satırını ve EN ALTTAKİ kapanış satırını
+HARFİYEN yaz, " | " ile ayır (örn. "ARA RAPOR | ARA RAPOR SONU" ya da
+"GÜNSONU ÖZET | RAPOR SONU"). Yoksa boş bırak.
+Ara raporda da is_pos_slip=true de ve alanları NORMAL oku; kabul/ret kararını
+sunucu report_kind'a göre verir.
 
 REDDEDİLMESİ gereken görseller:
 - Banka havale/EFT dekontu — "DEKONT", "HAVALE", "Alıcı IBAN" var
@@ -45,6 +61,7 @@ REDDEDİLMESİ gereken görseller:
 Eğer POS gün sonu DEĞİLSE:
 {
   "check_notes": "en fazla 2 cümle: neden reddedildiği",
+  "title_text": "", "report_kind": "diger",
   "is_pos_slip": false,
   "rejection_reason": "Bu bir POS gün sonu raporu gibi görünmüyor — [kısa açıklama]. Lütfen geçerli bir POS gün sonu slipini yükleyin.",
   "date": null, "date_raw": null, "currency": "TRY", "sections": []
@@ -53,6 +70,8 @@ Eğer POS gün sonu DEĞİLSE:
 Eğer POS gün sonu İSE:
 {
   "check_notes": "en fazla 2 cümle: kaç banka, tutarları hangi satırdan aldığın, tarih",
+  "title_text": "başlık | kapanış satırı, harfiyen",
+  "report_kind": "gun_sonu | ara_rapor | diger",
   "is_pos_slip": true,
   "rejection_reason": null,
   "date": "YYYY-MM-DD veya null",

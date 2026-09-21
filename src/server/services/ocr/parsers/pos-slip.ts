@@ -115,6 +115,36 @@ export async function parsePosSlip(opts: {
     if (r && r !== TIE) notes.push(`${sec.bank_name}: ${r}`);
   }
 
+  // A shared terminal (TechPOS: İş Bankası + Yapı Kredi) ends with ONE
+  // slip-wide "Genel Toplam" = the sum of all banks. The model reads each
+  // bank's block correctly (Yapı Kredi: 0 sales, 0,00) and then still puts
+  // the grand total in that bank's net — measured 8/8 runs on the Mavi
+  // Lefkoşa 19.09.2026 slip, old prompt and new: 27.768 counted twice. When
+  // every bank's own figure is known and a bank's net is not its own figure
+  // but the sum of them all, it is that echo: the own figure wins.
+  if (out.sections.length >= 2) {
+    const own = out.sections.map((sec) => {
+      if ((sec.breakdown?.length ?? 0) > 0) {
+        return sec.breakdown!.reduce((a, b) => {
+          const amt = b.amount ?? 0;
+          return a + (/iade|iptal/i.test(b.label ?? "") ? -Math.abs(amt) : amt);
+        }, 0);
+      }
+      if (sec.sales_amount != null) return sec.sales_amount - (sec.refund_amount ?? 0);
+      return null;
+    });
+    if (own.every((v): v is number => v !== null)) {
+      const grand = own.reduce((a, b) => a + b, 0);
+      out.sections.forEach((sec, i) => {
+        const mine = own[i]!;
+        if (sec.net_amount != null && !near(sec.net_amount, mine) && near(sec.net_amount, grand)) {
+          notes.push(`${sec.bank_name}: ${sec.net_amount} slibin GENEL TOPLAMI idi; bankanın kendi tutarı ${mine} alındı`);
+          sec.net_amount = mine;
+        }
+      });
+    }
+  }
+
   // Singular fields mirror the first bank (legacy consumers, fingerprints).
   const first = out.sections[0];
   const raw = {
@@ -129,7 +159,10 @@ export async function parsePosSlip(opts: {
     ...(notes.length ? { total_reconciliation: notes } : {}),
     ...(summaryOnly.length ? { summary_only_banks: summaryOnly } : {}),
   };
-  const parsed = posSlipOcrSchema.parse(raw);
+  const parsed = posSlipOcrSchema.parse({
+    ...raw,
+    title_text: typeof raw.title_text === "string" && raw.title_text.trim() ? raw.title_text.slice(0, 200) : null,
+  });
   return { raw, parsed, rawText, tiles: tileCount };
 }
 
