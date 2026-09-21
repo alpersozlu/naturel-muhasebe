@@ -134,7 +134,24 @@ export async function preprocessReceipt(
   // alternative and rejected: on thin strips it came back 2× wider than the
   // heuristic (1632 px vs 737 px), the tiles lost resolution and dates read
   // 08 → 03.
-  const crop: ReceiptCrop | null = await detectPaper(upright, W, H);
+  let crop: ReceiptCrop | null = await detectPaper(upright, W, H);
+  // The crop must hold the text. Measured 2026-09-21 on 40 accepted slips and
+  // Z reports: the crop kept 54–100% of the frame's text columns and 91–100%
+  // of its rows; the one refused slip (white paper on a white counter) kept
+  // 1% — the "paper" was a strip of bare counter. Below a quarter the colour
+  // crop is wrong: fall back to the print-texture crop, else to the whole
+  // frame, which the tiles still cover at full resolution.
+  if (crop) {
+    const share = await cropTextShare(upright, W, H, crop);
+    if (share.cols < 0.25 || share.rows < 0.25) {
+      const byText = await spanningByTexture(upright, W, H);
+      const ok = byText ? await cropTextShare(upright, W, H, byText) : null;
+      // The replacement has to do clearly better, not merely pass: on the
+      // same photo the texture crop picked a 308 px band around the bank's
+      // logo (dense edges), which carried the total but not the date.
+      crop = byText && ok && ok.cols >= 0.6 && ok.rows >= 0.6 ? byText : null;
+    }
+  }
   const cropBy: "model" | "heuristic" | "none" = crop ? "heuristic" : "none";
   let region = crop
     ? await sharp(upright).extract(crop).jpeg({ quality: 92 }).toBuffer()
@@ -489,6 +506,36 @@ async function textCoverage(
     rows[y] = k / NB;
   }
   return { cols, rows, tw, th, edge };
+}
+
+/**
+ * Share of the frame's printed text that falls inside a crop, by columns and
+ * by rows. The colour heuristic finds "the brightest, greyest band"; on a
+ * white counter that band can be the counter itself — a Yapı Kredi slip
+ * (Mavi Lefkoşa 19.09.2026) was cropped to a 156 px strip of bare table at
+ * the frame's edge, the model saw texture only and the slip was refused as
+ * "not a POS slip". Wherever the paper is, the text is on it.
+ */
+export async function cropTextShare(
+  upright: Buffer,
+  W: number,
+  H: number,
+  crop: ReceiptCrop
+): Promise<{ cols: number; rows: number }> {
+  const { cols, rows, tw, th } = await textCoverage(upright, W, H);
+  const share = (cov: Float32Array, a: number, b: number): number => {
+    let total = 0;
+    let inside = 0;
+    for (let i = 0; i < cov.length; i++) {
+      total += cov[i]!;
+      if (i >= a && i <= b) inside += cov[i]!;
+    }
+    return total > 0 ? inside / total : 1;
+  };
+  return {
+    cols: share(cols, Math.floor((crop.left / W) * tw), Math.ceil(((crop.left + crop.width) / W) * tw)),
+    rows: share(rows, Math.floor((crop.top / H) * th), Math.ceil(((crop.top + crop.height) / H) * th)),
+  };
 }
 
 /**
