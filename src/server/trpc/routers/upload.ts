@@ -19,6 +19,7 @@ import {
   deleteFromStorage,
 } from "@/server/services/storage";
 import { processUpload } from "@/server/services/ocr/process-upload";
+import { forwardDealerReport, isIskontoConfigured } from "@/server/services/mavi-iskonto/forward";
 import { checkZApproval } from "@/server/services/verification/z-rule";
 import { waitUntil } from "@vercel/functions";
 
@@ -179,6 +180,23 @@ export const uploadRouter = router({
       // under review, nothing more.
       if (ctx.user.role === "admin") return rows;
       return rows.map((r) => ({ ...r, authenticity_json: null }));
+    }),
+
+  /** Admin: hand a dealer day-end file to the discount-control system (again). */
+  forwardToIskonto: adminProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!isIskontoConfigured()) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Aktarım kapalı: Vercel'de MAVI_ISKONTO_PAROLA tanımlı değil.",
+        });
+      }
+      const report = await ctx.prisma.dealerDailyReport.findUnique({ where: { upload_id: input.id } });
+      if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Bu yüklemenin okunmuş bir bayi raporu yok." });
+      const r = await forwardDealerReport(input.id);
+      if (r.status === "failed") throw new TRPCError({ code: "BAD_GATEWAY", message: r.detail });
+      return r;
     }),
 
   /**

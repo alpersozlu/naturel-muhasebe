@@ -13,6 +13,7 @@ import { parseExpense } from "./parsers/expense";
 import { parseZReport } from "./parsers/z-report";
 import { ASSESSED_TYPES, inspectUpload } from "@/server/services/authenticity/assess";
 import { applyAuthenticity } from "@/server/services/authenticity/apply";
+import { forwardDealerReport } from "@/server/services/mavi-iskonto/forward";
 import {
   parseMaviSapBuffer,
   pickDay,
@@ -1023,6 +1024,11 @@ async function runDealerDailyReport(upload: Upload, buffer: Buffer): Promise<voi
   });
 
   await markParsed(upload.id, { totals: report.totals }, day);
+
+  // The same export feeds the discount-control system; hand it over now that
+  // it is known to be this store's own, readable file. Its outcome is kept on
+  // the dealer report and never affects this upload.
+  await forwardDealerReport(upload.id, buffer);
 }
 
 /**

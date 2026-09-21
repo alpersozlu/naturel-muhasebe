@@ -213,6 +213,16 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
     },
     onError: (e) => toast.error(e.message),
   });
+  const forwardIskonto = trpc.upload.forwardToIskonto.useMutation({
+    onSuccess: (r) => {
+      toast.success(r.status === "done" ? "Manuel indirim sistemine aktarıldı" : "Dosya teslim edildi, analiz sürüyor");
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => {
+      toast.error(e.message);
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+    },
+  });
   const retry = trpc.upload.retry.useMutation({
     onSuccess: () => {
       toast.success("Yeniden okunuyor…");
@@ -286,6 +296,10 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                 }}
                 onConfirm={() => confirmMut.mutate({ id: u.id })}
                 onRetry={() => retry.mutate({ id: u.id })}
+                onForwardIskonto={
+                  isAdmin && !forwardIskonto.isPending ? () => forwardIskonto.mutate({ id: u.id }) : undefined
+                }
+                forwardingIskonto={forwardIskonto.isPending && forwardIskonto.variables?.id === u.id}
                 onReviewAuthenticity={
                   isAdmin
                     ? async (decision) => {
@@ -338,6 +352,51 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
   );
 }
 
+function IskontoForwardLine({
+  status,
+  detail,
+  busy,
+  onForward,
+}: {
+  status: string | null;
+  detail: string | null;
+  busy: boolean;
+  onForward?: () => void;
+}) {
+  const ok = status === "done" || status === "sent";
+  // Store staff only need to know it went through; the rest is for the admin.
+  if (!onForward && !ok) return null;
+  const text =
+    status === "done"
+      ? "Manuel indirim sistemine aktarıldı"
+      : status === "sent"
+        ? "Manuel indirim sistemine teslim edildi, analiz sürüyor"
+        : status === "failed"
+          ? `Manuel indirim sistemine aktarılamadı: ${detail ?? "bilinmeyen hata"}`
+          : status === "skipped"
+            ? "Manuel indirim sistemine aktarım kapalı (parola tanımlı değil)"
+            : "Manuel indirim sistemine henüz aktarılmadı";
+  return (
+    <div
+      className={`mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs ${
+        ok ? "border-border/60 bg-muted/40 text-muted-foreground" : "border-amber-300 bg-amber-50 text-amber-900"
+      }`}
+    >
+      <span className="leading-relaxed">{text}</span>
+      {onForward ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onForward}
+          className="font-medium underline underline-offset-2 disabled:opacity-50"
+        >
+          {busy ? "Aktarılıyor…" : ok ? "Yeniden aktar" : "Şimdi aktar"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function readAuthReasons(json: unknown): string[] {
   if (json && typeof json === "object" && "reasons" in json) {
     const r = (json as { reasons?: unknown }).reasons;
@@ -352,6 +411,8 @@ function UploadRowItem({
   onDelete,
   onConfirm,
   onRetry,
+  onForwardIskonto,
+  forwardingIskonto,
   onReviewAuthenticity,
   onAcceptGap,
   expectedDate,
@@ -362,6 +423,9 @@ function UploadRowItem({
   onConfirm: () => void;
   /** Failed rows: run the OCR again on the same file. */
   onRetry?: () => void;
+  /** Admin only: hand the dealer report to the discount-control system (again). */
+  onForwardIskonto?: () => void;
+  forwardingIskonto?: boolean;
   /** Admin only: close an authenticity flag. */
   onReviewAuthenticity?: (decision: "cleared" | "confirmed_fake") => void;
   /** Admin only; set when the row is a store summary rejected by the Nebim cross-check. */
@@ -497,6 +561,16 @@ function UploadRowItem({
             expectedDate={expectedDate}
           />
         </div>
+      ) : null}
+
+      {/* Hand-over of the dealer day-end file to the discount-control system. */}
+      {upload.dealer_daily_report && upload.status !== "failed" ? (
+        <IskontoForwardLine
+          status={upload.dealer_daily_report.iskonto_status ?? null}
+          detail={upload.dealer_daily_report.iskonto_detail ?? null}
+          busy={!!forwardingIskonto}
+          onForward={onForwardIskonto}
+        />
       ) : null}
 
       {/* Authenticity screening. Admins see why and decide; everyone else

@@ -803,6 +803,13 @@ model DealerDailyReport {
   // Replay guard: SHA-256(store_code|report_date|net_sales|transaction_count)
   content_fingerprint String?
 
+  // Hand-over of the same file to the Mavi discount-control system
+  // (mavi-iskonto "Dosya Yükle" → satış raporu). done | sent | failed | skipped.
+  iskonto_status       String?
+  iskonto_detail       String?   @db.Text
+  iskonto_job_id       String?
+  iskonto_forwarded_at DateTime?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
