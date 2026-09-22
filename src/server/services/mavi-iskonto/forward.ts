@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { UPLOAD_BUCKET } from "@/lib/constants";
 
@@ -38,6 +39,37 @@ async function save(uploadId: string, r: ForwardResult): Promise<void> {
       iskonto_forwarded_at: r.status === "done" || r.status === "sent" ? new Date() : null,
     },
   });
+}
+
+/**
+ * Pick up ONE report the hand-over has not reached yet — uploaded before
+ * this existed, or failed on a transient error (discount system asleep or
+ * busy) — and claim it. Sequential on purpose: the discount system accepts a
+ * single analysis at a time (409 otherwise). Called from the upload list,
+ * which every day view and the processing poll hit, so the backlog drains
+ * without anyone pressing anything.
+ */
+export async function claimNextPendingForward(): Promise<string | null> {
+  if (!isIskontoConfigured()) return null;
+  const retryFailedBefore = new Date(Date.now() - 10 * 60_000);
+  const staleSendingBefore = new Date(Date.now() - 5 * 60_000);
+  const where: Prisma.DealerDailyReportWhereInput = {
+    upload: { status: { in: ["parsed", "confirmed"] } },
+    OR: [
+      { iskonto_status: null },
+      { iskonto_status: "failed", updated_at: { lt: retryFailedBefore } },
+      // A hand-over cut off mid-way (function limit) never wrote its outcome.
+      { iskonto_status: "sending", updated_at: { lt: staleSendingBefore } },
+    ],
+  };
+  const next = await prisma.dealerDailyReport.findFirst({ where, orderBy: { report_date: "asc" }, select: { id: true, upload_id: true } });
+  if (!next) return null;
+  // Claim atomically: two concurrent polls must not both send the same file.
+  const claimed = await prisma.dealerDailyReport.updateMany({
+    where: { id: next.id, ...where },
+    data: { iskonto_status: "sending", iskonto_detail: "Aktarılıyor…" },
+  });
+  return claimed.count === 1 ? next.upload_id : null;
 }
 
 /** Never throws; the outcome is stored on the dealer report. */

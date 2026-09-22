@@ -19,7 +19,7 @@ import {
   deleteFromStorage,
 } from "@/server/services/storage";
 import { processUpload } from "@/server/services/ocr/process-upload";
-import { forwardDealerReport, isIskontoConfigured } from "@/server/services/mavi-iskonto/forward";
+import { claimNextPendingForward, forwardDealerReport, isIskontoConfigured } from "@/server/services/mavi-iskonto/forward";
 import { checkZApproval } from "@/server/services/verification/z-rule";
 import { waitUntil } from "@vercel/functions";
 
@@ -161,6 +161,17 @@ export const uploadRouter = router({
       // her 3 sn'de bir çekildiği için ölü kayıtları burada süpürüyoruz:
       // maxDuration'ın çok üstünde bir yaş, canlı bir işi yakalamaz.
       await sweepStale(ctx.prisma, { daily_record_id: dr.id });
+
+      // Dealer reports the discount-system hand-over has not reached (any
+      // store, any day) go out one at a time in the background.
+      const pendingForward = await claimNextPendingForward().catch(() => null);
+      if (pendingForward) {
+        waitUntil(
+          forwardDealerReport(pendingForward).catch((e) => {
+            console.error("[iskonto] background hand-over failed", e);
+          })
+        );
+      }
 
       const rows = await ctx.prisma.upload.findMany({
         where: { daily_record_id: dr.id },

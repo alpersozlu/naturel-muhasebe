@@ -363,7 +363,7 @@ function IskontoForwardLine({
   busy: boolean;
   onForward?: () => void;
 }) {
-  const ok = status === "done" || status === "sent";
+  const ok = status === "done" || status === "sent" || status === "sending";
   // Store staff only need to know it went through; the rest is for the admin.
   if (!onForward && !ok) return null;
   const text =
@@ -371,11 +371,13 @@ function IskontoForwardLine({
       ? "Manuel indirim sistemine aktarıldı"
       : status === "sent"
         ? "Manuel indirim sistemine teslim edildi, analiz sürüyor"
-        : status === "failed"
-          ? `Manuel indirim sistemine aktarılamadı: ${detail ?? "bilinmeyen hata"}`
-          : status === "skipped"
-            ? "Manuel indirim sistemine aktarım kapalı (parola tanımlı değil)"
-            : "Manuel indirim sistemine henüz aktarılmadı";
+        : status === "sending"
+          ? "Manuel indirim sistemine aktarılıyor…"
+          : status === "failed"
+            ? `Manuel indirim sistemine aktarılamadı: ${detail ?? "bilinmeyen hata"} — 10 dakika içinde kendiliğinden yeniden denenecek.`
+            : status === "skipped"
+              ? "Manuel indirim sistemine aktarım kapalı (parola tanımlı değil)"
+              : "Manuel indirim sistemine sırada, birazdan aktarılacak";
   return (
     <div
       className={`mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs ${
@@ -390,7 +392,7 @@ function IskontoForwardLine({
           onClick={onForward}
           className="font-medium underline underline-offset-2 disabled:opacity-50"
         >
-          {busy ? "Aktarılıyor…" : ok ? "Yeniden aktar" : "Şimdi aktar"}
+          {busy || status === "sending" ? "Aktarılıyor…" : ok ? "Yeniden aktar" : "Şimdi aktar"}
         </button>
       ) : null}
     </div>
