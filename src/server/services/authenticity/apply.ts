@@ -2,7 +2,8 @@ import "server-only";
 import type { Prisma, Upload } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { isMailConfigured, sendMail } from "@/server/services/mail";
-import { resolveAppBase } from "@/lib/app-url";
+import { resolveAppBaseForMail } from "@/lib/app-url";
+import { requestMeta } from "@/server/services/auth-events";
 import { contextSignals, decide, type AuthenticityReport } from "./assess";
 import type { FileForensics } from "./file-forensics";
 import type { VisionCheck } from "./vision-check";
@@ -78,7 +79,7 @@ async function notifyAdmins(upload: Upload, report: AuthenticityReport): Promise
         : "Şüpheli belge: incelemenizi bekliyor";
     let link = "";
     try {
-      link = `${resolveAppBase(null)}/tr/upload?store=${dr.store_id}&date=${day}`;
+      link = `${await resolveAppBaseForMail(requestMeta().host)}/tr/upload?store=${dr.store_id}&date=${day}`;
     } catch {
       link = "";
     }

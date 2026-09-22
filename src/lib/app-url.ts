@@ -17,6 +17,41 @@ const KNOWN_PRODUCTION_HOST = "naturel-muhasebe-7emg.vercel.app";
 
 const isLocal = (h: string) => /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(h);
 
+/**
+ * Same as resolveAppBase, for links that go out by e-mail with no request
+ * host to lean on: an env URL whose host does not resolve in DNS yet (the
+ * custom domain before its CNAME exists — measured 2026-09-22, the alert
+ * mail's button led to NXDOMAIN) is skipped in favour of the platform host.
+ */
+export async function resolveAppBaseForMail(hostHeader: string | null | undefined): Promise<string> {
+  const base = resolveAppBase(hostHeader);
+  let host = "";
+  try {
+    host = new URL(base).host;
+  } catch {
+    return base;
+  }
+  if (isLocal(host) || host.endsWith(".vercel.app")) return base;
+  const cached = dnsOk.get(host);
+  if (cached !== undefined && Date.now() - cached.at < 10 * 60_000) return cached.ok ? base : platformBase();
+  let ok = true;
+  try {
+    const { lookup } = await import("node:dns/promises");
+    await Promise.race([
+      lookup(host),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("dns timeout")), 1_500)),
+    ]);
+  } catch {
+    ok = false;
+  }
+  dnsOk.set(host, { ok, at: Date.now() });
+  return ok ? base : platformBase();
+}
+const dnsOk = new Map<string, { ok: boolean; at: number }>();
+function platformBase(): string {
+  return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL || KNOWN_PRODUCTION_HOST}`;
+}
+
 export function resolveAppBase(hostHeader: string | null | undefined): string {
   const envUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
   let envHost: string | null = null;

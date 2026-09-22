@@ -62,6 +62,18 @@ export async function claimNextPendingForward(): Promise<string | null> {
       { iskonto_status: "sending", updated_at: { lt: staleSendingBefore } },
     ],
   };
+  // One at a time means one at a time: while a hand-over is in flight, or
+  // one was accepted in the last few minutes (its analysis is still running
+  // over there), do not start the next — it would only collect a 409.
+  const inFlight = await prisma.dealerDailyReport.count({
+    where: {
+      OR: [
+        { iskonto_status: "sending", updated_at: { gte: staleSendingBefore } },
+        { iskonto_status: "sent", updated_at: { gte: new Date(Date.now() - 4 * 60_000) } },
+      ],
+    },
+  });
+  if (inFlight > 0) return null;
   const next = await prisma.dealerDailyReport.findFirst({ where, orderBy: { report_date: "asc" }, select: { id: true, upload_id: true } });
   if (!next) return null;
   // Claim atomically: two concurrent polls must not both send the same file.

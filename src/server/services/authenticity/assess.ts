@@ -153,7 +153,9 @@ export function decide(opts: {
   else if (high && (anomalies.length > 0 || generated) && paper) level = "synthetic";
   else if (provenance || high || generated) level = "suspicious";
   else if (medium && supporting >= 1) level = "suspicious";
-  else if (paper && file.generator_dimensions) level = "suspicious";
+  // A generator-sized frame on its own is a hint, not a finding: it flags
+  // only when the picture itself could not be judged, or was judged unclear.
+  else if (paper && file.generator_dimensions && (!vision || vision.capture_type === "unclear")) level = "suspicious";
   else if (supporting >= 2) level = "suspicious";
 
   return {

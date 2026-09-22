@@ -4,7 +4,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { router, publicProcedure, protectedProcedure, adminProcedure } from "../trpc";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isMailConfigured, sendMail } from "@/server/services/mail";
-import { resolveAppBase } from "@/lib/app-url";
+import { resolveAppBaseForMail } from "@/lib/app-url";
 import { recordAuthEvent, requestMeta } from "@/server/services/auth-events";
 
 /**
@@ -59,7 +59,7 @@ export const authRouter = router({
         return { via: "mail" as const };
       }
 
-      const base = resolveAppBase(requestMeta().host);
+      const base = await resolveAppBaseForMail(requestMeta().host);
       const supabase = createAdminClient();
       const { data, error } = await supabase.auth.admin.generateLink({
         type: "recovery",

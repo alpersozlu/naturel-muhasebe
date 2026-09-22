@@ -21,12 +21,14 @@ export type FileForensics = {
   has_exif: boolean;
 };
 
-// Output sizes of the common generators (OpenAI, Google, Stability, Midjourney
-// upscales are larger and vary). Phone photos are 4:3 / 16:9 at other sizes;
+// Output sizes of the common generators (OpenAI, Google, Stability; Midjourney
+// upscales are larger and vary). NOT in the list: 1536×2048 / 2048×1536 — a
+// standard 3:4 phone "medium" photo size (a genuine Mavi Lefkoşa slip of
+// 21.09.2026 arrived at exactly that and was flagged on the size alone).
 // WhatsApp resizes to a 1600 long side (e.g. 1200×1600).
 const GENERATOR_SIZES = new Set([
   "1024x1024", "1024x1536", "1536x1024", "1024x1792", "1792x1024", "2048x2048", "1536x1536",
-  "896x1152", "1152x896", "832x1216", "1216x832", "768x1344", "1344x768", "1536x2048", "2048x1536",
+  "896x1152", "1152x896", "832x1216", "1216x832", "768x1344", "1344x768",
   "512x512", "768x768",
 ]);
 
