@@ -60,13 +60,28 @@ type DayRecord = {
     difference: unknown;
     status: "match" | "mismatch" | "manual_override";
   } | null;
+  merge_group_id?: string | null;
+  merge_index?: number | null;
   _count: {
     pos_slips: number;
     bank_receipts: number;
     expenses: number;
     cash_advances: number;
+    z_reports?: number;
   };
 };
+
+/** "4 POS · 1 Masraf · Özet" for one day's own documents. */
+function docPiecesOf(r: DayRecord): string[] {
+  const p: string[] = [];
+  if ((r._count.z_reports ?? 0) > 0) p.push(`${r._count.z_reports} Z`);
+  if (r._count.pos_slips > 0) p.push(`${r._count.pos_slips} POS`);
+  if (r._count.bank_receipts > 0) p.push(`${r._count.bank_receipts} İban`);
+  if (r._count.expenses > 0) p.push(`${r._count.expenses} Masraf`);
+  if (r._count.cash_advances > 0) p.push(`${r._count.cash_advances} Peşin`);
+  if (r.store_summary) p.push("Özet");
+  return p;
+}
 
 /** 3. Aşama: SAP Bayi Raporu kontrolü (Mavi mağazalar için zorunlu). */
 function checkThirdStage(record: DayRecord): {
@@ -107,7 +122,10 @@ function checkThirdStage(record: DayRecord): {
 
 type Props =
   | {
+      /** The day carrying the reconciliation (the summary day of a group). */
       record: DayRecord;
+      /** All days of a merge group, oldest first; absent for a single day. */
+      groupDays?: DayRecord[];
       onChange: () => void;
       canUnlock: boolean;
       emptyDay?: undefined;
@@ -126,6 +144,7 @@ export function DayRow(props: Props) {
   return (
     <FilledDayRow
       record={props.record}
+      groupDays={props.groupDays}
       onChange={props.onChange}
       canUnlock={props.canUnlock}
     />
@@ -156,15 +175,19 @@ function EmptyDayRow({ day }: { day: number; year: number; month: number }) {
 
 function FilledDayRow({
   record,
+  groupDays,
   onChange,
   canUnlock,
 }: {
   record: DayRecord;
+  groupDays?: DayRecord[];
   onChange: () => void;
   canUnlock: boolean;
 }) {
   const confirmDialog = useConfirm();
   const [open, setOpen] = useState(false);
+  const days = groupDays && groupDays.length > 1 ? groupDays : [record];
+  const isGroup = days.length > 1;
 
   const previewQuery = trpc.verification.preview.useQuery(
     { daily_record_id: record.id },
@@ -187,16 +210,22 @@ function FilledDayRow({
     onError: (e) => toast.error(e.message),
   });
 
-  const isLocked = record.status === "locked";
+  // A group locks as one; "locked" only when every day is.
+  const isLocked = days.every((d) => d.status === "locked");
   const verStatus = record.verification?.status;
-  const hasSummary = !!record.store_summary;
+  const hasSummary = days.some((d) => !!d.store_summary);
   const thirdStage = checkThirdStage(record);
-  const docCount =
-    record._count.pos_slips +
-    record._count.bank_receipts +
-    record._count.expenses +
-    record._count.cash_advances +
-    (hasSummary ? 1 : 0);
+  const docCount = days.reduce(
+    (n, d) =>
+      n +
+      d._count.pos_slips +
+      d._count.bank_receipts +
+      d._count.expenses +
+      d._count.cash_advances +
+      (d._count.z_reports ?? 0) +
+      (d.store_summary ? 1 : 0),
+    0
+  );
 
   const badgeMeta = isLocked
     ? { color: "bg-emerald-100 text-emerald-700", label: "Doğrulandı" }
@@ -209,39 +238,55 @@ function FilledDayRow({
           : { color: "bg-amber-100 text-amber-700", label: "Beklemede" };
 
   const dayNum = new Date(record.date).getUTCDate();
+  const firstDay = new Date(days[0]!.date).getUTCDate();
+  const lastDay = new Date(days[days.length - 1]!.date).getUTCDate();
+  const summaryDay = days.find((d) => !!d.store_summary);
+  const summarySales = summaryDay?.store_summary?.sales_total_try;
 
-  // Belge sayısı parçalı özet
-  const docPieces: string[] = [];
-  if (record._count.pos_slips > 0) docPieces.push(`${record._count.pos_slips} POS`);
-  if (record._count.bank_receipts > 0)
-    docPieces.push(`${record._count.bank_receipts} İban`);
-  if (record._count.expenses > 0)
-    docPieces.push(`${record._count.expenses} Masraf`);
-  if (record._count.cash_advances > 0)
-    docPieces.push(`${record._count.cash_advances} Peşin`);
-  if (hasSummary) docPieces.push("1 Mağaza Özeti");
+  // Single day: "4 POS · 1 Masraf · Özet". Group: each day on its own,
+  // "20: 4 POS · 21: 2 POS, Özet" — what was uploaded to which day.
+  const docPieces = docPiecesOf(record);
 
   return (
-    <div className="border rounded-xl bg-card overflow-hidden hover:shadow-sm transition-shadow">
+    <div className={`border rounded-xl bg-card overflow-hidden hover:shadow-sm transition-shadow ${isGroup ? "border-violet-300" : ""}`}>
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center px-5 py-3.5">
         <div className="sm:col-span-1">
-          <DayPill day={dayNum} />
+          {isGroup ? <DayPill day={firstDay} to={lastDay} /> : <DayPill day={dayNum} />}
         </div>
 
         <div className="sm:col-span-3">
-          {hasSummary && record.store_summary?.sales_total_try ? (
-            <div className="text-sm font-semibold tabular-nums text-emerald-700">
-              {fmt(num(record.store_summary.sales_total_try))} ₺
+          {summarySales ? (
+            <div>
+              <div className="text-sm font-semibold tabular-nums text-emerald-700">
+                {fmt(num(summarySales))} ₺
+              </div>
+              {isGroup ? (
+                <div className="text-[11px] text-violet-700">
+                  {days.length} gün birleşik · özet {new Date(summaryDay!.date).getUTCDate()}. güne yüklendi
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="text-sm text-muted-foreground/70 italic">
-              Özet yüklenmedi
+              {isGroup ? `${days.length} gün birleşik · özet yüklenmedi` : "Özet yüklenmedi"}
             </div>
           )}
         </div>
 
         <div className="sm:col-span-5">
-          {docPieces.length === 0 ? (
+          {isGroup ? (
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-foreground/80">
+              {days.map((d) => {
+                const pieces = docPiecesOf(d);
+                return (
+                  <span key={d.id} className="whitespace-nowrap">
+                    <span className="font-semibold text-violet-700">{new Date(d.date).getUTCDate()}:</span>{" "}
+                    {pieces.length ? pieces.join(", ") : <span className="italic text-muted-foreground/60">belge yok</span>}
+                  </span>
+                );
+              })}
+            </div>
+          ) : docPieces.length === 0 ? (
             <div className="text-sm text-muted-foreground/60 italic flex items-center gap-2">
               <AlertCircle className="h-3.5 w-3.5" />
               Bu gün için hiçbir belge yüklenmedi.
@@ -283,8 +328,10 @@ function FilledDayRow({
               onClick={async () => {
                 if (
                   await confirmDialog({
-                    title: "Günün kilidi açılsın mı?",
-                    description: "Bu güne yeniden belge eklenebilir ve değiştirilebilir.",
+                    title: isGroup ? "Birleşik günlerin kilidi açılsın mı?" : "Günün kilidi açılsın mı?",
+                    description: isGroup
+                      ? `${firstDay}–${lastDay}. günlerin hepsi birlikte açılır; yeniden belge eklenebilir.`
+                      : "Bu güne yeniden belge eklenebilir ve değiştirilebilir.",
                     confirmLabel: "Kilidi aç",
                   })
                 ) {
@@ -317,6 +364,28 @@ function FilledDayRow({
           <div className="flex flex-col lg:flex-row gap-4 items-stretch">
             {/* Sol: karşılaştırma tablosu */}
             <div className="flex-1 min-w-0">
+              {isGroup ? (
+                <div className="mb-3 rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-3">
+                  <div className="text-[10px] uppercase tracking-wider font-semibold text-violet-700 mb-1.5">
+                    Gün gün yüklenenler · mutabakat {days.length} günün toplamıdır
+                  </div>
+                  <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+                    {days.map((d) => {
+                      const pieces = docPiecesOf(d);
+                      return (
+                        <div key={d.id} className="flex items-baseline gap-2 text-sm">
+                          <span className="font-semibold tabular-nums text-violet-800 w-8 shrink-0">
+                            {new Date(d.date).getUTCDate()}
+                          </span>
+                          <span className="text-foreground/80">
+                            {pieces.length ? pieces.join(" · ") : <span className="italic text-muted-foreground/60">belge yok</span>}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
               {previewQuery.isLoading ? (
                 <div className="text-sm text-muted-foreground py-4 text-center">
                   <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
@@ -334,6 +403,7 @@ function FilledDayRow({
                 verStatus={verStatus}
                 hasSummary={hasSummary}
                 docCount={docCount}
+                isGroup={isGroup}
               />
               {!isLocked && hasSummary ? (
                 <>
@@ -402,18 +472,20 @@ function DayStatusPill({
   verStatus,
   hasSummary,
   docCount,
+  isGroup,
 }: {
   isLocked: boolean;
   verStatus: "match" | "mismatch" | "manual_override" | undefined;
   hasSummary: boolean;
   docCount: number;
+  isGroup?: boolean;
 }) {
   if (isLocked) {
     return (
       <div className="rounded-2xl bg-emerald-500 text-white px-5 py-4 flex items-center gap-2.5 shadow-sm">
         <Lock className="h-4 w-4 shrink-0" />
         <span className="font-semibold text-sm leading-tight">
-          Gün Doğrulandı ve Kilitlendi
+          {isGroup ? "Günler Doğrulandı ve Kilitlendi" : "Gün Doğrulandı ve Kilitlendi"}
         </span>
       </div>
     );
@@ -468,16 +540,16 @@ function DayStatusPill({
   );
 }
 
-function DayPill({ day, muted }: { day: number; muted?: boolean }) {
+function DayPill({ day, to, muted }: { day: number; to?: number; muted?: boolean }) {
+  const range = to !== undefined && to !== day;
   return (
     <div
-      className={`flex h-10 w-10 items-center justify-center rounded-xl font-semibold text-sm tabular-nums ${
-        muted
-          ? "bg-muted/50 text-muted-foreground/60"
-          : "bg-primary/10 text-primary"
-      }`}
+      className={`flex h-10 items-center justify-center rounded-xl font-semibold tabular-nums ${
+        range ? "w-14 text-xs bg-violet-100 text-violet-800" : "w-10 text-sm"
+      } ${muted ? "bg-muted/50 text-muted-foreground/60" : range ? "" : "bg-primary/10 text-primary"}`}
+      title={range ? `${day}–${to} birleşik günler` : undefined}
     >
-      {day}
+      {range ? `${day}–${to}` : day}
     </div>
   );
 }
@@ -542,8 +614,10 @@ function ComparisonPanel({
           <div className="col-span-1 text-right">Durum</div>
         </div>
         <div>
-          {result.rows.map((row, i) => {
-            const isLast = i === result.rows.length - 1;
+          {result.rows
+            .filter((r) => !(r.label === "Kartuş Puan" && Math.abs(r.document_total) < 0.005 && Math.abs(r.summary_total) < 0.005))
+            .map((row, i, rows) => {
+            const isLast = i === rows.length - 1;
             return (
               <div
                 key={row.label}

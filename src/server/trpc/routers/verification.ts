@@ -30,12 +30,16 @@ export const verificationRouter = router({
           store_summary: true,
           dealer_daily_report: true,
           store: { select: { brand: { select: { name: true } } } },
+          // Merged days ("Gün Birleşmesi") are shown as ONE card on the
+          // verification page; each day still reports its own documents.
+          merge_group: { select: { start_date: true, end_date: true } },
           _count: {
             select: {
               pos_slips: true,
               bank_receipts: true,
               expenses: true,
               cash_advances: true,
+              z_reports: true,
             },
           },
         },

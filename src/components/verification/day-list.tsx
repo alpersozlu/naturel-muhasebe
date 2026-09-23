@@ -59,6 +59,14 @@ export function DayList({
   for (const r of data ?? []) {
     byDay.set(new Date(r.date).getUTCDate(), r);
   }
+  // Merged days (Derimod "Gün Birleşmesi") share one summary and one
+  // reconciliation: one card at the group's first day, the other days fold
+  // into it (each day's own documents are listed inside the card).
+  const groups = new Map<string, FilledRow[]>();
+  for (const r of data ?? []) {
+    if (r.merge_group_id) (groups.get(r.merge_group_id) ?? groups.set(r.merge_group_id, []).get(r.merge_group_id)!).push(r);
+  }
+  for (const g of Array.from(groups.values())) g.sort((a: FilledRow, b: FilledRow) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   return (
     <>
@@ -67,6 +75,22 @@ export function DayList({
         {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
           const record = byDay.get(day);
           if (record) {
+            const group = record.merge_group_id ? groups.get(record.merge_group_id) : undefined;
+            if (group && group.length > 1) {
+              if (group[0] !== record) return null; // folded into the group's first day
+              // The reconciliation lives on the day that holds the summary
+              // (the last day by the wizard's rule); fall back to the last day.
+              const lead = group.find((r) => r.store_summary) ?? group[group.length - 1]!;
+              return (
+                <DayRow
+                  key={`g-${record.merge_group_id}`}
+                  record={lead}
+                  groupDays={group}
+                  onChange={refresh}
+                  canUnlock={canUnlock}
+                />
+              );
+            }
             return (
               <DayRow
                 key={`d-${day}`}
