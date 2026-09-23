@@ -142,8 +142,14 @@ export async function preprocessReceipt(
   // crop is wrong: fall back to the print-texture crop, else to the whole
   // frame, which the tiles still cover at full resolution.
   if (crop) {
+    // A paper crop that stops INSIDE the print is grown to the print's own
+    // extent first (see growCropToText); only then is it judged.
+    crop = await growCropToText(upright, W, H, crop);
     const share = await cropTextShare(upright, W, H, crop);
-    if (share.cols < 0.25 || share.rows < 0.25) {
+    // Accepted uploads keep ≥ 91% of the frame's text rows; the İş Bankası
+    // slip of 22.09.2026 (Derimod Lefkoşa) kept 46% — its lower half sat in
+    // a shadow the colour mask rejected — and was read as an interim report.
+    if (share.cols < 0.25 || share.rows < 0.6) {
       const byText = await spanningByTexture(upright, W, H);
       const ok = byText ? await cropTextShare(upright, W, H, byText) : null;
       // The replacement has to do clearly better, not merely pass: on the
@@ -506,6 +512,97 @@ async function textCoverage(
     rows[y] = k / NB;
   }
   return { cols, rows, tw, th, edge };
+}
+
+/**
+ * Widen a paper crop whose left/right edge cuts through the print.
+ *
+ * Measured (Derimod Lefkoşa, 22.09.2026): the colour mask lost the right
+ * third of a Yapı Kredi slip under warm light, the crop ended in the middle
+ * of the lines and the amount column was gone — "tutar okunamadı".
+ *
+ * A crop edge that is "hot" — text density there is a good fraction of the
+ * crop's interior — means lines run through it; the crop then grows while
+ * text continues, across gaps no wider than word spacing, and only through
+ * columns as bright and as grey as the paper itself (≥ 75% of the interior's
+ * brightness, low saturation). A neighbouring paper sits behind its own
+ * blank margin, so a proper crop's edge is never hot and it is left alone;
+ * a dark or coloured backdrop (denim, a desk) fails the brightness test.
+ * Rows are not grown here: a shadowed lower half of a strip measures as
+ * dark as a desk, so the text-share guard in preprocessReceipt handles it.
+ */
+async function growCropToText(upright: Buffer, W: number, H: number, crop: ReceiptCrop): Promise<ReceiptCrop> {
+  const { tw, th, edge } = await textCoverage(upright, W, H);
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  const x0 = clamp(Math.floor((crop.left / W) * tw), 0, tw - 1);
+  const x1 = clamp(Math.ceil(((crop.left + crop.width) / W) * tw) - 1, x0, tw - 1);
+  const y0 = clamp(Math.floor((crop.top / H) * th), 0, th - 1);
+  const y1 = clamp(Math.ceil(((crop.top + crop.height) / H) * th) - 1, y0, th - 1);
+
+  // Text density and paper colour per column, inside the crop's rows.
+  const colD = new Float32Array(tw);
+  for (let y = y0; y <= y1; y++) for (let x = 0; x + 1 < tw; x++) if (edge(x, y)) colD[x]! += 1;
+  for (let x = 0; x < tw; x++) colD[x]! /= y1 - y0 + 1;
+  const { data: rgb } = await sharp(upright)
+    .resize(tw, th, { fit: "fill" })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const colLum = new Float32Array(tw);
+  const colSat = new Float32Array(tw);
+  for (let y = y0; y <= y1; y++)
+    for (let x = 0; x < tw; x++) {
+      const i = (y * tw + x) * 3;
+      const r = rgb[i]!;
+      const g = rgb[i + 1]!;
+      const bl = rgb[i + 2]!;
+      const mx = Math.max(r, g, bl);
+      const mn = Math.min(r, g, bl);
+      colLum[x]! += 0.299 * r + 0.587 * g + 0.114 * bl;
+      colSat[x]! += mx === 0 ? 0 : (mx - mn) / mx;
+    }
+  for (let x = 0; x < tw; x++) {
+    colLum[x]! /= y1 - y0 + 1;
+    colSat[x]! /= y1 - y0 + 1;
+  }
+  const median = (d: Float32Array): number => {
+    const v = Array.from(d.subarray(x0, x1 + 1)).sort((p, q) => p - q);
+    return v.length ? v[Math.floor(v.length / 2)]! : 0;
+  };
+  const thr = Math.max(0.01, 0.25 * median(colD));
+  const lumMin = 0.75 * median(colLum);
+  const satMax = Math.max(0.3, median(colSat) + 0.1);
+  const paperLike = (x: number) => colLum[x]! >= lumMin && colSat[x]! <= satMax;
+  const gap = Math.max(2, Math.round(tw * 0.02));
+
+  const grow = (from: number, dir: -1 | 1, limit: number): number => {
+    let hot = false;
+    for (let k = 0; k < 3; k++) {
+      const i = from - dir * k;
+      if (i >= 0 && i < tw && colD[i]! > thr) hot = true;
+    }
+    if (!hot) return from;
+    let pos = from;
+    let last = from;
+    let blank = 0;
+    while (pos !== limit) {
+      pos += dir;
+      if (!paperLike(pos)) break;
+      if (colD[pos]! > thr) {
+        last = pos;
+        blank = 0;
+      } else if (++blank > gap) break;
+    }
+    return last;
+  };
+  const nx0 = grow(x0, -1, 0);
+  const nx1 = grow(x1, 1, tw - 1);
+  if (nx0 === x0 && nx1 === x1) return crop;
+
+  const padX = Math.round(W * 0.02);
+  const left = clamp(Math.floor((nx0 / tw) * W) - padX, 0, crop.left);
+  const right = clamp(Math.ceil(((nx1 + 1) / tw) * W) + padX, crop.left + crop.width, W);
+  return { left, top: crop.top, width: right - left, height: crop.height };
 }
 
 /**

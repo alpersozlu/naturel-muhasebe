@@ -223,7 +223,12 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
   // Only the verbatim title is matched — the model's own notes may well say
   // "ara rapor DEĞİL" about a proper day-end slip.
   const titleSaysInterim = /\bARA\s*RAPOR|\bX\s*RAPOR/i.test(parsed.title_text ?? "");
-  if (parsed.report_kind === "ara_rapor" || titleSaysInterim) {
+  // A printed day-end marker outranks the model's guess: an İş Bankası
+  // strip opens with "GRUP RAPORU (AYRINTILI)" (the itemised part) and only
+  // then prints "GÜNSONU MUTABAKATI" — the model called the whole thing an
+  // interim report from the first heading (22.09.2026).
+  const titleSaysDayEnd = /G[ÜU]N\s*SONU|MUTABAKAT|KAPAMA|BATCH|TAMAMLANMI/i.test(parsed.title_text ?? "");
+  if ((parsed.report_kind === "ara_rapor" && !titleSaysDayEnd) || titleSaysInterim) {
     throw new Error(
       "Bu bir ARA RAPOR — gün sonu raporu değil. Ara rapor günü kapatmaz, yalnızca o saate kadarki tutarı gösterir. POS cihazından GÜN SONU alın ve o slibi yükleyin."
     );
