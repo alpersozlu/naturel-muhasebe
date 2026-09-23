@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import {
@@ -75,6 +75,28 @@ export function MergeWizard({
   const [groupId, setGroupId] = useState<string | null>(null);
   const [activeStep, setActiveStep] = useState(0);
 
+  // Resume: an open group for this store is the one to continue, not a new
+  // range. Progress used to live only in this component's state and was
+  // lost on every reload (see mergeGroup.getOpenForStore).
+  const openGroup = trpc.mergeGroup.getOpenForStore.useQuery({ store_id: storeId }, { enabled: !!storeId });
+  useEffect(() => {
+    if (days || !openGroup.data) return;
+    const grp = openGroup.data;
+    const sorted = [...grp.daily_records].sort((a, b) => (a.merge_index ?? 0) - (b.merge_index ?? 0));
+    const mapped: GroupDay[] = sorted.map((d, i) => ({
+      id: d.id,
+      date: new Date(d.date).toISOString().slice(0, 10),
+      merge_index: d.merge_index ?? i + 1,
+      isLast: i === sorted.length - 1,
+    }));
+    // Land on the first day that has nothing yet; the last day when the
+    // earlier ones are done, so the summary card is right there.
+    const firstEmpty = sorted.findIndex((d) => d._count.uploads === 0);
+    setDays(mapped);
+    setGroupId(grp.id);
+    setActiveStep(firstEmpty === -1 ? mapped.length - 1 : firstEmpty);
+  }, [openGroup.data, days]);
+
   const create = trpc.mergeGroup.create.useMutation({
     onSuccess: async () => {
       // Oluşturulan grubu çek (günleriyle)
@@ -120,6 +142,7 @@ export function MergeWizard({
       setDays(null);
       setGroupId(null);
       setActiveStep(0);
+      utils.mergeGroup.getOpenForStore.invalidate({ store_id: storeId });
     },
     onError: (e) => toast.error(e.message),
   });
@@ -133,6 +156,13 @@ export function MergeWizard({
 
   // ── Kurulum ekranı: aralık seçimi ──
   if (!days || !groupId) {
+    if (openGroup.isLoading) {
+      return (
+        <Card className="border-violet-200/70">
+          <CardContent className="p-6 text-sm text-muted-foreground">Açık birleşme aranıyor…</CardContent>
+        </Card>
+      );
+    }
     return (
       <Card className="border-violet-200/70">
         <CardContent className="p-6">

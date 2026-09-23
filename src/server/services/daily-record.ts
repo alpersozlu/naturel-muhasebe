@@ -93,7 +93,7 @@ export async function assertPriorDaysLocked(
       ],
     },
     orderBy: { date: "asc" },
-    select: { date: true },
+    select: { date: true, merge_group: { select: { start_date: true, end_date: true } } },
   });
   // A closed day (Derimod Mağusa Sundays) never needs locking.
   const open = candidates.find(
@@ -101,12 +101,24 @@ export async function assertPriorDaysLocked(
   );
   if (!open) return;
 
-  const tr = open.date.toLocaleDateString("tr-TR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+  const fmt = (d: Date) =>
+    d.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
+  const tr = fmt(open.date);
+  // A day inside a merge group cannot be locked on its own: the group's
+  // summary goes on its LAST day and locks all of them. Sending the manager
+  // to "lock 20.09" when 20–21.09 were merged led nowhere.
+  if (open.merge_group) {
+    const a = fmt(open.merge_group.start_date);
+    const b = fmt(open.merge_group.end_date);
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `${a} – ${b} gün birleşmesi henüz kapatılmadı; kapatılmayan gün varken yeni güne ` +
+        `kayıt girilemez. "Gün Birleşmesi" sekmesine geçin — kaldığınız yerden devam eder: ` +
+        `son güne (${b}) mağaza özetini yükleyip sayfanın altındaki "Günü Kilitle" düğmesine basın; ` +
+        `birleşmenin tüm günleri birlikte kilitlenir.`,
+    });
+  }
   throw new TRPCError({
     code: "BAD_REQUEST",
     message:

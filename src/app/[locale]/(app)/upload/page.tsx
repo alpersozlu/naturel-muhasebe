@@ -61,6 +61,16 @@ export default function UploadPage() {
     !!selectedBrand &&
     selectedBrand.name.toLocaleLowerCase("tr").replace(/ı/g, "i").includes("mavi");
 
+  // An unfinished merge group must be visible from "Tek Gün" too: that is
+  // where the manager lands after a reload, and where the lock gate then
+  // refuses the next day.
+  const openMerge = trpc.mergeGroup.getOpenForStore.useQuery(
+    { store_id: sel.storeId },
+    { enabled: isDerimod && !!sel.storeId }
+  );
+  const fmtTr = (d: string | Date) =>
+    new Date(d).toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", timeZone: "UTC" });
+
   return (
     <div>
       <PageHeader
@@ -96,6 +106,25 @@ export default function UploadPage() {
           >
             <CalendarRange className="h-3.5 w-3.5" />
             Gün Birleşmesi
+          </button>
+        </div>
+      ) : null}
+
+      {isDerimod && sel.storeId && mode === "single" && openMerge.data ? (
+        <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-violet-300 bg-violet-50 px-4 py-3 text-sm text-violet-900">
+          <span>
+            <span className="font-semibold">
+              {fmtTr(openMerge.data.start_date)} – {fmtTr(openMerge.data.end_date)} gün birleşmesi açık.
+            </span>{" "}
+            Yeni güne geçmeden önce son güne ({fmtTr(openMerge.data.end_date)}) mağaza özetini yükleyip
+            &quot;Günü Kilitle&quot; deyin; birleşmenin tüm günleri birlikte kilitlenir.
+          </span>
+          <button
+            type="button"
+            onClick={() => setMode("merge")}
+            className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-700"
+          >
+            Birleşmeye devam et
           </button>
         </div>
       ) : null}

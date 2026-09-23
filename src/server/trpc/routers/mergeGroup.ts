@@ -6,6 +6,7 @@ import {
   mergeGroupIdSchema,
 } from "@/lib/zod-schemas/merge-group";
 import { assertCanAccessStore, isAdmin } from "@/lib/auth/permissions";
+import { LOCK_ENFORCEMENT_FROM } from "@/server/services/daily-record";
 
 function eachDateInclusive(startIso: string, endIso: string): Date[] {
   const start = new Date(`${startIso}T00:00:00.000Z`);
@@ -117,6 +118,48 @@ export const mergeGroupRouter = router({
     }),
 
   /** Bir mağaza+tarih bir birleşme grubuna ait mi? Grup + tüm günleri döner. */
+  /**
+   * The store's newest merge group that is still open (any day unlocked).
+   * The wizard resumes from it: its progress used to live only in React
+   * state, so a reload or a switch to "Tek Gün" after day 1 lost the group
+   * (Derimod Lefkoşa 20–21.09.2026: day 1 uploaded, day 2 and the summary
+   * never reached, the next day blocked by the lock gate).
+   */
+  getOpenForStore: protectedProcedure
+    .input(mergeGroupForStoreDateSchema.pick({ store_id: true }))
+    .query(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      const today = new Date().toISOString().slice(0, 10);
+      const include = {
+        daily_records: {
+          orderBy: { date: "asc" as const },
+          select: {
+            id: true,
+            date: true,
+            merge_index: true,
+            status: true,
+            store_summary: { select: { id: true } },
+            _count: { select: { uploads: { where: { status: { not: "failed" as const } } } } },
+          },
+        },
+      };
+      const groups = await ctx.prisma.dayMergeGroup.findMany({
+        where: {
+          store_id: input.store_id,
+          daily_records: { some: { status: { not: "locked" } } },
+          // Not before go-live (admin test data), not in the future (a
+          // range typed by mistake — measured: 29–30.09 and 14–16.09 groups
+          // sat beside the real 20–21.09 one).
+          start_date: { gte: new Date(`${LOCK_ENFORCEMENT_FROM}T00:00:00.000Z`), lte: new Date(`${today}T00:00:00.000Z`) },
+        },
+        orderBy: { start_date: "asc" },
+        include,
+      });
+      // The one with documents in it is the one being worked on; the oldest
+      // such group is also the one the lock gate is waiting for.
+      return groups.find((g) => g.daily_records.some((d) => d._count.uploads > 0)) ?? groups[groups.length - 1] ?? null;
+    }),
+
   getForStoreDate: protectedProcedure
     .input(mergeGroupForStoreDateSchema)
     .query(async ({ ctx, input }) => {
