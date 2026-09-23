@@ -14,6 +14,7 @@ import { parseZReport } from "./parsers/z-report";
 import { ASSESSED_TYPES, inspectUpload } from "@/server/services/authenticity/assess";
 import { applyAuthenticity } from "@/server/services/authenticity/apply";
 import { forwardDealerReport } from "@/server/services/mavi-iskonto/forward";
+import { reconcileExtraRowsWithSap } from "./extra-rows";
 import {
   parseMaviSapBuffer,
   pickDay,
@@ -489,6 +490,24 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
         throw new Error(
           `Raporda "${parsed.store_name_on_report}" yazıyor ama "${dr.store.name}" mağazasına yükleme yapılmaya çalışıldı. Doğru mağazaya yükle.`
         );
+      }
+    }
+  }
+
+  // Same-day SAP dealer report as the arbiter for the Kartuş/Alışveriş Çeki
+  // label mix-up (see parseStoreSummary): SAP counts loyalty and gift-card
+  // payments separately and to the kuruş.
+  if (parsed.report_format === "it_pos" && parsed.currency === "TRY") {
+    const sap = await prisma.dealerDailyReport.findUnique({ where: { daily_record_id: upload.daily_record_id } });
+    if (sap) {
+      const fix = reconcileExtraRowsWithSap(
+        { loyalty: parsed.loyalty_points_total, voucher: parsed.shopping_voucher_total, sales: parsed.sales_total, cash: parsed.cash_sales, card: parsed.credit_card_total },
+        { loyalty: sap.loyalty_try.toNumber(), gift: sap.gift_card_try?.toNumber() ?? 0 }
+      );
+      if (fix) {
+        parsed.loyalty_points_total = fix.loyalty;
+        parsed.shopping_voucher_total = fix.voucher;
+        await stashRaw(upload.id, { ...(raw as object), sap_extra_rows_fix: fix.note });
       }
     }
   }
@@ -1024,6 +1043,33 @@ async function runDealerDailyReport(upload: Upload, buffer: Buffer): Promise<voi
   });
 
   await markParsed(upload.id, { totals: report.totals }, day);
+
+  // The summary may already be on file with the two look-alike rows swapped.
+  const existing = await prisma.storeSummary.findUnique({ where: { daily_record_id: upload.daily_record_id } });
+  if (existing && existing.currency === "TRY") {
+    const fix = reconcileExtraRowsWithSap(
+      {
+        loyalty: existing.loyalty_points_total_try?.toNumber() ?? null,
+        voucher: existing.shopping_voucher_total_try?.toNumber() ?? null,
+        sales: existing.sales_total_try?.toNumber() ?? null,
+        cash: existing.cash_sales_try?.toNumber() ?? null,
+        card: existing.credit_card_total_try?.toNumber() ?? null,
+      },
+      { loyalty: day.loyalty, gift: day.gift_card }
+    );
+    if (fix) {
+      await prisma.storeSummary.update({
+        where: { id: existing.id },
+        data: {
+          loyalty_points_total: fix.loyalty,
+          loyalty_points_total_try: fix.loyalty,
+          shopping_voucher_total: fix.voucher,
+          shopping_voucher_total_try: fix.voucher,
+        },
+      });
+      console.info("[OCR] store summary extra rows corrected from SAP:", fix.note);
+    }
+  }
 
   // The same export feeds the discount-control system; hand it over now that
   // it is known to be this store's own, readable file. Its outcome is kept on

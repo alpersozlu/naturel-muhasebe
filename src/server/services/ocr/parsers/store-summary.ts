@@ -292,6 +292,7 @@ export async function parseStoreSummary(opts: {
       Object.assign(raw as object, { derived_from_rows: true });
     }
   }
+
   return { raw, parsed, rawText, tiles: tileCount };
 }
 
