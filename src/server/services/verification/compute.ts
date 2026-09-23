@@ -17,6 +17,10 @@ export type ComparisonRow = {
     visa_floor: number;
     sales_ceiling: number;
     cash_present: boolean;
+    /** Store summary's credit-card total (cumulative-adjusted). */
+    summary_card?: number;
+    /** Hard floor: Z may never be below this = max(POS slips, summary card). */
+    hard_floor?: number;
   };
   /** Nakit satırı için bileşim — UI alt satırda detay gösterir */
   cash_breakdown?: {
@@ -361,6 +365,10 @@ export async function computeDay(
         visa_floor: visaFloor,
         sales_ceiling: salesCeiling,
         cash_present: cashPresent,
+        summary_card: ccTotal,
+        // The larger of the two card figures: leaving a POS slip out must
+        // not lower the bar the Z has to clear.
+        hard_floor: Math.max(posSumTRY, ccTotal),
       },
     },
     {

@@ -1,3 +1,4 @@
+import { zBelowVisa, zFloorMessage } from "@/server/services/verification/z-floor";
 import { TRPCError } from "@trpc/server";
 import { assertPriorDaysLocked } from "@/server/services/daily-record";
 import { z } from "zod";
@@ -212,6 +213,13 @@ export const dailyRecordRouter = router({
 
       const result = await computeDay(ctx.prisma, input.id);
       await persistVerification(ctx.prisma, input.id, result);
+
+      // Z may never be below the day's card sales (store staff; the admin
+      // keeps an override and is asked to confirm in the UI).
+      const zShort = zBelowVisa(result.rows);
+      if (zShort && !isAdmin(ctx.user)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: zFloorMessage(zShort) });
+      }
 
       const now = new Date();
       const locked = await ctx.prisma.dailyRecord.update({
@@ -441,6 +449,7 @@ export const dailyRecordRouter = router({
         verification: verification
           ? {
               status: verification.status,
+              z_floor: zBelowVisa(verification.rows),
               expected_total: verification.expected_total,
               actual_total: verification.actual_total,
               difference: verification.difference,

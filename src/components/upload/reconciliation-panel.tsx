@@ -272,6 +272,41 @@ export function ReconciliationPanel({
           </div>
         ) : null}
 
+        {/* Z below Visa — the day cannot be closed until it is fixed. */}
+        {v?.z_floor && !isLocked ? (
+          <div className="mt-3 rounded-2xl border-2 border-rose-300 bg-gradient-to-r from-rose-50 to-rose-50/40 p-4 flex items-start gap-3 shadow-sm">
+            <AlertCircle className="h-6 w-6 text-rose-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-sm text-rose-900">
+                Z raporu Visa&apos;nın altında — gün kapatılamaz
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                <div className="rounded-lg bg-white/80 border border-rose-200 px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wide text-rose-700/80">Toplam Z</div>
+                  <div className="tabular-nums font-semibold text-rose-900">{TRY_FMT.format(v.z_floor.combined)} ₺</div>
+                </div>
+                <div className="rounded-lg bg-white/80 border border-rose-200 px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wide text-rose-700/80">Visa (kart satışı)</div>
+                  <div className="tabular-nums font-semibold text-rose-900">{TRY_FMT.format(v.z_floor.visa)} ₺</div>
+                </div>
+                <div className="rounded-lg bg-white/80 border border-rose-200 px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wide text-rose-700/80">Eksik</div>
+                  <div className="tabular-nums font-semibold text-rose-700">{TRY_FMT.format(v.z_floor.shortfall)} ₺</div>
+                </div>
+              </div>
+              <div className="text-[11px] text-rose-700/80 mt-1.5">
+                Visa = POS fişleri {TRY_FMT.format(v.z_floor.pos_total)} ₺ ile mağaza özeti kredi kartı{" "}
+                {TRY_FMT.format(v.z_floor.summary_card)} ₺ arasından büyük olan.
+              </div>
+              <div className="text-xs text-rose-800 mt-2 leading-relaxed">
+                Z en az Visa kadar olmalı. Z raporunu kontrol edin; kartla yapılan bir satış yazar
+                kasadan geçmediyse aradaki farkı <span className="font-semibold">El Faturası</span> ile
+                tamamlayın. Z tutarı Visa&apos;ya ulaşınca &quot;Günü Kilitle&quot; açılır.
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {/* SAP Bayi Raporu vs Müdür Özeti — fark uyarı banner'ı (varsa) */}
         {v && v.rows ? <SapAlertBanner rows={v.rows} /> : null}
 
@@ -409,18 +444,35 @@ export function ReconciliationPanel({
               <button
                 type="button"
                 onClick={async () => {
+                  const zf = v?.z_floor;
+                  if (zf && !isAdminUser) {
+                    toast.error(
+                      `Z Visa'nın altında: ${TRY_FMT.format(zf.shortfall)} ₺ eksik. Farkı El Faturası ile tamamlayın, sonra kilitleyin.`
+                    );
+                    return;
+                  }
                   if (
-                    await confirmDialog({
-                      title: "Gün kilitlensin mi?",
-                      description:
-                        "Kilitledikten sonra bu güne belge eklenemez, değiştirilemez ve silinemez. Kilidi yalnızca yönetici açabilir.",
-                      confirmLabel: "Günü kilitle",
-                    })
+                    await confirmDialog(
+                      zf
+                        ? {
+                            title: "Z Visa'nın altında — yine de kilitlensin mi?",
+                            description: `Toplam Z ${TRY_FMT.format(zf.combined)} ₺, Visa ${TRY_FMT.format(zf.visa)} ₺ (${TRY_FMT.format(zf.shortfall)} ₺ eksik). Mağaza bu durumda günü kapatamaz; yönetici olarak siz kapatabilirsiniz.`,
+                            confirmLabel: "Yine de kilitle",
+                            destructive: true,
+                          }
+                        : {
+                            title: "Gün kilitlensin mi?",
+                            description:
+                              "Kilitledikten sonra bu güne belge eklenemez, değiştirilemez ve silinemez. Kilidi yalnızca yönetici açabilir.",
+                            confirmLabel: "Günü kilitle",
+                          }
+                    )
                   ) {
                     lockDay.mutate({ id: data.daily_record_id! });
                   }
                 }}
-                disabled={lockDay.isPending || approve.isPending}
+                title={v?.z_floor && !isAdminUser ? "Z Visa'nın altında — önce farkı El Faturası ile tamamlayın" : undefined}
+                disabled={lockDay.isPending || approve.isPending || (!!v?.z_floor && !isAdminUser)}
                 className="flex items-center justify-center gap-2 rounded-2xl border-2 border-slate-900 text-slate-900 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed font-semibold px-5 py-3 transition-colors"
               >
                 {lockDay.isPending ? (
@@ -702,6 +754,16 @@ type ReconData = {
   has_expenses?: boolean;
   verification: {
     status: "match" | "mismatch" | "no_data" | "no_summary";
+    /** Set when the day's total Z is below its card sales (blocks the lock). */
+    z_floor?: {
+      combined: number;
+      z_report: number;
+      manual_invoice: number;
+      visa: number;
+      pos_total: number;
+      summary_card: number;
+      shortfall: number;
+    } | null;
     expected_total: number;
     actual_total: number;
     difference: number;
