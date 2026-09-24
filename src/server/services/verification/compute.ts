@@ -48,6 +48,21 @@ export type DayComputeResult = {
   status: "match" | "mismatch" | "no_data" | "no_summary";
   /** Tolerans uygulanmadan önce ham fark detayı */
   notes: string | null;
+  /**
+   * The store summary's own composition, for the reader: its payment lines
+   * must add up to its sales total. `other` is what they leave unexplained
+   * (Derimod "Kredi Çeki" net, or a misread line — 18.09.2026 Lefkoşa showed
+   * card 56.091,59 + cash 25.325,94 against sales 128.312,67).
+   */
+  summary_parts?: {
+    sales: number;
+    cash: number;
+    card: number;
+    loyalty: number;
+    shopping_voucher: number;
+    wire: number;
+    other: number;
+  };
 };
 
 function num(v: { toNumber: () => number } | null | undefined): number {
@@ -150,6 +165,7 @@ export async function computeDay(
     credit_card_total_try: { toNumber: () => number } | null;
     loyalty_points_total_try: { toNumber: () => number } | null;
     wire_transfer_total_try: { toNumber: () => number } | null;
+    shopping_voucher_total_try: { toNumber: () => number } | null;
   } | null = null;
   if (!isMerge && base.cumulative_prev_id) {
     const prev = await prisma.dailyRecord.findUnique({
@@ -162,6 +178,7 @@ export async function computeDay(
             credit_card_total_try: true,
             loyalty_points_total_try: true,
             wire_transfer_total_try: true,
+            shopping_voucher_total_try: true,
           },
         },
       },
@@ -188,6 +205,9 @@ export async function computeDay(
   const summarySales = prevSummary
     ? sub(summary.sales_total_try, prevSummary.sales_total_try)
     : num(summary.sales_total_try);
+  const summaryShoppingVoucher = prevSummary
+    ? sub(summary.shopping_voucher_total_try, prevSummary.shopping_voucher_total_try)
+    : num(summary.shopping_voucher_total_try);
 
   // Müdürün elden saydığı nakit — tüm günlerin toplamı (en az biri girdiyse).
   const reportedCashRaw = records.reduce(
@@ -482,6 +502,7 @@ export async function computeDay(
     );
   }
 
+  const round2 = (n: number) => Math.round(n * 100) / 100;
   return {
     rows,
     expected_total,
@@ -489,6 +510,17 @@ export async function computeDay(
     difference,
     status,
     notes: noteParts.length > 0 ? noteParts.join(" ") : null,
+    summary_parts: {
+      sales: summarySales,
+      cash: summaryCash,
+      card: ccTotal,
+      loyalty,
+      shopping_voucher: summaryShoppingVoucher,
+      wire: summaryWire,
+      other: round2(
+        summarySales - summaryCash - ccTotal - loyalty - summaryShoppingVoucher - summaryWire
+      ),
+    },
   };
 }
 

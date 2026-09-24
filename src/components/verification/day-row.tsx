@@ -564,9 +564,19 @@ function ComparisonPanel({
       summary_total: number;
       difference: number;
       matches: boolean;
+      z_compliance?: { cash_present: boolean; hard_floor?: number };
     }>;
     status: "match" | "mismatch" | "no_data" | "no_summary";
     notes: string | null;
+    summary_parts?: {
+      sales: number;
+      cash: number;
+      card: number;
+      loyalty: number;
+      shopping_voucher: number;
+      wire: number;
+      other: number;
+    };
     nebim_summary?: {
       net: number;
       sales: number;
@@ -618,6 +628,10 @@ function ComparisonPanel({
             .filter((r) => !(r.label === "Kartuş Puan" && Math.abs(r.document_total) < 0.005 && Math.abs(r.summary_total) < 0.005))
             .map((row, i, rows) => {
             const isLast = i === rows.length - 1;
+            // The Z row is not compared with the summary: its right-hand
+            // figure is the bar the Z must reach (card sales, ×1,05 when the
+            // day has cash). Say so, or it reads as a summary number.
+            const z = row.z_compliance;
             return (
               <div
                 key={row.label}
@@ -631,12 +645,23 @@ function ComparisonPanel({
               >
                 <div className="col-span-4 text-sm text-foreground">
                   {row.label}
+                  {z ? (
+                    <div className="text-[11px] font-normal text-muted-foreground mt-0.5">
+                      Özetle kıyas değil — Z'nin ulaşması gereken hedef
+                    </div>
+                  ) : null}
                 </div>
                 <div className="col-span-3 text-right text-sm tabular-nums text-foreground">
                   {fmt(row.document_total)} ₺
                 </div>
                 <div className="col-span-2 text-right text-sm tabular-nums text-muted-foreground">
+                  {z ? "≥ " : ""}
                   {fmt(row.summary_total)} ₺
+                  {z ? (
+                    <div className="text-[11px] opacity-80">
+                      {z.cash_present ? "hedef: kart × 1,05" : "hedef: kart"}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="col-span-2 text-right text-sm tabular-nums">
                   <FarkCell diff={row.difference} matches={row.matches} />
@@ -660,6 +685,8 @@ function ComparisonPanel({
         </div>
       </div>
 
+      {result.summary_parts ? <SummaryParts p={result.summary_parts} /> : null}
+
       {/* NEBİM canlı server karşılaştırması (3. kontrol — Derimod) */}
       {result.nebim_summary ? <NebimBlock n={result.nebim_summary} /> : null}
 
@@ -669,6 +696,65 @@ function ComparisonPanel({
           {noteList.map((note, i) => (
             <NoteCard key={i} text={note} />
           ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The store summary's own lines, so the "Mağaza Özeti" column can be read:
+ * cash + card (+ …) = sales. A remainder is shown as its own term; a large
+ * one means a summary line was misread (Kredi Çeki is at most a few thousand).
+ */
+function SummaryParts({
+  p,
+}: {
+  p: {
+    sales: number;
+    cash: number;
+    card: number;
+    loyalty: number;
+    shopping_voucher: number;
+    wire: number;
+    other: number;
+  };
+}) {
+  const terms: Array<[string, number]> = [
+    ["Nakit", p.cash],
+    ["Kredi Kartı", p.card],
+  ];
+  if (Math.abs(p.loyalty) > 0.005) terms.push(["Kartuş", p.loyalty]);
+  if (Math.abs(p.shopping_voucher) > 0.005) terms.push(["Alışveriş Çeki", p.shopping_voucher]);
+  if (Math.abs(p.wire) > 0.005) terms.push(["Havale", p.wire]);
+  const hasOther = Math.abs(p.other) > 1;
+  const otherIsLarge = Math.abs(p.other) > Math.max(5000, Math.abs(p.sales) * 0.1);
+  return (
+    <div
+      className={`mt-3 rounded-lg px-4 py-2.5 text-xs tabular-nums ${
+        otherIsLarge
+          ? "bg-amber-50 text-amber-800 border border-amber-200/70"
+          : "bg-muted/30 text-muted-foreground"
+      }`}
+    >
+      <span className="font-medium text-foreground/80">Mağaza özeti kendi içinde: </span>
+      {terms.map(([label, v], i) => (
+        <span key={label}>
+          {i > 0 ? (v < 0 ? " − " : " + ") : ""}
+          {label} {fmt(i > 0 ? Math.abs(v) : v)}
+        </span>
+      ))}
+      {hasOther ? (
+        <span className={otherIsLarge ? "font-semibold" : ""}>
+          {p.other < 0 ? " − " : " + "}Kredi Çeki / diğer {fmt(Math.abs(p.other))}
+        </span>
+      ) : null}
+      <span> = Satış {fmt(p.sales)} ₺</span>
+      {otherIsLarge ? (
+        <div className="mt-1">
+          Özetteki ödeme satırları satış toplamını ancak {fmt(Math.abs(p.other))} ₺&apos;lik
+          açıklanamayan bir kalemle tutuyor — özetin bir satırı yanlış okunmuş olabilir.
+          Özeti &quot;Yeniden analiz et&quot; ile tekrar okutun.
         </div>
       ) : null}
     </div>

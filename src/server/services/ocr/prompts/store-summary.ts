@@ -96,6 +96,7 @@ Eğer mağaza özet raporu DEĞİLSE:
   "credit_card_total": null, "loyalty_points_total": null,
   "shopping_voucher_total": null, "wire_transfer_total": null,
   "credit_voucher_total": null, "it_pos_labels": [], "it_pos_amounts": [],
+  "nebim_pay_types": [], "nebim_pay_totals": [],
   "period_start": null, "period_end": null,
   "opening_balance": null, "closing_balance": null, "currency": "TRY"
 }
@@ -120,6 +121,8 @@ Eğer mağaza özet raporu İSE:
   "credit_voucher_total": "ondalık sayı veya null — SADECE Nebim/Derimod: Ödemeler tablosundaki 'Kredi Çeki' satırının en sağdaki Toplam'ı (kullanım − aynı gün düzenlenen; çoğu gün 0,00). Satır yoksa 0. IT POS/Mavi'de null.",
   "it_pos_labels": ["IT POS: AÇIKLAMA sütunu yukarıdan aşağıya, başlık hariç — Nebim'de boş dizi"],
   "it_pos_amounts": ["IT POS: TRY TUTAR sütunu yukarıdan aşağıya, başlık hariç, sayı/null — Nebim'de boş dizi"],
+  "nebim_pay_types": ["Nebim: Ödemeler tablosu, her satır 'Ödeme Tipi | Kredi Kartı Tipi Açıklaması' (örn 'Nakit | ', 'Kredi Kartı | KOOP BANK', 'Kredi Çeki | '), başlık ve Genel Toplam hariç — IT POS'ta boş dizi"],
+  "nebim_pay_totals": ["Nebim: EN SAĞDAKİ Toplam sütunu yukarıdan aşağıya, aynı satırlar — IT POS'ta boş dizi"],
   "opening_balance": "ondalık sayı veya null (Devir Bakiye)",
   "closing_balance": "ondalık sayı veya null (Kapanış Toplam)",
   "currency": "TRY | USD | EUR | GBP (TRY varsayılan)"
@@ -159,6 +162,15 @@ DOĞRU bölümün DOĞRU satırından al:
    - credit_card_total = bütün "Kredi Kartı" satırlarının Toplam'larının TOPLAMI.
    - credit_voucher_total = "Kredi Çeki" satırının Toplam'ı (çoğu gün 0,00 —
      kullanılan çekle aynı gün düzenlenen çek birbirini götürür). Satır yoksa 0.
+   - SÜTUN SÜTUN YAZ (nebim_pay_types / nebim_pay_totals): iki liste AYNI
+     UZUNLUKTA, satır sırası aynı, başlık ve "Genel Toplam" HARİÇ; 0,00
+     hücrelerini de yaz (atlama), eksi değeri eksi yaz. Fotoğraf eğik
+     çekildiğinde sağdaki Toplam sütunu etiketlere göre bir satır yukarı/aşağı
+     kaymış GÖRÜNÜR — bir rakamı "yanındaki" etikete göre değil, sütununda
+     yukarıdan kaçıncı olduğuna göre yaz. Bir kez T.İŞ BANKASI satırının
+     46.895,14'ü "Kredi Çeki" sanıldı; denklem yine tuttuğu için fark
+     edilmedi. Kredi Çeki neti neredeyse her gün 0,00'dır (en fazla birkaç bin
+     TL); bankası yazan satır HER ZAMAN kredi kartıdır.
    - Ödemeler "Genel Toplam" satırının Toplam hücresi = sales_total olmalı.
      Aynı satırın "Peşinat" hücresi iadeler düşülmemiş BRÜT rakamdır (Normal
      satırıyla aynı çıkar) → satış toplamı DEĞİLDİR.
@@ -202,7 +214,7 @@ DOĞRU YÖNTEM — iki sütunu AYRI AYRI, yukarıdan aşağıya yaz:
   alışveriş çeki alanlarına yazma.
 - Tekil alanları (sales_total, cash_sales, …) da bu sıraya göre doldur;
   listeler boşsa sunucu tekil alanlara güvenir. Nebim raporunda iki liste
-  BOŞ dizi olur.
+  BOŞ dizi olur (IT POS raporunda da iki nebim_pay_* listesi boş dizi).
 
 ZORUNLU DENKLEM KONTROLÜ (sonucunu "check_notes" alanına tek satır yaz):
   IT POS:  cash_sales + credit_card_total + loyalty_points_total

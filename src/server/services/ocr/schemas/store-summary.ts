@@ -66,6 +66,17 @@ export const storeSummaryOcrSchema = z.object({
    */
   it_pos_labels: z.array(z.string()).optional(),
   it_pos_amounts: z.array(z.number().nullable()).optional(),
+  /**
+   * Nebim (Derimod) only: the Ödemeler table transcribed column by column,
+   * top to bottom, header and "Genel Toplam" rows excluded. A photo taken at
+   * an angle lifts the right-hand Toplam column against the labels; reading
+   * row by row put T.İş Bankası's 46.895,14 on the "Kredi Çeki" row
+   * (Derimod Lefkoşa 18.09.2026) and the equation still balanced. The parser
+   * pairs the lists by index; see `deriveNebimPayments`.
+   * Each type is "Ödeme Tipi | Kredi Kartı Tipi Açıklaması".
+   */
+  nebim_pay_types: z.array(z.string()).optional(),
+  nebim_pay_totals: z.array(z.number().nullable()).optional(),
   /** Diagnostics: true when the fields came from the paired lists. */
   derived_from_rows: z.boolean().optional(),
 });
@@ -111,4 +122,6 @@ export const storeSummaryOutputSchema = z.object({
   currency: z.enum(["TRY", "USD", "EUR", "GBP"]),
   it_pos_labels: z.array(z.string()),
   it_pos_amounts: z.array(z.number().nullable()),
+  nebim_pay_types: z.array(z.string()),
+  nebim_pay_totals: z.array(z.number().nullable()),
 });

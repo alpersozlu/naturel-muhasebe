@@ -188,6 +188,67 @@ function solveItPosByEquation(
   return same ? first : null;
 }
 
+/**
+ * Nebim (Derimod) "Mağaza Hareket Özeti" Ödemeler table, paired by index from
+ * the column-by-column transcription. Derimod Lefkoşa 18.09.2026: a photo
+ * taken at an angle lifted the Toplam column, the model read T.İş Bankası's
+ * 46.895,14 as "Kredi Çeki", and cash + card + voucher still equalled the
+ * sales total, so nothing caught it (card 56.091,59 instead of 102.986,73).
+ * Summing here also removes the model's own arithmetic (19.09.2026: three
+ * card rows added up to 84.640,00 instead of 84.641,00).
+ *
+ * A row is card when its type says "Kredi Kartı" or it names a bank; cash when
+ * it says "Nakit"; voucher when it says "Kredi Çeki" with no bank. Any other
+ * type → null (not guessed). The Toplam values must all be present and add up
+ * to `salesTotal` within 1 TL — the report prints them exactly — and the
+ * result must be plausible: no negative cash or card, and a Kredi Çeki net
+ * no larger than max(5.000, 10 % of sales) (Jun–Aug 2026: at most 3.920). A
+ * sum check alone does not see values moved between rows; measured once,
+ * Derimod Girne 22.09.2026 came back as cash −20 / voucher 0 and once as
+ * cash 0. So cash is also anchored to the balance lines when they were read:
+ * "Yarına Devir" − "Önceki Günden Devir" is the day's cash (equal to the
+ * cent on 18 of 19 stored Derimod summaries, 0,80 off on the other).
+ * Otherwise null and the caller keeps the direct fields.
+ *
+ * Only the Toplam column is used: a Peşinat/İade transcription alongside it
+ * was measured and was the sloppy part (the Kredi Çeki row's 7.486,50 moved
+ * between rows in 3 of 6 reads, while Toplam was right in all 6).
+ */
+export function deriveNebimPayments(
+  types: string[] | undefined,
+  totals: (number | null)[] | undefined,
+  salesTotal: number | null,
+  balances?: { opening: number | null; closing: number | null }
+): { cash_sales: number; credit_card_total: number; credit_voucher_total: number } | null {
+  if (!types || !totals || salesTotal == null || types.length === 0) return null;
+  if (totals.length !== types.length || totals.some((v) => v == null)) return null;
+  const values = totals as number[];
+  const kinds: Array<"cash" | "card" | "voucher"> = [];
+  for (const t of types) {
+    const [typePart, ...rest] = t.split("|");
+    const type = norm(typePart ?? "");
+    const bank = norm(rest.join(" "));
+    if (bank.length > 1 || /kredi kart/.test(type)) kinds.push("card");
+    else if (/nakit/.test(type)) kinds.push("cash");
+    else if (/kredi cek/.test(type)) kinds.push("voucher");
+    else return null;
+  }
+  const sum = (v: number[]) => v.reduce((a, b) => a + b, 0);
+  if (Math.abs(sum(values) - salesTotal) > 1) return null;
+  const pick = (k: (typeof kinds)[number]) =>
+    Math.round(sum(values.filter((_, i) => kinds[i] === k)) * 100) / 100;
+  const out = { cash_sales: pick("cash"), credit_card_total: pick("card"), credit_voucher_total: pick("voucher") };
+  const plausible =
+    out.cash_sales >= 0 &&
+    out.credit_card_total >= 0 &&
+    Math.abs(out.credit_voucher_total) <= Math.max(5000, Math.abs(salesTotal) * 0.1);
+  if (!plausible) return null;
+  if (balances?.opening != null && balances.closing != null) {
+    if (Math.abs(balances.closing - balances.opening - out.cash_sales) > 1) return null;
+  }
+  return out;
+}
+
 function equationHolds(p: StoreSummaryOcr): boolean {
   if (p.sales_total == null || p.cash_sales == null || p.credit_card_total == null) return false;
   const sum =
@@ -290,6 +351,33 @@ export async function parseStoreSummary(opts: {
     if (derived) {
       Object.assign(parsed, derived, { derived_from_rows: true });
       Object.assign(raw as object, { derived_from_rows: true });
+    }
+  }
+
+  // Nebim: the index-paired Ödemeler columns decide whenever they add up —
+  // the direct fields can balance and still be wrong (a card row read as
+  // "Kredi Çeki").
+  if (parsed.report_format === "nebim") {
+    const rows = deriveNebimPayments(
+      parsed.nebim_pay_types,
+      parsed.nebim_pay_totals,
+      parsed.sales_total,
+      { opening: parsed.opening_balance, closing: parsed.closing_balance }
+    );
+    if (rows) {
+      const differs =
+        Math.abs((parsed.cash_sales ?? 0) - rows.cash_sales) > 0.005 ||
+        Math.abs((parsed.credit_card_total ?? 0) - rows.credit_card_total) > 0.005 ||
+        Math.abs((parsed.credit_voucher_total ?? 0) - rows.credit_voucher_total) > 0.005;
+      if (differs) {
+        Object.assign(raw as object, {
+          nebim_rows_fix: {
+            read: { cash: parsed.cash_sales, card: parsed.credit_card_total, voucher: parsed.credit_voucher_total },
+            rows,
+          },
+        });
+      }
+      Object.assign(parsed, rows, { derived_from_rows: true });
     }
   }
 
