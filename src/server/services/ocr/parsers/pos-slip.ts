@@ -80,7 +80,12 @@ export async function parsePosSlip(opts: {
   }
   blankToNull(out, ["date", "date_raw", "rejection_reason"]);
   for (const s of out.sections) blankToNull(s, ["terminal_no"]);
-  out.sections = out.sections.filter((s) => s.bank_name.trim() !== "");
+  // A section with an amount stays even when its bank is unread (the bank is
+  // often only a logo; the store's terminal history names it later — see
+  // bank-from-terminal.ts). Only a section with neither is noise.
+  out.sections = out.sections.filter(
+    (s) => s.bank_name.trim() !== "" || s.net_amount != null || (s.total_candidates?.length ?? 0) > 0
+  );
 
   // A torn Optimum + Yapı Kredi strip: the Yapı Kredi piece ends with the
   // "ÖZET RAPORU" that repeats Koopbank's total, and the model — even while
@@ -149,7 +154,7 @@ export async function parsePosSlip(opts: {
   const first = out.sections[0];
   const raw = {
     ...out,
-    bank_name: first?.bank_name ?? null,
+    bank_name: first?.bank_name || null,
     terminal_no: first?.terminal_no ?? null,
     sales_count: first?.sales_count ?? null,
     sales_amount: first?.sales_amount ?? null,

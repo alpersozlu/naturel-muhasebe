@@ -8,6 +8,10 @@ Kurallar:
 - Çıktın SADECE geçerli JSON olsun, başka hiçbir şey yazma
 - Code fence (\`\`\`json) KULLANMA, sadece ham JSON
 - Banka isimleri Türkçe karakterleriyle: "İş Bankası", "Ziraat Bankası", "Koopbank", "Garanti", "Akbank", "TEB", "Türkiye İş Bankası" vb.
+- Banka adı çoğu slipte YALNIZ LOGO olarak basılır, genelde en altta: yonca/çiçek logosu + "Garanti BBVA" → "Garanti BBVA"; "YapıKredi" → "Yapı Kredi"; "TÜRKİYE İŞ BANKASI" → "Türkiye İş Bankası"; "optimum" → "Koopbank". Logoyu oku.
+- Slibin en üstündeki başlık MAĞAZANIN adıdır (NATUREL TİCARET, MAVİ JEANS, DERİMOD…) — bu ASLA banka adı değildir.
+- Bilgilendirme/reklam cümlelerindeki banka adları slibin bankası DEĞİLDİR (örn. "MAXIMUM POSLARINDAN BURGAN BANK KARTLARI İLE PEŞİN SATIŞ…": POS İş Bankası'nındır, Burgan Bank yalnız kartı kabul edilen bankadır). "MAXIMUM", "MAXIPUAN" satırları → "Türkiye İş Bankası"; "BONUS" → "Garanti BBVA"; "WORLD" → "Yapı Kredi".
+- Bankayı göremiyorsan bank_name'i boş bırak (""); başka bir banka adı TAHMİN ETME.
 - Türkçe ondalık ayracı virgüldür (5.399,96 = beş bin üç yüz doksan dokuz lira doksan altı kuruş). Çıktıda nokta kullan: 5399.96
 `;
 

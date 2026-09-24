@@ -12,6 +12,7 @@ import { parseBankReceipt } from "./parsers/bank-receipt";
 import { parseExpense } from "./parsers/expense";
 import { parseZReport } from "./parsers/z-report";
 import { ASSESSED_TYPES, inspectUpload } from "@/server/services/authenticity/assess";
+import { resolveBankFromTerminalHistory } from "./bank-from-terminal";
 import { applyAuthenticity } from "@/server/services/authenticity/apply";
 import { forwardDealerReport } from "@/server/services/mavi-iskonto/forward";
 import { reconcileExtraRowsWithSap } from "./extra-rows";
@@ -258,6 +259,15 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
             net_amount: parsed.net_amount,
           },
         ];
+
+  // Bank name from the store's own history of the same terminal. The bank
+  // is often printed only as a logo; Mavi Girne 23.09.2026 (Garanti BBVA,
+  // terminal 01088088) came back as "Koopbank", "Bilinmiyor" and "Naturel
+  // Ticaret" in three reads, while the same terminal was stored as Garanti
+  // BBVA in May. A terminal that has always meant ONE bank in this store is
+  // that bank; shared terminals (Optimum: Koopbank + Yapı Kredi on one
+  // number) have two and are left to the reading.
+  await resolveBankFromTerminalHistory(upload.daily_record_id, sections);
 
   // Hiçbir bankada tutar yoksa bu bir "0" kaydı olur ve mutabakatı sessizce
   // bozar — kabul etme.

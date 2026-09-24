@@ -174,7 +174,7 @@ function fmt(n: number): string {
   return n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function bankKey(name: string | null): string | null {
+export function bankKey(name: string | null): string | null {
   const s = (name ?? "").toLocaleLowerCase("tr");
   if (!s) return null;
   if (/yap[ıi]/.test(s)) return "yapikredi";
@@ -190,7 +190,7 @@ function bankKey(name: string | null): string | null {
 }
 
 /** Upper-case, no separators, no leading zeros, O→0 / I→1 (the usual OCR swaps). */
-function normTerminal(t: string): string {
+export function normTerminal(t: string): string {
   return t.toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/O/g, "0").replace(/I/g, "1").replace(/^0+/, "");
 }
 

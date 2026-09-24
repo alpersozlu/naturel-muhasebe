@@ -14,7 +14,7 @@ export const posSlipBreakdownSchema = z.object({
 
 /** Tek slipteki bir bankanın gün sonu bloğu (ortak terminal slipleri). */
 export const posSlipSectionSchema = z.object({
-  bank_name: z.string().min(1),
+  bank_name: z.string(), // "" = bank not readable on the slip; filled from terminal history
   terminal_no: z.string().min(1).nullable(),
   sales_count: z.number().int().min(0).nullable(),
   sales_amount: z.number().min(0).nullable(),

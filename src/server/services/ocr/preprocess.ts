@@ -197,7 +197,25 @@ export async function preprocessReceipt(
   // Narrow the (now upright) region to the columns that carry printed text
   // (see refineByInk) — after the turn, so that a sideways slip's length is
   // never mistaken for its width.
-  const ink = await refineByInk(region, cw, ch);
+  let ink = await refineByInk(region, cw, ch);
+  // The narrowing must not cut printed lines. Mavi Girne 23.09.2026, a
+  // Garanti slip on denim under uneven light: the brightness run started in
+  // the middle of the text, the date "23/09/2026", the left of every line
+  // and the bank logo fell outside, and the slip was refused for "no date"
+  // with the bank read as Koopbank. When the ink window drops a noticeable
+  // share of the region's own text, the narrowing is skipped.
+  if (ink) {
+    const cov = (await textCoverage(region, cw, ch)).cols;
+    const f = cov.length / cw;
+    let total = 0;
+    let inside = 0;
+    for (let i = 0; i < cov.length; i++) {
+      total += cov[i]!;
+      const x = i / f;
+      if (x >= ink.left && x < ink.left + ink.width) inside += cov[i]!;
+    }
+    if (total > 0 && inside / total < INK_KEEP_TEXT) ink = null;
+  }
   if (ink) {
     region = await sharp(region)
       .extract({ left: ink.left, top: 0, width: ink.width, height: ch })
@@ -809,6 +827,12 @@ function spanningStrip(paper: Uint8Array, tw: number, th: number, W: number, H: 
  * every line ("30/08/2026" → "…2026") and the date came back as 1 January.
  * The percentile ignores a third of the column being covered.
  */
+/** Share of the region's text columns the ink narrowing must keep. */
+export let INK_KEEP_TEXT = 0.9;
+export function __setInkKeepText(v: number) {
+  INK_KEEP_TEXT = v;
+}
+
 async function refineByInk(
   region: Buffer,
   width: number,
