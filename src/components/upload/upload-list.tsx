@@ -223,6 +223,13 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
       utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
     },
   });
+  const acceptDayEnd = trpc.upload.acceptAsDayEnd.useMutation({
+    onSuccess: () => {
+      toast.success("Gün sonu olarak kabul edildi, yeniden okunuyor");
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const retry = trpc.upload.retry.useMutation({
     onSuccess: () => {
       toast.success("Yeniden okunuyor…");
@@ -326,6 +333,22 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                       }
                     : undefined
                 }
+                onAcceptDayEnd={
+                  isAdmin
+                    ? async () => {
+                        if (
+                          await confirmDialog({
+                            title: "Bu slip gün sonu olarak kabul edilsin mi?",
+                            description:
+                              "Slipte 'ARA RAPOR' basılı görünüyor. Görsele bakıp günün kapanışı olduğundan eminseniz kabul edin; ara rapor kontrolü atlanarak yeniden okunur.",
+                            confirmLabel: "Gün sonu, kabul et",
+                          })
+                        ) {
+                          acceptDayEnd.mutate({ id: u.id });
+                        }
+                      }
+                    : undefined
+                }
                 onAcceptGap={
                   isAdmin
                     ? async () => {
@@ -417,6 +440,7 @@ function UploadRowItem({
   forwardingIskonto,
   onReviewAuthenticity,
   onAcceptGap,
+  onAcceptDayEnd,
   expectedDate,
 }: {
   upload: UploadRow;
@@ -432,6 +456,8 @@ function UploadRowItem({
   onReviewAuthenticity?: (decision: "cleared" | "confirmed_fake") => void;
   /** Admin only; set when the row is a store summary rejected by the Nebim cross-check. */
   onAcceptGap?: () => void;
+  /** Admin only; set on a POS slip refused as an interim report. */
+  onAcceptDayEnd?: () => void;
   expectedDate: string;
 }) {
   const meta = TYPE_META[upload.type];
@@ -645,6 +671,15 @@ function UploadRowItem({
             ) : null}
             {/* Nebim cross-check rejections: the photo may be right and the
                 bridge wrong (a cancelled document). Admin decides. */}
+            {onAcceptDayEnd && upload.type === "pos_slip" && upload.error_message.includes("ARA RAPOR") ? (
+              <button
+                type="button"
+                onClick={onAcceptDayEnd}
+                className="block mt-2 text-[11px] underline underline-offset-2 text-rose-800 hover:text-rose-900"
+              >
+                Bu gün sonu raporu, kabul et
+              </button>
+            ) : null}
             {onAcceptGap &&
             upload.type === "store_summary" &&
             upload.error_message.includes("Nebim'e göre") ? (

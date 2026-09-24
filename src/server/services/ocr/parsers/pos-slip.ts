@@ -129,12 +129,17 @@ export async function parsePosSlip(opts: {
   // but the sum of them all, it is that echo: the own figure wins.
   if (out.sections.length >= 2) {
     const own = out.sections.map((sec) => {
-      if ((sec.breakdown?.length ?? 0) > 0) {
-        return sec.breakdown!.reduce((a, b) => {
+      // Total rows ("Toplam", "Genel Toplam", "Net") repeat the lines above
+      // them; counting them doubled a bank's figure (857d7c: 17.680 → 35.360).
+      const lines = (sec.breakdown ?? []).filter((b) => !/toplam|genel|\bnet\b/i.test(b.label ?? ""));
+      if (lines.length > 0) {
+        return lines.reduce((a, b) => {
           const amt = b.amount ?? 0;
           return a + (/iade|iptal/i.test(b.label ?? "") ? -Math.abs(amt) : amt);
         }, 0);
       }
+      const totalRow = (sec.breakdown ?? []).find((b) => /toplam|\bnet\b/i.test(b.label ?? ""));
+      if (totalRow && totalRow.amount != null) return totalRow.amount;
       if (sec.sales_amount != null) return sec.sales_amount - (sec.refund_amount ?? 0);
       return null;
     });
@@ -148,6 +153,18 @@ export async function parsePosSlip(opts: {
         }
       });
     }
+  }
+
+  // Same echo, decided by the count alone: a bank whose own block says
+  // 0 transactions cannot carry the other banks' total.
+  if (out.sections.length >= 2) {
+    out.sections.forEach((sec, i) => {
+      const others = out.sections.filter((_, j) => j !== i).reduce((a, o) => a + (o.net_amount ?? 0), 0);
+      if (sec.sales_count === 0 && sec.net_amount != null && sec.net_amount > 0 && near(sec.net_amount, others)) {
+        notes.push(`${sec.bank_name}: 0 işlemli bölümde ${sec.net_amount} öteki bankaların toplamıydı; 0 alındı`);
+        sec.net_amount = 0;
+      }
+    });
   }
 
   // Singular fields mirror the first bank (legacy consumers, fingerprints).
@@ -167,6 +184,10 @@ export async function parsePosSlip(opts: {
   const parsed = posSlipOcrSchema.parse({
     ...raw,
     title_text: typeof raw.title_text === "string" && raw.title_text.trim() ? raw.title_text.slice(0, 200) : null,
+    interim_marker:
+      typeof raw.interim_marker === "string" && raw.interim_marker.trim() ? raw.interim_marker.slice(0, 200) : null,
+    day_end_marker:
+      typeof raw.day_end_marker === "string" && raw.day_end_marker.trim() ? raw.day_end_marker.slice(0, 200) : null,
   });
   return { raw, parsed, rawText, tiles: tileCount };
 }

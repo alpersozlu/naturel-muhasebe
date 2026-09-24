@@ -149,7 +149,9 @@ export async function preprocessReceipt(
     // Accepted uploads keep ≥ 91% of the frame's text rows; the İş Bankası
     // slip of 22.09.2026 (Derimod Lefkoşa) kept 46% — its lower half sat in
     // a shadow the colour mask rejected — and was read as an interim report.
-    if (share.cols < 0.25 || share.rows < 0.6) {
+    // (Raising this to 0.85 was measured and rejected: 19 of 60 accepted
+    // uploads fell back to the whole frame and two lost their amount.)
+    if (share.cols < 0.25 || share.rows < ROW_KEEP_TEXT) {
       const byText = await spanningByTexture(upright, W, H);
       const ok = byText ? await cropTextShare(upright, W, H, byText) : null;
       // The replacement has to do clearly better, not merely pass: on the
@@ -663,7 +665,7 @@ export async function cropTextShare(
  * their textless ends only. Columns first, then rows for a strip lying
  * across a landscape photo.
  */
-async function spanningByTexture(upright: Buffer, W: number, H: number): Promise<ReceiptCrop | null> {
+export async function spanningByTexture(upright: Buffer, W: number, H: number): Promise<ReceiptCrop | null> {
   const { cols, rows, tw, th, edge } = await textCoverage(upright, W, H);
   const band = (cov: Float32Array): [number, number] | null => {
     const runs = runsAbove(cov, 0.35, Math.round(cov.length * 0.05));
@@ -720,7 +722,11 @@ async function spanningByTexture(upright: Buffer, W: number, H: number): Promise
     const yr = extent("cols", xr);
     if (yr) return build(xr, yr);
   }
-  const yr = band(rows);
+  // Rows band = a strip lying ACROSS the photo, which only a landscape frame
+  // can hold. In a portrait photo it found a horizontal band through the
+  // middle of an upright slip (Derimod Girne 23.09.2026, Yapı Kredi) and cut
+  // off its closing block.
+  const yr = W > H ? band(rows) : null;
   if (yr) {
     const xr2 = extent("rows", yr);
     if (xr2) return build(xr2, yr);
@@ -827,6 +833,12 @@ function spanningStrip(paper: Uint8Array, tw: number, th: number, W: number, H: 
  * every line ("30/08/2026" → "…2026") and the date came back as 1 January.
  * The percentile ignores a third of the column being covered.
  */
+/** Share of the frame's text rows a paper crop must keep. */
+export let ROW_KEEP_TEXT = 0.6;
+export function __setRowKeepText(v: number) {
+  ROW_KEEP_TEXT = v;
+}
+
 /** Share of the region's text columns the ink narrowing must keep. */
 export let INK_KEEP_TEXT = 0.9;
 export function __setInkKeepText(v: number) {

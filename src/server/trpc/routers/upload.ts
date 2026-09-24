@@ -406,6 +406,36 @@ export const uploadRouter = router({
    * and a correct photo must not be un-uploadable. The decision is a
    * human's; the flag is kept on the upload for the audit trail.
    */
+  /**
+   * Admin: a POS slip refused as an interim report is in fact the day-end
+   * (checked by eye). Read it again without the interim check.
+   */
+  acceptAsDayEnd: adminProcedure
+    .input(uploadIdSchema)
+    .mutation(async ({ ctx, input }) => {
+      const upload = await ctx.prisma.upload.findUnique({ where: { id: input.id } });
+      if (!upload) throw new TRPCError({ code: "NOT_FOUND" });
+      if (upload.type !== "pos_slip" || upload.status !== "failed") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Yalnız reddedilmiş bir POS fişi için kullanılabilir." });
+      }
+      const meta = (upload.user_meta_json as Record<string, unknown> | null) ?? {};
+      await ctx.prisma.upload.update({
+        where: { id: input.id },
+        data: {
+          status: "pending",
+          error_message: null,
+          uploaded_at: new Date(),
+          user_meta_json: { ...meta, skip_interim_check: true, accepted_by: ctx.user.id },
+        },
+      });
+      waitUntil(
+        processUpload(upload.id).catch((e) => {
+          console.error("[upload.acceptAsDayEnd] async OCR failed", e);
+        })
+      );
+      return { ok: true };
+    }),
+
   acceptNebimGap: adminProcedure
     .input(uploadIdSchema)
     .mutation(async ({ ctx, input }) => {

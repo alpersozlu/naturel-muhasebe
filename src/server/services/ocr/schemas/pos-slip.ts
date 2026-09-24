@@ -50,6 +50,10 @@ export const posSlipOcrSchema = z.object({
   report_kind: posReportKindSchema.optional(),
   /** Title / closing line exactly as printed ("ARA RAPOR", "GÜNSONU ÖZET"…). */
   title_text: z.string().max(200).nullable().optional(),
+  /** Printed "ARA RAPOR" / "X RAPORU" line, verbatim, or null. */
+  interim_marker: z.string().max(200).nullable().optional(),
+  /** Printed day-closing line, verbatim, or null. */
+  day_end_marker: z.string().max(200).nullable().optional(),
   bank_name: z.string().min(1).nullable(),
   terminal_no: z.string().min(1).nullable(),
   date: z
@@ -106,6 +110,10 @@ export const posSlipOutputSchema = z.object({
   // Not nullable on purpose: the decoder's nullable budget is nearly spent
   // (see above); "" / "diger" stand in for "not printed / cannot tell".
   title_text: z.string(),
+  /** The printed line containing "ARA RAPOR" / "X RAPORU", verbatim; "" if none. */
+  interim_marker: z.string(),
+  /** The printed line that closes the day ("GRUP BAŞARILI", "GÜNSONU …"), verbatim; "" if none. */
+  day_end_marker: z.string(),
   report_kind: posReportKindSchema,
   is_pos_slip: z.boolean(),
   rejection_reason: z.string().nullable(),

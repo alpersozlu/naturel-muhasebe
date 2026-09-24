@@ -223,13 +223,32 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
   // the model's classification alone.
   // Only the verbatim title is matched — the model's own notes may well say
   // "ara rapor DEĞİL" about a proper day-end slip.
-  const titleSaysInterim = /\bARA\s*RAPOR|\bX\s*RAPOR/i.test(parsed.title_text ?? "");
-  // A printed day-end marker outranks the model's guess: an İş Bankası
-  // strip opens with "GRUP RAPORU (AYRINTILI)" (the itemised part) and only
-  // then prints "GÜNSONU MUTABAKATI" — the model called the whole thing an
-  // interim report from the first heading (22.09.2026).
-  const titleSaysDayEnd = /G[ÜU]N\s*SONU|MUTABAKAT|KAPAMA|BATCH|TAMAMLANMI/i.test(parsed.title_text ?? "");
-  if ((parsed.report_kind === "ara_rapor" && !titleSaysDayEnd) || titleSaysInterim) {
+  // Refused ONLY when the slip itself prints "ARA RAPOR" / "X RAPORU". The
+  // model's own classification (report_kind) is kept for information but
+  // never refuses on its own: it called two genuine day-end slips interim —
+  // İş Bankası "GRUP RAPORU (AYRINTILI)" + "GÜNSONU MUTABAKATI" (22.09.2026)
+  // and Yapı Kredi "DETAY İŞLEMLER LİSTESİ" + "GRUP BAŞARILI" (23.09.2026),
+  // both from the itemised heading. The one real interim slip on file
+  // (Mavi Lefkoşa 20.09.2026) prints "ARA RAPOR" as title and closing line.
+  // An admin who has looked at the slip can override (skip_interim_check).
+  //
+  // Two printed signals decide, the model's opinion only breaks a tie:
+  //  - a printed "ARA RAPOR" / "X RAPORU" → interim;
+  //  - otherwise the model's "ara_rapor" stands only if NO day-closing line
+  //    is printed. Measured 2026-09-24: the model sometimes skips the large
+  //    "ARA RAPOR" header of a real interim slip ("TechPOS SLIP BILGI" read
+  //    as title), and calls itemised day-end slips interim; a printed
+  //    closing line ("GRUP BAŞARILI", "GÜNSONU …", "MUTABAKAT") is what a
+  //    day-end has and an interim slip does not.
+  const printed = `${parsed.interim_marker ?? ""} ${parsed.title_text ?? ""}`;
+  const printedInterim = /\bARA\s*RAPOR|\bX\s*RAPOR/i.test(printed);
+  const closing = `${parsed.day_end_marker ?? ""} ${parsed.title_text ?? ""}`;
+  const printedDayEnd =
+    !/ARA\s*RAPOR/i.test(parsed.day_end_marker ?? "") &&
+    /GRUP\s*BA[ŞS]ARILI|GRUP\s*KAPAMA|G[ÜU]N\s*SONU|MUTABAKAT|ALACAK\s*KAYDED|TAMAMLANMI|BATCH\s*KAPAT/i.test(closing);
+  const skipInterim = (upload.user_meta_json as { skip_interim_check?: boolean } | null)?.skip_interim_check;
+  const interim = printedInterim || (parsed.report_kind === "ara_rapor" && !printedDayEnd);
+  if (interim && !skipInterim) {
     throw new Error(
       "Bu bir ARA RAPOR — gün sonu raporu değil. Ara rapor günü kapatmaz, yalnızca o saate kadarki tutarı gösterir. POS cihazından GÜN SONU alın ve o slibi yükleyin."
     );

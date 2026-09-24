@@ -50,8 +50,18 @@ POS cihazı birbirine çok benzeyen İKİ rapor basar:
 "title_text": slibin EN ÜSTÜNDEKİ başlık satırını ve EN ALTTAKİ kapanış satırını
 HARFİYEN yaz, " | " ile ayır (örn. "ARA RAPOR | ARA RAPOR SONU" ya da
 "GÜNSONU ÖZET | RAPOR SONU"). Yoksa boş bırak.
+"interim_marker": slipte "ARA RAPOR" ya da "X RAPORU" ifadesi BASILI ise o satırı
+HARFİYEN yaz; basılı değilse "" bırak. Kendi yorumunu yazma — yalnız basılı metin.
+En üstteki büyük/farklı yazı tipindeki başlığı ATLAMA ("ARA RAPOR" çoğu zaman orada).
+"day_end_marker": günü KAPATAN basılı satırı HARFİYEN yaz — "GRUP BAŞARILI",
+"GRUP KAPAMA", "GÜNSONU MUTABAKATI", "GÜNSONU İŞLEMİ BAŞARILI OLARAK TAMAMLANMIŞTIR",
+"ALACAK KAYDEDİLECEKTİR", "BATCH KAPATILDI" gibi. Yoksa "". "RAPOR SONU" ve
+"ARA RAPOR SONU" kapanış DEĞİLDİR (ara raporda da basılır).
+"DETAY İŞLEMLER LİSTESİ", "GRUP RAPORU (AYRINTILI)", "SLIP BILGI" gibi işlem dökümü
+başlıkları tek başına ara rapor DEĞİLDİR; bunların altında çoğu zaman günün kapanışı
+("GRUP BAŞARILI", "GRUP KAPAMA", "GÜNSONU MUTABAKATI", "ALACAK KAYDEDİLECEKTİR") gelir.
 Ara raporda da is_pos_slip=true de ve alanları NORMAL oku; kabul/ret kararını
-sunucu report_kind'a göre verir.
+sunucu basılı ifadelere göre verir.
 
 REDDEDİLMESİ gereken görseller:
 - Banka havale/EFT dekontu — "DEKONT", "HAVALE", "Alıcı IBAN" var
@@ -65,7 +75,7 @@ REDDEDİLMESİ gereken görseller:
 Eğer POS gün sonu DEĞİLSE:
 {
   "check_notes": "en fazla 2 cümle: neden reddedildiği",
-  "title_text": "", "report_kind": "diger",
+  "title_text": "", "interim_marker": "", "day_end_marker": "", "report_kind": "diger",
   "is_pos_slip": false,
   "rejection_reason": "Bu bir POS gün sonu raporu gibi görünmüyor — [kısa açıklama]. Lütfen geçerli bir POS gün sonu slipini yükleyin.",
   "date": null, "date_raw": null, "currency": "TRY", "sections": []
@@ -75,6 +85,8 @@ Eğer POS gün sonu İSE:
 {
   "check_notes": "en fazla 2 cümle: kaç banka, tutarları hangi satırdan aldığın, tarih",
   "title_text": "başlık | kapanış satırı, harfiyen",
+  "interim_marker": "basılı ARA RAPOR / X RAPORU satırı harfiyen, yoksa boş",
+  "day_end_marker": "günü kapatan basılı satır harfiyen, yoksa boş",
   "report_kind": "gun_sonu | ara_rapor | diger",
   "is_pos_slip": true,
   "rejection_reason": null,
