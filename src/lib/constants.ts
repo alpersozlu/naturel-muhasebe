@@ -1,5 +1,13 @@
 export const TOLERANCE_TL = 5;
 
+/**
+ * From this business day on, Mavi stores enter every IBAN payment as
+ * "Havale" in the IT POS kasa, so the day's IBAN receipts (dekont) are
+ * checked against the kasa report's Havale Toplam — and against SAP's
+ * Havale — instead of being counted as cash. Rule set 24.09.2026.
+ */
+export const MAVI_WIRE_IN_KASA_FROM = "2026-09-24";
+
 export const SUPPORTED_CURRENCIES = ["TRY", "USD", "EUR", "GBP"] as const;
 export type SupportedCurrency = (typeof SUPPORTED_CURRENCIES)[number];
 

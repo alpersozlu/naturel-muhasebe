@@ -627,11 +627,13 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
         parsed.shopping_voucher_total,
       ];
       if (parts.every((v) => v != null)) {
-        const sum = parts.reduce<number>((a, v) => a + (v ?? 0), 0);
+        // Havale (IBAN) is optional on the report but part of the sum.
+        const sum =
+          parts.reduce<number>((a, v) => a + (v ?? 0), 0) + (parsed.wire_transfer_total ?? 0);
         if (Math.abs(sum - salesTotal) > tolerance) {
           throw new Error(
             `Mağaza Özeti okunamadı: Nakit + Kredi Kartı + Kartuş + Alışveriş ` +
-              `Çeki = ${fmtMoneyTr(sum)} ₺, ama Satış Toplam ` +
+              `Çeki + Havale = ${fmtMoneyTr(sum)} ₺, ama Satış Toplam ` +
               `${fmtMoneyTr(salesTotal)} ₺. Rakamlar birbirini tutmuyor — ` +
               `muhtemelen bir satır yanlış okundu. Görseli daha net çekip ` +
               `tekrar yükleyin.`

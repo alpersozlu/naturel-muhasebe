@@ -1,6 +1,6 @@
 import "server-only";
 import type { PrismaClient } from "@prisma/client";
-import { TOLERANCE_TL } from "@/lib/constants";
+import { MAVI_WIRE_IN_KASA_FROM, TOLERANCE_TL } from "@/lib/constants";
 
 export type ComparisonRow = {
   label: string;
@@ -98,7 +98,13 @@ export async function computeDay(
 
   const base = await prisma.dailyRecord.findUnique({
     where: { id: dailyRecordId },
-    select: { id: true, merge_group_id: true, cumulative_prev_id: true },
+    select: {
+      id: true,
+      merge_group_id: true,
+      cumulative_prev_id: true,
+      date: true,
+      store: { select: { brand: { select: { name: true } } } },
+    },
   });
   if (!base) {
     return {
@@ -250,7 +256,17 @@ export async function computeDay(
     .flatMap((r) => r.corporate_purchases)
     .reduce((s, c) => s + num(c.amount_try), 0);
 
-  const wireIsSeparate = summaryWire > TOLERANCE_TL;
+  // Mavi from MAVI_WIRE_IN_KASA_FROM: IBAN payments are entered as Havale in
+  // the kasa, so receipts always go against the Havale line (a receipt with
+  // no Havale in the kasa is a mismatch, not cash). Before that, and for
+  // Derimod, a receipt counts as cash unless the summary has a Havale line.
+  const lastDate = records[records.length - 1]?.date ?? base.date;
+  const maviWireRule =
+    base.store.brand.name.toLowerCase().includes("mavi") &&
+    lastDate.toISOString().slice(0, 10) >= MAVI_WIRE_IN_KASA_FROM;
+  const wireIsSeparate = maviWireRule || summaryWire > TOLERANCE_TL;
+  const showWireRow =
+    summaryWire > TOLERANCE_TL || (maviWireRule && Math.abs(bankReceiptTotal) > TOLERANCE_TL);
   const cashSourcesTotal =
     (reportedCash ?? 0) +
     (wireIsSeparate ? 0 : bankReceiptTotal) +
@@ -329,12 +345,12 @@ export async function computeDay(
         has_expenses: masrafToplam > 0,
       },
     },
-    // Havale satırı — sadece özette havale ayrı kalem ise göster.
-    // (Havale yoksa dekont zaten nakit kaynaklarına eklendi.)
-    ...(wireIsSeparate
+    // Havale satırı — özette havale ayrı kalem ise (ya da Mavi kuralıyla
+    // dekont varsa) göster. Aksi halde dekont nakit kaynaklarına eklendi.
+    ...(showWireRow
       ? [
           {
-            label: "Havale (İban Dekontu)",
+            label: maviWireRule ? "Havale (İBAN Dekontu ↔ Kasa Raporu)" : "Havale (İban Dekontu)",
             document_total: bankReceiptTotal,
             summary_total: summaryWire,
             difference: bankReceiptTotal - summaryWire,
@@ -447,6 +463,17 @@ export async function computeDay(
         matches: Math.abs(sapCard - ccTotal) <= TOLERANCE_TL,
       });
     }
+    // Havale: the third look at IBAN payments (dekont ↔ kasa ↔ SAP).
+    const sapWire = sapReport.wire_try !== null ? num(sapReport.wire_try) : null;
+    if (sapWire !== null && (Math.abs(sapWire) > TOLERANCE_TL || summaryWire > TOLERANCE_TL)) {
+      rows.splice(rows.length - 1, 0, {
+        label: "SAP Havale (Bayi Raporu)",
+        document_total: sapWire,
+        summary_total: summaryWire,
+        difference: sapWire - summaryWire,
+        matches: Math.abs(sapWire - summaryWire) <= TOLERANCE_TL,
+      });
+    }
     // Gift-card payments are part of SAP net sales; shown for context when a
     // day's net differs from the summary. Information only.
     const sapGift = num(sapReport.gift_card_try);
@@ -494,8 +521,19 @@ export async function computeDay(
         : `Nakit fazla: Kaynaklar ${fmtTL(cashSourcesTotal)} ₺, özette ${fmtTL(summaryCash)} ₺ → ${fmtTL(cashRow.difference)} ₺ fazla.`
       : null;
 
+  // IBAN ↔ Havale, in words (Mavi rule).
+  const wireDiff = bankReceiptTotal - summaryWire;
+  const wireNote = !maviWireRule || Math.abs(wireDiff) <= TOLERANCE_TL
+    ? null
+    : summaryWire <= TOLERANCE_TL
+      ? `${fmtTL(bankReceiptTotal)} ₺ IBAN dekontu yüklendi ama kasa raporunda Havale yok — IBAN ödemesi kasada Havale olarak girilmeli.`
+      : bankReceiptTotal <= TOLERANCE_TL
+        ? `Kasa raporunda ${fmtTL(summaryWire)} ₺ Havale var ama IBAN dekontu yüklenmedi.`
+        : `Havale tutmuyor: IBAN dekontları ${fmtTL(bankReceiptTotal)} ₺, kasa raporunda Havale ${fmtTL(summaryWire)} ₺.`;
+
   const noteParts: string[] = [];
   if (cashMismatch) noteParts.push(cashMismatch);
+  if (wireNote) noteParts.push(wireNote);
   if (status !== "match") {
     noteParts.push(
       `Genel fark ${fmtTL(difference)} ₺ (tolerans ±${TOLERANCE_TL} ₺).`

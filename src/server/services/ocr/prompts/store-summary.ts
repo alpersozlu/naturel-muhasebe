@@ -134,6 +134,8 @@ IT POS Eşleştirme rehberi (Mavi):
 - "Kredi Kartı Toplam" → credit_card_total
 - "Alışveriş Çeki Toplam" → shopping_voucher_total
 - "Kartuş Puan Toplam" → loyalty_points_total
+- "Havale Toplam" → wire_transfer_total (IBAN'a gelen ödeme; altında banka
+  adı satırı olabilir, örn "T.C. Banka" — o alt satırı ayrıca toplama)
 - "Devir Bakiye" / "Devir Bakiye Toplam" → opening_balance
 - "Kapanış Toplam" / "Kapanış" → closing_balance
 - TRY TUTAR kolonundaki rakamı al, DÖVİZ TUTAR'a bakma
@@ -218,12 +220,13 @@ DOĞRU YÖNTEM — iki sütunu AYRI AYRI, yukarıdan aşağıya yaz:
 
 ZORUNLU DENKLEM KONTROLÜ (sonucunu "check_notes" alanına tek satır yaz):
   IT POS:  cash_sales + credit_card_total + loyalty_points_total
-             + shopping_voucher_total  =  sales_total
+             + shopping_voucher_total + wire_transfer_total  =  sales_total
   Nebim:   cash_sales + credit_card_total + credit_voucher_total
              =  sales_total  (Satış tablosu "Toplam" satırı Net Tutar)
 Tutmuyorsa bir alanı yanlış satırdan okumuşsundur — tabloyu etiketlerden
 tekrar oku. Örnekler (doğru okuma):
     IT POS: 25.819,71 + 81.909,27 + 1.050,00 = 108.778,98 ✓
+    IT POS (Havale'li): 29.273,15 + 117.316,57 + 589,00 + 899,99 = 148.078,71 ✓
     Nebim:  0,00 + (28.131,17 + 11.194,96) + 0,00 = 39.326,13 ✓
 
 Ayrıca hiçbir bileşen sales_total'dan BÜYÜK olamaz; büyükse yanlış satırı

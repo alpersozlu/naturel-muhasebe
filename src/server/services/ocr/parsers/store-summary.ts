@@ -80,7 +80,10 @@ export function deriveItPosFields(
     const closing = find("kapanis toplam");
     if (sales == null || cash == null || card == null) continue;
 
-    const sum = cash + card + (loyalty ?? 0) + (voucher ?? 0);
+    // Havale (IBAN) is a payment line like the others: Mavi Mağusa
+    // 05.09.2026 balanced only with its 899,99 (from 24.09.2026 every IBAN
+    // payment is entered as Havale in the kasa).
+    const sum = cash + card + (loyalty ?? 0) + (voucher ?? 0) + (wire ?? 0);
     if (Math.abs(sum - sales) > Math.max(1, sales * 0.01)) continue;
     if (cash < 0 || card < 0 || sales <= 0) continue;
 
@@ -120,12 +123,26 @@ export function deriveItPosFields(
     const i = normLabels.findIndex((l) => l.includes(needle));
     return i >= 0 ? (amounts[i] ?? null) : null;
   };
-  return {
+  // The amount-only solver cannot tell Havale from Kartuş/Alışveriş Çeki by
+  // the sum; when the labelled Havale amount is what it took as one of them,
+  // it is the Havale.
+  const wire = at("havale toplam");
+  const out = {
     ...byEq,
-    wire_transfer_total: null,
+    wire_transfer_total: null as number | null,
     opening_balance: at("devir bakiye toplam"),
     closing_balance: at("kapanis toplam"),
   };
+  if (wire != null && Math.abs(wire) > 0.005) {
+    if (out.loyalty_points_total != null && Math.abs(out.loyalty_points_total - wire) <= 0.05) {
+      out.wire_transfer_total = wire;
+      out.loyalty_points_total = null;
+    } else if (out.shopping_voucher_total != null && Math.abs(out.shopping_voucher_total - wire) <= 0.05) {
+      out.wire_transfer_total = wire;
+      out.shopping_voucher_total = null;
+    }
+  }
+  return out;
 }
 
 /**
@@ -255,7 +272,8 @@ function equationHolds(p: StoreSummaryOcr): boolean {
     p.cash_sales +
     p.credit_card_total +
     (p.loyalty_points_total ?? 0) +
-    (p.shopping_voucher_total ?? 0);
+    (p.shopping_voucher_total ?? 0) +
+    (p.wire_transfer_total ?? 0);
   return Math.abs(sum - p.sales_total) <= Math.max(1, p.sales_total * 0.01);
 }
 
