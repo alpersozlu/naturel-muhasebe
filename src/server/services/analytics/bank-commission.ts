@@ -1,6 +1,7 @@
 import "server-only";
 import type { PrismaClient } from "@prisma/client";
 import type { AnalyticsFilter } from "@/lib/zod-schemas/analytics";
+import { canonicalBankName } from "@/lib/bank-names";
 
 /**
  * Banka POS Komisyon Gideri Analizi
@@ -112,7 +113,7 @@ export async function bankCommissionSummary(
   for (const p of slips) {
     const date = p.daily_record.date;
     const mk = monthKey(date);
-    const bank = p.bank_name ?? "Bilinmeyen";
+    const bank = canonicalBankName(p.bank_name);
     const gross = num(p.net_amount_try);
     const rate = getCommissionRate(bank);
     const commission = gross * rate;

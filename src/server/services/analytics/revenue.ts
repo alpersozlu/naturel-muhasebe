@@ -2,6 +2,7 @@ import "server-only";
 import { effectiveSummary, cumulativePrevSummarySelect } from "@/server/services/verification/effective-summary";
 import type { PrismaClient } from "@prisma/client";
 import type { AnalyticsFilter } from "@/lib/zod-schemas/analytics";
+import { canonicalBankName } from "@/lib/bank-names";
 
 export type RevenueSummary = {
   // ---- Core (current month) ----
@@ -201,7 +202,7 @@ export async function revenueSummary(
   // ---- Bank breakdown (current month) ----
   const byBankMap: Record<string, number> = {};
   for (const p of posSlips) {
-    const bank = p.bank_name ?? "Bilinmeyen";
+    const bank = canonicalBankName(p.bank_name);
     byBankMap[bank] = (byBankMap[bank] ?? 0) + num(p.net_amount_try);
   }
 
