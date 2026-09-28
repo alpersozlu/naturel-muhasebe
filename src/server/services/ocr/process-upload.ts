@@ -11,7 +11,7 @@ import { parseStoreSummary } from "./parsers/store-summary";
 import { parseBankReceipt } from "./parsers/bank-receipt";
 import { parseExpense } from "./parsers/expense";
 import { parseZReport } from "./parsers/z-report";
-import { ASSESSED_TYPES, inspectUpload } from "@/server/services/authenticity/assess";
+import { ASSESSED_TYPES, bankKey, inspectUpload } from "@/server/services/authenticity/assess";
 import { resolveBankFromTerminalHistory } from "./bank-from-terminal";
 import { applyAuthenticity } from "@/server/services/authenticity/apply";
 import { forwardDealerReport } from "@/server/services/mavi-iskonto/forward";
@@ -101,6 +101,57 @@ async function assertDateMatch(
     );
   }
   return r.iso;
+}
+
+// ── Replay guard (content) ────────────────────────────────────────────────
+// The same document must not be counted twice. The exact-file guard sits in
+// upload.create; these catch a SECOND PHOTO of the same paper — anywhere in
+// the store's history, not only on the same day (owner, 28.09.2026: "aynı
+// şeyi iki kere yüklemelerine izin verme"). A merged day, a slip pushed to
+// the next day, a Z re-shot a week later: all land here.
+type DupScope = { store_id: string };
+async function dupScope(upload: Upload): Promise<DupScope> {
+  const dr = await prisma.dailyRecord.findUnique({
+    where: { id: upload.daily_record_id },
+    select: { store_id: true },
+  });
+  return { store_id: dr?.store_id ?? "" };
+}
+/**
+ * Two readings of one paper differ in small ways (an IBAN with or without
+ * spaces, a vendor name read once and missed once). Same date + amount is
+ * the anchor; an identity field only SEPARATES documents when both readings
+ * have it and they disagree.
+ */
+function sameIdentity(a: string | null | undefined, b: string | null | undefined): boolean {
+  const norm = (v: string) => v.toLocaleUpperCase("tr").replace(/[^A-Z0-9ÇĞİÖŞÜ]/g, "");
+  if (!a || !b) return true;
+  const x = norm(a), y = norm(b);
+  if (!x || !y) return true;
+  return x === y || x.startsWith(y) || y.startsWith(x);
+}
+/** Admin said "this is a different document" (upload.acceptAsDistinct). */
+function duplicateCheckSkipped(upload: Upload): boolean {
+  return !!(upload.user_meta_json as { skip_duplicate_check?: boolean } | null)?.skip_duplicate_check;
+}
+/** Fail the upload as a replay of `dupUploadId`; the message names the day it already sits on. */
+async function failAsDuplicate(upload: Upload, dupUploadId: string, what: string): Promise<void> {
+  const prev = await prisma.upload.findUnique({
+    where: { id: dupUploadId },
+    select: { uploaded_at: true, daily_record: { select: { date: true } } },
+  });
+  const day = prev ? fmtDateTr(prev.daily_record.date.toISOString().slice(0, 10)) : "?";
+  const at = prev ? prev.uploaded_at.toLocaleString("tr-TR", { timeZone: "Europe/Nicosia" }) : "";
+  await prisma.upload.update({
+    where: { id: upload.id },
+    data: {
+      status: "failed",
+      duplicate_of_id: dupUploadId,
+      error_message:
+        `${what} zaten yüklü — ${day} gününe kayıtlı${at ? ` (${at})` : ""}. ` +
+        "Aynı belge ikinci kez yüklenemez; bu yüklemeyi silin. Belge gerçekten farklıysa yöneticinize söyleyin.",
+    },
+  });
 }
 
 /**
@@ -311,6 +362,7 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
   const skipped: string[] = [];
   let duplicateOf: string | null = null;
   let recorded = 0;
+  const scope = await dupScope(upload);
   for (const sec of sections) {
     const bankName = sec.bank_name || null;
     // Aynı slipte aynı banka iki kez çıkarsa (model tekrar etmişse) ilkini tut.
@@ -320,33 +372,34 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
 
     // Fingerprint over content-defining fields. If two photos of the
     // same slip get uploaded, they all collapse to the same fingerprint.
-    const fingerprint = bankName
-      ? createHash("sha256")
-          .update(
-            [
-              bankName,
-              sec.terminal_no ?? "",
-              parsed.date ?? "",
-              String(sec.net_amount ?? ""),
-              String(sec.sales_count ?? ""),
-            ].join("|")
-          )
-          .digest("hex")
-      : null;
+    // Computed even when the bank could not be read: terminal + date +
+    // amount + count still identify the slip.
+    const fingerprint = createHash("sha256")
+      .update(
+        [
+          bankName ?? "",
+          sec.terminal_no ?? "",
+          parsed.date ?? "",
+          String(sec.net_amount ?? ""),
+          String(sec.sales_count ?? ""),
+        ].join("|")
+      )
+      .digest("hex");
 
     // 🛡️ Fraud guard #2: content replay. Same slip captured as a
-    // different photo (different file hash) but identical OCR fields.
-    if (fingerprint) {
+    // different photo (different file hash) but identical OCR fields —
+    // anywhere in this store, not only on this day.
+    if (!duplicateCheckSkipped(upload)) {
       const dup = await prisma.posSlip.findFirst({
         where: {
-          daily_record_id: upload.daily_record_id,
+          daily_record: { store_id: scope.store_id },
           content_fingerprint: fingerprint,
           NOT: { upload_id: upload.id },
         },
         select: { upload_id: true },
       });
       if (dup) {
-        skipped.push(`${bankName} ${fmtTry(sec.net_amount)}`.trim());
+        skipped.push(`${bankName ?? "banka"} ${fmtTry(sec.net_amount)}`.trim());
         duplicateOf = duplicateOf ?? dup.upload_id;
         continue;
       }
@@ -382,16 +435,14 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
   }
 
   if (recorded === 0) {
-    await prisma.upload.update({
-      where: { id: upload.id },
-      data: {
-        status: "failed",
-        duplicate_of_id: duplicateOf,
-        error_message:
-          `Bu slip zaten bu güne kayıtlı: ${skipped.join(", ")} — aynı banka, terminal, tutar. ` +
-          "Bu parça yeni bir banka bölümü eklemiyor; yeniden yüklemek için önce mevcut kaydı silin.",
-      },
-    });
+    if (duplicateOf) {
+      await failAsDuplicate(upload, duplicateOf, `Bu POS fişi (${skipped.join(", ")} — aynı banka, terminal, tarih, tutar)`);
+    } else {
+      await prisma.upload.update({
+        where: { id: upload.id },
+        data: { status: "failed", error_message: "Bu slipten kaydedilecek bir banka bölümü çıkmadı." },
+      });
+    }
     return;
   }
 
@@ -658,6 +709,25 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     }
   }
 
+  // One summary per period per store: the same report pushed to another
+  // day (or a merged range) is a replay.
+  if (periodStart && periodEnd && !duplicateCheckSkipped(upload)) {
+    const scope = await dupScope(upload);
+    const dup = await prisma.storeSummary.findFirst({
+      where: {
+        daily_record: { store_id: scope.store_id },
+        period_start: periodStart,
+        period_end: periodEnd,
+        NOT: { upload_id: upload.id },
+      },
+      select: { upload_id: true },
+    });
+    if (dup) {
+      await failAsDuplicate(upload, dup.upload_id, `Bu Mağaza Özeti (${fmtDateTr(periodStart.toISOString().slice(0, 10))}${periodEnd.getTime() !== periodStart.getTime() ? `–${fmtDateTr(periodEnd.toISOString().slice(0, 10))}` : ""})`);
+      return;
+    }
+  }
+
   await prisma.storeSummary.upsert({
     where: { upload_id: upload.id },
     update: fields,
@@ -788,6 +858,30 @@ async function runBankReceipt(upload: Upload, buffer: Buffer): Promise<void> {
     deposit_date: new Date(`${parsed.deposit_date}T00:00:00.000Z`),
     is_manual: false,
   };
+  // Same transfer (IBAN/bank + date + amount) already on file in this store.
+  if (!duplicateCheckSkipped(upload)) {
+    const scope = await dupScope(upload);
+    const candidates = await prisma.bankReceipt.findMany({
+      where: {
+        daily_record: { store_id: scope.store_id },
+        deposit_date: fields.deposit_date,
+        amount_try,
+        NOT: { upload_id: upload.id },
+      },
+      select: { upload_id: true, iban: true, bank_name: true },
+    });
+    // The IBAN is not a tie-breaker: two readings of one receipt differed in
+    // its digits (…0008160700246 42 vs …0000168070024642, Mavi Girne 28.09).
+    // Same bank family + date + amount is the receipt; a second transfer of
+    // the same amount from the same bank on one day goes through the admin.
+    const dup = candidates.find(
+      (c) => !c.bank_name || !parsed.bank_name || bankKey(c.bank_name) === bankKey(parsed.bank_name)
+    );
+    if (dup?.upload_id) {
+      await failAsDuplicate(upload, dup.upload_id, `Bu İban dekontu (${fmtDateTr(parsed.deposit_date)}, ${amount_try} ₺)`);
+      return;
+    }
+  }
   await prisma.bankReceipt.upsert({
     where: { upload_id: upload.id },
     update: fields,
@@ -840,6 +934,25 @@ async function runExpense(upload: Upload, buffer: Buffer): Promise<void> {
     // Kullanıcı girdiği bilgi varsa user_corrected işaretle
     user_corrected: !!(userMeta?.expense_category || userMeta?.expense_description),
   };
+  // Same receipt (vendor + date + amount) already on file in this store —
+  // a second photo of the same fatura must not count twice.
+  if (!duplicateCheckSkipped(upload)) {
+    const scope = await dupScope(upload);
+    const candidates = await prisma.expense.findMany({
+      where: {
+        daily_record: { store_id: scope.store_id },
+        expense_date: fields.expense_date,
+        amount_try,
+        NOT: { upload_id: upload.id },
+      },
+      select: { upload_id: true, vendor: true },
+    });
+    const dup = candidates.find((c) => sameIdentity(c.vendor, parsed.vendor));
+    if (dup?.upload_id) {
+      await failAsDuplicate(upload, dup.upload_id, `Bu fatura/makbuz (${parsed.vendor ?? "satıcı okunamadı"}, ${fmtDateTr(parsed.expense_date)}, ${amount_try} ₺)`);
+      return;
+    }
+  }
   await prisma.expense.upsert({
     where: { upload_id: upload.id },
     update: fields,
@@ -885,39 +998,31 @@ async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {
   );
 
   // Content fingerprint: Z numarası + tarih + brüt + net (cash/KK artık alınmıyor)
-  const fingerprint = parsed.report_no
-    ? createHash("sha256")
-        .update(
-          [
-            parsed.report_no ?? "",
-            parsed.report_date ?? "",
-            String(parsed.gross_sales ?? ""),
-            String(parsed.net_sales ?? ""),
-          ].join("|")
-        )
-        .digest("hex")
-    : null;
+  // Without a readable Z number the date + gross + net still identify it.
+  const fingerprint = createHash("sha256")
+    .update(
+      [
+        parsed.report_no ?? "",
+        parsed.report_date ?? "",
+        String(parsed.gross_sales ?? ""),
+        String(parsed.net_sales ?? ""),
+      ].join("|")
+    )
+    .digest("hex");
 
-  // Fraud guard #2: same Z replay (different photo, same content)
-  if (fingerprint) {
+  // Fraud guard #2: same Z replay (different photo, same content), store-wide.
+  if (!duplicateCheckSkipped(upload)) {
+    const scope = await dupScope(upload);
     const dup = await prisma.zReport.findFirst({
       where: {
-        daily_record_id: upload.daily_record_id,
+        daily_record: { store_id: scope.store_id },
         content_fingerprint: fingerprint,
         NOT: { upload_id: upload.id },
       },
       select: { upload_id: true },
     });
     if (dup) {
-      await prisma.upload.update({
-        where: { id: upload.id },
-        data: {
-          status: "failed",
-          duplicate_of_id: dup.upload_id,
-          error_message:
-            "Bu Z raporunun içeriği bu güne zaten kayıtlı — aynı Z numarası, tarih ve tutarlar. Önce mevcut kaydı silin.",
-        },
-      });
+      await failAsDuplicate(upload, dup.upload_id, `Bu Z raporu (${parsed.report_no ? `Z-${parsed.report_no}, ` : ""}${fmtDateTr(parsed.report_date)}, net ${parsed.net_sales ?? "?"})`);
       return;
     }
   }
@@ -1027,24 +1132,18 @@ async function runDealerDailyReport(upload: Upload, buffer: Buffer): Promise<voi
     day.net_sales,
     day.transaction_count
   );
-  const dup = await prisma.dealerDailyReport.findFirst({
-    where: {
-      daily_record_id: upload.daily_record_id,
-      content_fingerprint: fingerprint,
-      NOT: { upload_id: upload.id },
-    },
-    select: { upload_id: true },
-  });
+  const dup = duplicateCheckSkipped(upload)
+    ? null
+    : await prisma.dealerDailyReport.findFirst({
+        where: {
+          daily_record: { store_id: (await dupScope(upload)).store_id },
+          content_fingerprint: fingerprint,
+          NOT: { upload_id: upload.id },
+        },
+        select: { upload_id: true },
+      });
   if (dup) {
-    await prisma.upload.update({
-      where: { id: upload.id },
-      data: {
-        status: "failed",
-        duplicate_of_id: dup.upload_id,
-        error_message:
-          "Bu bayi raporunun içeriği bu güne zaten kayıtlı (aynı mağaza, tarih, net satış, fiş sayısı). Önce mevcut kaydı silin.",
-      },
-    });
+    await failAsDuplicate(upload, dup.upload_id, "Bu bayi gün sonu dosyası (aynı mağaza, tarih, net satış, fiş sayısı)");
     return;
   }
 

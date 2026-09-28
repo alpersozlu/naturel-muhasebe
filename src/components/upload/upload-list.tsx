@@ -230,6 +230,13 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
     },
     onError: (e) => toast.error(e.message),
   });
+  const acceptDistinct = trpc.upload.acceptAsDistinct.useMutation({
+    onSuccess: () => {
+      toast.success("Farklı belge olarak kabul edildi, yeniden okunuyor");
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const retry = trpc.upload.retry.useMutation({
     onSuccess: () => {
       toast.success("Yeniden okunuyor…");
@@ -349,6 +356,22 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                       }
                     : undefined
                 }
+                onAcceptDistinct={
+                  isAdmin
+                    ? async () => {
+                        if (
+                          await confirmDialog({
+                            title: "Bu belge farklı bir belge mi?",
+                            description:
+                              "Sistem bunu daha önce yüklenmiş bir belgenin tekrarı saydı (aynı tarih, tutar ve kimlik bilgileri). Görsele bakıp gerçekten AYRI bir belge olduğundan eminseniz kabul edin; mükerrer kontrolü atlanarak yeniden okunur.",
+                            confirmLabel: "Farklı belge, kabul et",
+                          })
+                        ) {
+                          acceptDistinct.mutate({ id: u.id });
+                        }
+                      }
+                    : undefined
+                }
                 onAcceptGap={
                   isAdmin
                     ? async () => {
@@ -441,6 +464,7 @@ function UploadRowItem({
   onReviewAuthenticity,
   onAcceptGap,
   onAcceptDayEnd,
+  onAcceptDistinct,
   expectedDate,
 }: {
   upload: UploadRow;
@@ -458,6 +482,8 @@ function UploadRowItem({
   onAcceptGap?: () => void;
   /** Admin only; set on a POS slip refused as an interim report. */
   onAcceptDayEnd?: () => void;
+  /** Admin only; set on an upload refused as a replay of an earlier document. */
+  onAcceptDistinct?: () => void;
   expectedDate: string;
 }) {
   const meta = TYPE_META[upload.type];
@@ -678,6 +704,15 @@ function UploadRowItem({
                 className="block mt-2 text-[11px] underline underline-offset-2 text-rose-800 hover:text-rose-900"
               >
                 Bu gün sonu raporu, kabul et
+              </button>
+            ) : null}
+            {onAcceptDistinct && /zaten (yüklü|kayıtlı)/.test(upload.error_message) ? (
+              <button
+                type="button"
+                onClick={onAcceptDistinct}
+                className="block mt-2 text-[11px] underline underline-offset-2 text-rose-800 hover:text-rose-900"
+              >
+                Farklı belge, kabul et
               </button>
             ) : null}
             {onAcceptGap &&

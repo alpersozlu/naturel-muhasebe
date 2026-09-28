@@ -82,22 +82,26 @@ export const uploadRouter = router({
       const buffer = Buffer.from(input.file_base64, "base64");
       const file_hash = createHash("sha256").update(buffer).digest("hex");
 
-      // 🛡️ Fraud guard #1: exact-file replay.
-      // Block if this same daily_record already has a non-failed upload
-      // with the same SHA-256. Failed uploads are excluded so the user
-      // can retry after a corrupted scan or OCR error.
+      // 🛡️ Fraud guard #1: exact-file replay — the same file anywhere
+      // (any day, any store, any document type). Failed uploads are
+      // excluded so the user can retry after a corrupted scan or OCR error.
       const existing = await ctx.prisma.upload.findFirst({
-        where: {
-          daily_record_id: dr.id,
-          file_hash,
-          status: { not: "failed" },
+        where: { file_hash, status: { not: "failed" } },
+        select: {
+          id: true,
+          type: true,
+          uploaded_at: true,
+          daily_record: { select: { date: true, store: { select: { name: true } } } },
         },
-        select: { id: true, type: true, uploaded_at: true },
       });
       if (existing) {
+        const day = existing.daily_record.date.toISOString().slice(0, 10).split("-").reverse().join(".");
         throw new TRPCError({
           code: "CONFLICT",
-          message: `Bu dosya bu güne zaten yüklenmiş (önceki kayıt: ${existing.uploaded_at.toLocaleString("tr-TR")}).`,
+          message:
+            `Bu dosya zaten yüklü — ${existing.daily_record.store.name} ${day} gününe ` +
+            `(${existing.uploaded_at.toLocaleString("tr-TR", { timeZone: "Europe/Nicosia" })}). ` +
+            "Aynı belge ikinci kez yüklenemez.",
         });
       }
 
@@ -431,6 +435,38 @@ export const uploadRouter = router({
       waitUntil(
         processUpload(upload.id).catch((e) => {
           console.error("[upload.acceptAsDayEnd] async OCR failed", e);
+        })
+      );
+      return { ok: true };
+    }),
+
+  /**
+   * Admin: a document refused as a replay is in fact a different one (two
+   * receipts from the same vendor, same day, same amount…). Re-read without
+   * the content replay guard; who accepted is kept in user_meta.
+   */
+  acceptAsDistinct: adminProcedure
+    .input(uploadIdSchema)
+    .mutation(async ({ ctx, input }) => {
+      const upload = await ctx.prisma.upload.findUnique({ where: { id: input.id } });
+      if (!upload) throw new TRPCError({ code: "NOT_FOUND" });
+      if (upload.status !== "failed" || !upload.duplicate_of_id) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Yalnız mükerrer diye reddedilmiş bir yükleme için kullanılabilir." });
+      }
+      const meta = (upload.user_meta_json as Record<string, unknown> | null) ?? {};
+      await ctx.prisma.upload.update({
+        where: { id: input.id },
+        data: {
+          status: "pending",
+          error_message: null,
+          duplicate_of_id: null,
+          uploaded_at: new Date(),
+          user_meta_json: { ...meta, skip_duplicate_check: true, accepted_distinct_by: ctx.user.id },
+        },
+      });
+      waitUntil(
+        processUpload(upload.id).catch((e) => {
+          console.error("[upload.acceptAsDistinct] async OCR failed", e);
         })
       );
       return { ok: true };
