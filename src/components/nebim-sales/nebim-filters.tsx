@@ -19,6 +19,8 @@ export type NebimSalesSelection = {
   dateFrom: string;
   dateTo: string;
   onlyReturns: boolean;
+  /** Askıda (POS'ta park edilmiş, tamamlanmamış) satışlar — normalde hiçbir yerde sayılmaz. */
+  onlyPending: boolean;
   discountBand: string; // "" = tümü; discounted/none/b1..b5
 };
 
@@ -185,6 +187,7 @@ export function NebimFilters({
     !!value.dateFrom ||
     !!value.dateTo ||
     value.onlyReturns ||
+    value.onlyPending ||
     (!!value.discountBand && value.discountBand !== "all");
 
   const storeDot = (name: string) => {
@@ -237,6 +240,7 @@ export function NebimFilters({
                 dateFrom: "",
                 dateTo: "",
                 onlyReturns: false,
+                onlyPending: false,
                 discountBand: "",
               });
             }}
@@ -392,17 +396,18 @@ export function NebimFilters({
               Kayıt Tipi
             </Label>
             <Select
-              value={value.onlyReturns ? "returns" : "all"}
+              value={value.onlyPending ? "pending" : value.onlyReturns ? "returns" : "all"}
               onValueChange={(v) =>
-                onChange({ ...value, onlyReturns: v === "returns" })
+                onChange({ ...value, onlyReturns: v === "returns", onlyPending: v === "pending" })
               }
             >
               <SelectTrigger className="h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Tümü</SelectItem>
+                <SelectItem value="all">İşlenmiş satışlar</SelectItem>
                 <SelectItem value="returns">Sadece İadeler</SelectItem>
+                <SelectItem value="pending">Askıdakiler (tamamlanmamış)</SelectItem>
               </SelectContent>
             </Select>
           </div>

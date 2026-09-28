@@ -876,6 +876,7 @@ export const nebimSalesRouter = router({
         ...(storeFilter ? { store_id: { in: storeFilter } } : {}),
         ...(Object.keys(dateFilter).length > 0 ? { invoice_date: dateFilter } : {}),
         ...(input.only_returns ? { is_return: true } : {}),
+        ...(input.only_pending ? { is_completed: false } : {}),
         ...discountBandWhere(input.discount_band),
       };
       // Mağaza kartları için: seçili mağazadan BAĞIMSIZ (erişim kapsamı korunur)
@@ -884,6 +885,7 @@ export const nebimSalesRouter = router({
         ...(allowedStoreIds ? { store_id: { in: allowedStoreIds } } : {}),
         ...(Object.keys(dateFilter).length > 0 ? { invoice_date: dateFilter } : {}),
         ...(input.only_returns ? { is_return: true } : {}),
+        ...(input.only_pending ? { is_completed: false } : {}),
         ...discountBandWhere(input.discount_band),
       };
 
@@ -906,6 +908,7 @@ export const nebimSalesRouter = router({
         invoice_date: r.invoice_date,
         store_name: r.store?.name ?? r.store_name_raw,
         is_return: r.is_return,
+        is_completed: r.is_completed,
         item_code: r.item_code,
         item_desc: r.item_desc,
         color_desc: r.color_desc,
@@ -1216,6 +1219,7 @@ export const nebimSalesRouter = router({
         ...(storeFilter ? { store_id: { in: storeFilter } } : {}),
         ...(Object.keys(dateFilter).length > 0 ? { invoice_date: dateFilter } : {}),
         ...(input.only_returns ? { is_return: true } : {}),
+        ...(input.only_pending ? { is_completed: false } : {}),
         ...discountBandWhere(input.discount_band),
       };
 

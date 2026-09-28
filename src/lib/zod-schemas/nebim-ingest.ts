@@ -45,6 +45,7 @@ export const nebimSaleLineSchema = z.object({
   vat: z.number().nullish(), // KDV
   net_amount: z.number().nullish(), // Net tutar (KDV dahil)
 
+  is_completed: z.boolean().nullish(), // trInvoiceHeader.IsCompleted — false = askıda (POS'ta park edilmiş), köprü 28.09.2026'dan itibaren gönderir
   invoice_note: z.string().nullish(), // trInvoiceHeader.Description — fiş açıklaması
   mgmt_note: z.string().nullish(), // tpInvoiceHeaderExtension — yönetim açıklaması (manuel iskonto)
   discount_reason: z.string().nullish(), // cdDiscountReasonDesc — iskonto nedeni

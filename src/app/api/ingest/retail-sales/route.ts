@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prismaUnscoped as prisma } from "@/lib/prisma";
 import { nebimIngestSchema } from "@/lib/zod-schemas/nebim-ingest";
 import { buildStoreResolver } from "@/server/services/nebim/store-resolver";
 
@@ -134,6 +134,7 @@ export async function POST(req: Request) {
           vat: l.vat ?? null,
           net_amount: l.net_amount ?? null,
           discount_pct,
+          is_completed: l.is_completed ?? true,
           invoice_note: l.invoice_note ?? null,
           mgmt_note: l.mgmt_note ?? null,
           discount_reason: l.discount_reason ?? null,

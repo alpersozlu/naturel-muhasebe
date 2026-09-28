@@ -29,6 +29,7 @@ function defaultSelection(): NebimSalesSelection {
     dateFrom: `${y}-${m}-01`,
     dateTo: `${y}-${m}-${String(last).padStart(2, "0")}`,
     onlyReturns: false,
+    onlyPending: false,
     discountBand: "",
   };
 }
@@ -84,6 +85,7 @@ export default function NebimSalesPage() {
                 date_from: sel.dateFrom || undefined,
                 date_to: sel.dateTo || undefined,
                 only_returns: sel.onlyReturns || undefined,
+                only_pending: sel.onlyPending || undefined,
                 discount_band: (sel.discountBand || undefined) as
                   | DiscountBand
                   | undefined,

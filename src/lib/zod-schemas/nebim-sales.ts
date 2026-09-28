@@ -26,6 +26,8 @@ export const nebimSalesFilterSchema = z.object({
   date_from: dateOnly.optional(),
   date_to: dateOnly.optional(),
   only_returns: z.boolean().optional(),
+  /** Only parked (askıda) POS sales — normally hidden everywhere. */
+  only_pending: z.boolean().optional(),
   discount_band: discountBandSchema.optional(),
   sort_by: sortBySchema.optional(),
   sort_dir: z.enum(["asc", "desc"]).optional(),

@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   StickyNote,
   KeyRound,
+  PauseCircle,
   Receipt,
   ArrowUp,
   ArrowDown,
@@ -41,6 +42,8 @@ type Item = {
   invoice_date: string | Date;
   store_name: string | null;
   is_return: boolean;
+  /** false = POS'ta askıya alınmış, tamamlanmamış satış (köprü IsCompleted). */
+  is_completed: boolean;
   item_code: string | null;
   item_desc: string | null;
   color_desc: string | null;
@@ -120,6 +123,7 @@ export function NebimList({
         date_from: filters.dateFrom || undefined,
         date_to: filters.dateTo || undefined,
         only_returns: filters.onlyReturns || undefined,
+        only_pending: filters.onlyPending || undefined,
         discount_band: (filters.discountBand || undefined) as DiscountBand | undefined,
         sort_by: sort.by,
         sort_dir: sort.dir,
@@ -371,13 +375,20 @@ function NebimRow({ r }: { r: Item }) {
   const [open, setOpen] = useState(false);
   const pct = discountPct(r);
   const hasDetail = !!(r.campaign || r.discount_reason || r.mgmt_note || r.invoice_note);
+  // A management note WITH a reason code = the manager entered the password
+  // and applied a discount on THIS invoice (red). A note WITHOUT one is
+  // carried over by Nebim from the returned invoice of an exchange — no
+  // discount was applied here (grey). Measured 28.09.2026: 95 such invoices,
+  // every one an exchange, 89 with campaign-only discounts.
+  const mgmtApplied = !!(r.mgmt_note && r.discount_reason);
+  const mgmtInherited = !!(r.mgmt_note && !r.discount_reason);
 
   return (
     <>
       <tr
         className={`border-b border-border/50 transition-colors ${
           hasDetail ? "cursor-pointer hover:bg-muted/40" : "hover:bg-muted/20"
-        } ${r.is_return ? "bg-rose-50/30" : ""}`}
+        } ${r.is_return ? "bg-rose-50/30" : ""} ${!r.is_completed ? "bg-amber-50/40" : ""}`}
         onClick={() => hasDetail && setOpen((v) => !v)}
       >
         {/* expand + not göstergesi */}
@@ -385,7 +396,7 @@ function NebimRow({ r }: { r: Item }) {
           {hasDetail ? (
             <ChevronRight
               className={`h-4 w-4 transition-transform ${open ? "rotate-90" : ""} ${
-                r.mgmt_note ? "text-rose-500" : "text-muted-foreground"
+                mgmtApplied ? "text-rose-500" : "text-muted-foreground"
               }`}
             />
           ) : null}
@@ -400,6 +411,14 @@ function NebimRow({ r }: { r: Item }) {
                 <RotateCcw className="h-2.5 w-2.5" /> İade
               </span>
             ) : null}
+            {!r.is_completed ? (
+              <span
+                className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200"
+                title="POS'ta askıya alınmış, tamamlanmamış satış — ciroya sayılmaz"
+              >
+                <PauseCircle className="h-2.5 w-2.5" /> Askıda
+              </span>
+            ) : null}
           </div>
           <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
             {r.item_code ? <span className="font-mono">{r.item_code}</span> : null}
@@ -409,7 +428,15 @@ function NebimRow({ r }: { r: Item }) {
             {/* detay göstergeleri */}
             {r.campaign ? <Megaphone className="h-3 w-3 text-orange-400" /> : null}
             {r.discount_reason ? <ShieldCheck className="h-3 w-3 text-rose-400" /> : null}
-            {r.mgmt_note ? <KeyRound className="h-3 w-3 text-rose-500" /> : null}
+            {mgmtApplied ? (
+              <KeyRound className="h-3 w-3 text-rose-500" aria-label="Yönetim şifresiyle iskonto" />
+            ) : null}
+            {mgmtInherited ? (
+              <KeyRound
+                className="h-3 w-3 text-slate-400"
+                aria-label="Değişimden taşınan açıklama — bu fişte şifreli iskonto yok"
+              />
+            ) : null}
             {r.invoice_note ? <StickyNote className="h-3 w-3 text-amber-400" /> : null}
           </div>
         </td>
@@ -560,12 +587,23 @@ function DetailPanel({ r, pct }: { r: Item; pct: number | null }) {
       ) : null}
 
       {/* Yönetim açıklaması (öne çıkan) */}
-      {r.mgmt_note ? (
+      {r.mgmt_note && r.discount_reason ? (
         <div className="rounded-md border border-rose-200 bg-rose-50/70 px-3 py-2">
           <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-rose-600 mb-0.5">
-            <KeyRound className="h-3 w-3" /> Yönetim Açıklaması
+            <KeyRound className="h-3 w-3" /> Yönetim Açıklaması — şifreyle iskonto uygulandı
           </div>
           <div className="text-xs text-rose-900 whitespace-pre-line">{r.mgmt_note}</div>
+        </div>
+      ) : r.mgmt_note ? (
+        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-0.5">
+            <KeyRound className="h-3 w-3" /> Değişimden taşınan açıklama
+          </div>
+          <div className="text-xs text-slate-700 whitespace-pre-line">{r.mgmt_note}</div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            Bu fişte şifreli iskonto yok (neden kodu ve dip iskonto yok); açıklama, iade edilen
+            fişten Nebim tarafından kopyalanmış. Uygulanan indirim yalnız kampanya.
+          </div>
         </div>
       ) : null}
 

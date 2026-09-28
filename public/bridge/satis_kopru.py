@@ -178,6 +178,7 @@ SELECT
     h.InvoiceDate          AS invoice_date,
     h.CreatedDate          AS created_date,
     h.IsReturn             AS is_return,
+    h.IsCompleted          AS is_completed,
     h.OfficeCode           AS office,
     h.StoreCode            AS store_code,
     l.SortOrder            AS sort_order,
@@ -598,6 +599,9 @@ def build_lines(rows: list[dict], cfg: dict) -> list[dict]:
             "invoice_date": _date_str(r.get("invoice_date")),
             "created_date": _dt_str(r.get("created_date")),
             "is_return": bool(r.get("is_return")),
+            # Askiya alinan (park edilmis) POS satisi tamamlanmamistir; sunucu
+            # bunlari ciroya saymaz, listede ayri gosterir. Kolon gelmezse True.
+            "is_completed": (bool(r["is_completed"]) if r.get("is_completed") is not None else True),
             "office": (str(r["office"]).strip() if r.get("office") is not None else None),
             "item_code": r.get("item_code"),
             "item_desc": r.get("item_desc"),
@@ -703,6 +707,8 @@ def _discount_meta_preview(lines: list[dict]) -> None:
     n_mgmt = sum(1 for l in lines if l.get("mgmt_note"))
     n_reason = sum(1 for l in lines if l.get("discount_reason"))
     n_camp = sum(1 for l in lines if l.get("campaign"))
+    n_pending = sum(1 for l in lines if l.get("is_completed") is False)
+    print(f"  ASKIDA (IsCompleted=0) satir  : {n_pending}")
     print("\n=== INDIRIM META (yeni alanlar) ===")
     print(f"  fis notu (invoice_note) dolu : {n_note}")
     print(f"  YONETIM aciklamasi dolu      : {n_mgmt}")

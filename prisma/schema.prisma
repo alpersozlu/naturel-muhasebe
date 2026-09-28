@@ -864,6 +864,12 @@ model NebimSaleLine {
   invoice_date DateTime  @db.Date
   created_date DateTime?
   is_return    Boolean   @default(false)
+  // trInvoiceHeader.IsCompleted — a sale parked at the POS ("askıya alındı")
+  // is not completed. Reads through `prisma` (src/lib/prisma.ts) see only
+  // completed lines; the ingest route and the list's "Askıda" view use
+  // `prismaUnscoped` / an explicit `is_completed` filter. Rows written before
+  // the bridge sent the flag default to true.
+  is_completed Boolean   @default(true)
   office       String?
 
   // Ürün
