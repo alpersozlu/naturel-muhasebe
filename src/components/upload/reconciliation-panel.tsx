@@ -1028,6 +1028,8 @@ type Row = {
     has_bank_receipt: boolean;
     has_gift_voucher: boolean;
     has_expenses: boolean;
+    corporate?: number;
+    has_corporate?: boolean;
   };
 };
 
@@ -1082,10 +1084,14 @@ function ComparisonTable({
                       {r.cash_breakdown.has_gift_voucher ? (
                         <span>+ Hediye: {TRY_FMT.format(r.cash_breakdown.gift_voucher)}</span>
                       ) : null}
+                      {r.cash_breakdown.has_corporate ? (
+                        <span>+ Kurumsal: {TRY_FMT.format(r.cash_breakdown.corporate ?? 0)}</span>
+                      ) : null}
                       {!r.cash_breakdown.has_reported_cash &&
                       !r.cash_breakdown.has_bank_receipt &&
                       !r.cash_breakdown.has_expenses &&
-                      !r.cash_breakdown.has_gift_voucher ? (
+                      !r.cash_breakdown.has_gift_voucher &&
+                      !r.cash_breakdown.has_corporate ? (
                         <span className="text-rose-600 font-medium">
                           ⚠ Hiç kaynak girilmemiş
                         </span>

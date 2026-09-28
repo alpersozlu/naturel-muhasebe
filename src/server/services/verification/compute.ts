@@ -32,6 +32,9 @@ export type ComparisonRow = {
     has_bank_receipt: boolean;
     has_gift_voucher: boolean;
     has_expenses: boolean;
+    /** Mavi: corporate & management purchases, rung up as cash in the kasa. */
+    corporate?: number;
+    has_corporate?: boolean;
   };
 };
 
@@ -248,13 +251,17 @@ export async function computeDay(
   );
 
   // ── Kurumsal & Yönetim Alışverişi ──
-  // Fiziksel ödeme yok ama satış StoreSummary.sales_total'a işlenmiş. Nakit
-  // DEĞİL — ayrı bir "ödeme/satış kanalı" gibi GENEL TOPLAM'ın belge tarafına
-  // eklenir (nakit denklemine girmez). Borç durumundan (is_paid) bağımsız:
-  // o gün kasaya fiziksel para girmediği için hepsi eklenir.
+  // Fiziksel ödeme yok ama satış StoreSummary.sales_total'a işlenmiş.
+  // Borç durumundan (is_paid) bağımsız: o gün kasaya fiziksel para girmediği
+  // için hepsi eklenir. Mavi kasada bu satışları NAKİT olarak girer (sahibi,
+  // 28.09.2026): özetin nakdi kurumsal tutar kadar yüksektir → nakit
+  // kaynağıdır. Derimod'da (hiç kaydı yok) ayrı bir kanal olarak GENEL
+  // TOPLAM'a eklenir.
   const corporatePurchaseTotal = records
     .flatMap((r) => r.corporate_purchases)
     .reduce((s, c) => s + num(c.amount_try), 0);
+  const isMavi = base.store.brand.name.toLowerCase().includes("mavi");
+  const corporateInCash = isMavi ? corporatePurchaseTotal : 0;
 
   // Mavi from MAVI_WIRE_IN_KASA_FROM: IBAN payments are entered as Havale in
   // the kasa, so receipts always go against the Havale line (a receipt with
@@ -262,7 +269,7 @@ export async function computeDay(
   // Derimod, a receipt counts as cash unless the summary has a Havale line.
   const lastDate = records[records.length - 1]?.date ?? base.date;
   const maviWireRule =
-    base.store.brand.name.toLowerCase().includes("mavi") &&
+    isMavi &&
     lastDate.toISOString().slice(0, 10) >= MAVI_WIRE_IN_KASA_FROM;
   const wireIsSeparate = maviWireRule || summaryWire > TOLERANCE_TL;
   const showWireRow =
@@ -271,7 +278,8 @@ export async function computeDay(
     (reportedCash ?? 0) +
     (wireIsSeparate ? 0 : bankReceiptTotal) +
     masrafToplam +
-    giftVoucherTotal;
+    giftVoucherTotal +
+    corporateInCash;
 
   // GENEL TOPLAM denklemi: elime geçen belge toplamı ↔ özetin sales_total'i
   //   docs = POS + nakit kaynakları + loyalty + (havale ayrıysa dekont)
@@ -283,7 +291,7 @@ export async function computeDay(
     posSumTRY +
     cashSourcesTotal +
     loyalty +
-    corporatePurchaseTotal +
+    (corporatePurchaseTotal - corporateInCash) +
     (wireIsSeparate ? bankReceiptTotal : 0);
   const actual_total = summarySales;
   const difference = expected_total - actual_total;
@@ -326,9 +334,9 @@ export async function computeDay(
     //   Hediye Çeki + Masraf + Sayım [+ Dekont (havale ayrı değilse)] = Özet Nakit
     // Kaynak yoksa ve özet nakit > 0 ise eksik (kayıp sinyali).
     {
-      label: wireIsSeparate
-        ? "Nakit Kaynakları (Hediye + Masraf + Sayım)"
-        : "Nakit Kaynakları (Hediye + Masraf + Sayım + Dekont)",
+      label: `Nakit Kaynakları (Hediye + Masraf + Sayım${wireIsSeparate ? "" : " + Dekont"}${
+        corporateInCash > TOLERANCE_TL ? " + Kurumsal" : ""
+      })`,
       document_total: cashSourcesTotal,
       summary_total: summaryCash,
       difference: cashSourcesTotal - summaryCash,
@@ -343,6 +351,8 @@ export async function computeDay(
         has_bank_receipt: !wireIsSeparate && bankReceiptTotal > 0,
         has_gift_voucher: giftVoucherTotal > 0,
         has_expenses: masrafToplam > 0,
+        corporate: corporateInCash,
+        has_corporate: corporateInCash > TOLERANCE_TL,
       },
     },
     // Havale satırı — özette havale ayrı kalem ise (ya da Mavi kuralıyla
@@ -370,7 +380,9 @@ export async function computeDay(
     ...(corporatePurchaseTotal > TOLERANCE_TL
       ? [
           {
-            label: "Kurumsal & Yönetim Alışverişi",
+            label: corporateInCash > 0
+              ? "Kurumsal & Yönetim Alışverişi (nakitte sayıldı)"
+              : "Kurumsal & Yönetim Alışverişi",
             document_total: corporatePurchaseTotal,
             summary_total: corporatePurchaseTotal,
             difference: 0,
@@ -512,9 +524,23 @@ export async function computeDay(
     reportedCash === null &&
     !dekontCountsAsCash &&
     giftVoucherTotal === 0 &&
-    masrafToplam === 0;
+    masrafToplam === 0 &&
+    corporateInCash <= TOLERANCE_TL;
+  // Card and cash off by the same amount in opposite directions: one sale was
+  // rung up with the wrong payment type in the kasa (Mavi Lefkoşa 21/24/25.09:
+  // ±1.055 / ±3.508 / ±2.170, GENEL within tolerance). Not a loss — say so
+  // instead of "kayıp riski". posRow.difference = slips − kasa card.
+  const posRow = rows[0];
+  const paymentTypeSwap =
+    !posRow.matches &&
+    !cashRow.matches &&
+    Math.abs(posRow.difference + cashRow.difference) <= 2 * TOLERANCE_TL;
   const cashMismatch = noCashSource
     ? `Özette ${fmtTL(summaryCash)} ₺ nakit satış var ama hiçbir kaynak girilmemiş (sayım/dekont/hediye/masraf). Lütfen en az birini ekleyin.`
+    : paymentTypeSwap
+      ? `Kart ↔ nakit karışması: yaklaşık ${fmtTL(Math.abs(posRow.difference))} ₺'lik bir satış kasaya yanlış ödeme tipiyle girilmiş (${
+          posRow.difference > 0 ? "kartla ödenmiş, nakit girilmiş" : "nakit ödenmiş, kart girilmiş"
+        }). Toplam tutuyor — para eksik değil.`
     : !cashRow.matches
       ? cashRow.difference < 0
         ? `Nakit eksik: Kaynaklar ${fmtTL(cashSourcesTotal)} ₺, özette ${fmtTL(summaryCash)} ₺ → ${fmtTL(Math.abs(cashRow.difference))} ₺ kayıp riski.`
