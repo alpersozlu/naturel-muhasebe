@@ -26,7 +26,7 @@ export default function UsersPage() {
         <UserList />
       </section>
 
-      <section className="mt-8">
+      <section id="yeni-kullanici" className="mt-8 scroll-mt-6">
         <h2 className="text-base font-semibold mb-3">Yeni Kullanıcı Ekle</h2>
         <UserCreateForm />
       </section>

@@ -1,7 +1,6 @@
-import { Users, Activity } from "lucide-react";
-import { Link } from "@/i18n/navigation";
 import { PageHeader } from "@/components/shared/page-header";
 import { AdminStats } from "@/components/admin/admin-stats";
+import { UsersPanel } from "@/components/admin/users-panel";
 import { OrgHierarchy } from "@/components/admin/org-hierarchy";
 import { CreateBrandButton } from "@/components/admin/brand-form-dialog";
 import { BridgeFreshness } from "@/components/nebim-sales/bridge-freshness";
@@ -21,22 +20,7 @@ export default function AdminPage() {
 
       <AdminStats />
 
-      <div className="flex items-center gap-4 mb-6 text-sm">
-        <Link
-          href="/admin/users"
-          className="inline-flex items-center gap-1 text-muted-foreground hover:text-primary"
-        >
-          <Users className="h-4 w-4" />
-          Kullanıcıları yönet
-        </Link>
-        <Link
-          href="/admin/audit"
-          className="inline-flex items-center gap-1 text-muted-foreground hover:text-primary"
-        >
-          <Activity className="h-4 w-4" />
-          Aktivite günlüğü
-        </Link>
-      </div>
+      <UsersPanel />
 
       <div className="mb-2">
         <h2 className="text-lg font-semibold">Organizasyon Hiyerarşisi</h2>
