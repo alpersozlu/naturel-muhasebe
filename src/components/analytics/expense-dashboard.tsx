@@ -11,7 +11,6 @@ import {
   LineChart,
   Line,
   Cell,
-  ReferenceLine,
   Legend,
 } from "recharts";
 import {
@@ -66,7 +65,6 @@ const CATEGORY_LABEL: Record<string, string> = {
 };
 
 const TREND_COLOR = "#8B5CF6";
-const PROJECTION_COLOR = "#C4B5FD"; // violet-300
 const PARETO_BAR_COLOR = "#EF4444"; // CategoryDistribution fallback rengi
 
 const MONTH_LABELS_SHORT = [
@@ -136,7 +134,7 @@ export function ExpenseDashboard({
   return (
     <div className="space-y-6">
       {/* KPI strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard
           icon={Wallet}
           label="Toplam Gider"
@@ -161,17 +159,9 @@ export function ExpenseDashboard({
           bgColor="bg-indigo-50"
           hint="En çok harcayan mağaza"
         />
-        <StatCard
-          icon={TrendingUp}
-          label="Yıl Sonu Tahmini"
-          value={data.projected_year_end}
-          color="text-purple-600"
-          bgColor="bg-purple-50"
-          hint="Mevcut hızda toplam"
-        />
       </div>
 
-      {/* Yearly Trend + Projection */}
+      {/* Yearly Trend */}
       <YearlyTrendCard data={summary} month={month} year={year} />
 
       {/* Mağaza × Ay Faturalı/Faturasız Matrisi */}
@@ -205,7 +195,7 @@ export function ExpenseDashboard({
   );
 }
 
-// ───── Yearly Trend with Projection ─────
+// ───── Yearly Trend ─────
 function YearlyTrendCard({
   data,
   month,
@@ -215,13 +205,10 @@ function YearlyTrendCard({
   month: number;
   year: number;
 }) {
-  const series = data.yearly_with_projection;
+  // Months up to the selected one only — the year-end projection was
+  // dropped (owner, 29.09.2026: "şimdilik gerek yok").
+  const series = data.yearly_with_projection.slice(0, Math.max(1, month));
   if (series.length === 0) return null;
-  const currentLabel = series[month - 1]?.label;
-  const projectionRatio =
-    data.ytd_total > 0 && data.projected_year_end > 0
-      ? (data.projected_year_end / data.ytd_total - 1) * 100
-      : 0;
 
   return (
     <Card className="animate-fade-in">
@@ -230,10 +217,10 @@ function YearlyTrendCard({
           <div>
             <div className="font-semibold flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-violet-600" />
-              Yıllık Trend + Yıl Sonu Projeksiyonu
+              Yıllık Trend
             </div>
             <div className="text-xs text-muted-foreground mt-1">
-              {year} yılı boyunca aylık gider — kesikli çizgi mevcut hızda projeksiyon
+              {year} yılı boyunca aylık gider
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -242,16 +229,6 @@ function YearlyTrendCard({
               label="Aylık Ortalama"
               value={fmtMoneyShort(data.projected_monthly_avg)}
               tone="slate"
-            />
-            <Pill
-              label="Yıl Sonu Tahmini"
-              value={fmtMoneyShort(data.projected_year_end)}
-              tone="amber"
-              hint={
-                data.ytd_total > 0
-                  ? `${data.ytd_total > 0 ? "+" : ""}${projectionRatio.toFixed(0)}% YTD üzeri`
-                  : undefined
-              }
             />
           </div>
         </div>
@@ -268,31 +245,9 @@ function YearlyTrendCard({
               width={48}
             />
             <Tooltip
-              formatter={(v, name) => [
-                `${TRY2.format(Number(v))} ₺`,
-                name === "actual" ? "Gerçekleşen" : "Projeksiyon",
-              ]}
+              formatter={(v) => [`${TRY2.format(Number(v))} ₺`, "Gider"]}
               contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}
             />
-            <Legend
-              wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
-              formatter={(name) =>
-                name === "actual" ? "Gerçekleşen" : "Mevcut hızda projeksiyon"
-              }
-            />
-            {currentLabel ? (
-              <ReferenceLine
-                x={currentLabel}
-                stroke="#cbd5e1"
-                strokeDasharray="2 4"
-                label={{
-                  value: "Bugün",
-                  position: "top",
-                  fontSize: 10,
-                  fill: "#64748b",
-                }}
-              />
-            ) : null}
             <Line
               type="monotone"
               dataKey="actual"
@@ -300,15 +255,6 @@ function YearlyTrendCard({
               strokeWidth={2.5}
               dot={{ r: 3, fill: TREND_COLOR }}
               activeDot={{ r: 5 }}
-              connectNulls={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="projected"
-              stroke={PROJECTION_COLOR}
-              strokeWidth={2}
-              strokeDasharray="6 4"
-              dot={{ r: 2, fill: PROJECTION_COLOR }}
               connectNulls={false}
             />
           </LineChart>
