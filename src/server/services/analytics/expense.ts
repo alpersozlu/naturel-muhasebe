@@ -53,8 +53,8 @@ export type ExpenseSummary = {
   projected_monthly_avg: number;
   /**
    * Mağaza × ay matrisi (filter.year boyunca).
-   * Her hücre: faturalı (upload_id var) + faturasız (upload_id null) ayrımı.
-   * CashAdvance bu matriste sayılmaz — sadece Expense tablosu.
+   * Her hücre: faturalı (belge yüklü Expense) + faturasız ("Faturasız Peşin
+   * Ödeme" = CashAdvance, elle girilen faturasız masraf — sahibi, 29.09.2026).
    */
   by_store_year_matrix: Array<{
     store_id: string;
@@ -209,6 +209,23 @@ export async function expenseSummary(
           },
         },
       },
+    },
+  });
+
+  // "Faturasız Peşin Ödeme" entries are the uninvoiced expenses; they have
+  // no expense_date of their own, the day record's date is the date.
+  const yearAdvances = await prisma.cashAdvance.findMany({
+    where: {
+      ...(filter.category ? { category: filter.category } : {}),
+      ...(filter.employee_id ? { employee_id: filter.employee_id } : {}),
+      daily_record: {
+        ...(storeIds ? { store_id: { in: storeIds } } : {}),
+        date: { gte: yearStart, lt: yearEnd },
+      },
+    },
+    select: {
+      amount_try: true,
+      daily_record: { select: { store_id: true, date: true } },
     },
   });
 
@@ -441,6 +458,14 @@ export async function expenseSummary(
       cell.uninvoiced += v;
       year_uninvoiced_total += v;
     }
+  }
+  for (const a of yearAdvances) {
+    const sid = a.daily_record.store_id;
+    if (!matrix[sid]) continue;
+    const v = num(a.amount_try);
+    const cell = matrix[sid][a.daily_record.date.getUTCMonth()]!;
+    cell.uninvoiced += v;
+    year_uninvoiced_total += v;
   }
   const by_store_year_matrix: ExpenseSummary["by_store_year_matrix"] = matrixStores
     .map((s) => {
