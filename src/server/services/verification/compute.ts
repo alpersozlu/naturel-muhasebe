@@ -368,13 +368,19 @@ export async function computeDay(
           } as ComparisonRow,
         ]
       : []),
-    {
-      label: "Kartuş Puan",
-      document_total: loyalty,
-      summary_total: loyalty,
-      difference: 0,
-      matches: true,
-    },
+    // Kartuş Puan is a Mavi thing (IT POS loyalty); Derimod has none, so
+    // the row would only ever read 0 ↔ 0 there (owner, 29.09.2026).
+    ...(isMavi
+      ? [
+          {
+            label: "Kartuş Puan",
+            document_total: loyalty,
+            summary_total: loyalty,
+            difference: 0,
+            matches: true,
+          } as ComparisonRow,
+        ]
+      : []),
     // Kurumsal & Yönetim Alışverişi — fiziksel ödeme yok, satışa dahil.
     // Bir "ödeme kanalı" gibi GENEL TOPLAM'a katkı verir; karşılaştırma değil.
     ...(corporatePurchaseTotal > TOLERANCE_TL
