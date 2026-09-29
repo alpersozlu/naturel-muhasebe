@@ -22,6 +22,9 @@ import {
   ShieldCheck,
   ShieldAlert,
   Building2,
+  Coins,
+  Gift,
+  PenLine,
 } from "lucide-react";
 import type {
   UploadType,
@@ -111,6 +114,86 @@ const TYPE_META: Record<
   },
 };
 
+// Typed-in entries (no file) — shown in the same list as the uploads.
+type EntryKind =
+  | "daily_cash"
+  | "gift_voucher"
+  | "mavi_gift_voucher"
+  | "cash_advance"
+  | "manual_invoice"
+  | "corporate_purchase";
+const ENTRY_META: Record<
+  EntryKind,
+  { label: string; unit: string; icon: typeof FileText; color: string; bg: string }
+> = {
+  daily_cash: { label: "Günlük Nakit", unit: "TRY · Sayılan nakit", icon: Coins, color: "text-amber-600", bg: "bg-amber-50" },
+  gift_voucher: { label: "Hediye Çeki", unit: "TRY · Hediye çeki", icon: Gift, color: "text-pink-600", bg: "bg-pink-50" },
+  mavi_gift_voucher: { label: "Mavi Hediye Çeki", unit: "TRY · Mavi çeki", icon: Gift, color: "text-sky-600", bg: "bg-sky-50" },
+  cash_advance: { label: "Faturasız Peşin Ödeme", unit: "TRY · Nakitten ödendi", icon: Banknote, color: "text-emerald-600", bg: "bg-emerald-50" },
+  manual_invoice: { label: "El Faturası", unit: "TRY · El faturası", icon: PenLine, color: "text-slate-600", bg: "bg-slate-100" },
+  corporate_purchase: { label: "Kurumsal & Yönetim Alışverişi", unit: "TRY · Satış", icon: Building2, color: "text-violet-600", bg: "bg-violet-50" },
+};
+type EntryRow = {
+  id: string;
+  kind: EntryKind;
+  amount_try: number;
+  note: string | null;
+  who: string | null;
+  at: Date;
+};
+
+function EntryRowItem({ entry }: { entry: EntryRow }) {
+  const meta = ENTRY_META[entry.kind];
+  const Icon = meta.icon;
+  return (
+    <div className="px-5 py-4 hover:bg-muted/10 transition-colors">
+      <div className="flex items-stretch gap-4">
+        <div className="flex items-start gap-3 min-w-0 flex-1 lg:max-w-xs">
+          <div className={`h-14 w-14 rounded-xl flex items-center justify-center shrink-0 ${meta.bg} ${meta.color}`}>
+            <Icon className="h-6 w-6" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-sm text-foreground">{meta.label}</div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              Elle girildi{entry.who ? ` · ${entry.who}` : ""}
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              {formatDistanceToNow(entry.at, { addSuffix: true, locale: tr })}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-medium px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">
+                <Check className="h-2.5 w-2.5" /> Girildi
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="hidden lg:flex items-center border-l border-r border-border/60 px-5 flex-1 min-w-0">
+          {entry.note ? (
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Not</div>
+              <div className="text-sm text-foreground truncate">{entry.note}</div>
+            </div>
+          ) : (
+            <div className="text-xs text-muted-foreground">Not girilmedi</div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="text-right pr-2">
+            <div className="text-2xl lg:text-3xl font-bold tabular-nums tracking-tight text-foreground">
+              {TRY_FMT.format(entry.amount_try)}
+            </div>
+            <div className="text-xs font-medium text-muted-foreground tracking-wider uppercase">{meta.unit}</div>
+          </div>
+          <div className="flex flex-col gap-1.5 w-8" aria-hidden />
+        </div>
+      </div>
+      {entry.note ? (
+        <div className="lg:hidden mt-2 text-xs text-muted-foreground">{entry.note}</div>
+      ) : null}
+    </div>
+  );
+}
+
 const STATUS_META: Record<
   UploadStatus,
   { label: string; cls: string }
@@ -163,6 +246,10 @@ type UploadRow = {
 export function UploadList({ storeId, date }: { storeId: string; date: string }) {
   const confirmDialog = useConfirm();
   const utils = trpc.useUtils();
+  const { data: entries } = trpc.dailyRecord.entriesForStoreDate.useQuery(
+    { store_id: storeId, date },
+    { enabled: !!storeId && !!date }
+  );
   const { data, isLoading } = trpc.upload.listForStoreDate.useQuery(
     { store_id: storeId, date },
     {
@@ -269,6 +356,7 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
           <div className="text-xs text-muted-foreground">
             {new Date(`${date}T00:00:00.000Z`).toLocaleDateString("tr-TR", { timeZone: "UTC" })} —{" "}
             {data?.length ?? 0} dosya
+            {entries && entries.length > 0 ? ` · ${entries.length} elle giriş` : ""}
           </div>
         </div>
 
@@ -285,13 +373,17 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
               </div>
             ))}
           </div>
-        ) : !data || data.length === 0 ? (
+        ) : (!data || data.length === 0) && (!entries || entries.length === 0) ? (
           <div className="py-10 text-center text-sm text-muted-foreground">
-            Henüz yükleme yok.
+            Henüz yükleme ya da giriş yok.
           </div>
         ) : (
           <div className="divide-y">
-            {data.map((u) => (
+            {/* Typed-in entries first (cash count, vouchers, hand invoices…), newest on top */}
+            {(entries ?? []).map((e) => (
+              <EntryRowItem key={e.id} entry={{ ...e, at: new Date(e.at) }} />
+            ))}
+            {(data ?? []).map((u) => (
               <UploadRowItem
                 key={u.id}
                 upload={u as unknown as UploadRow}

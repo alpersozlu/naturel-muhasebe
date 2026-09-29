@@ -31,7 +31,7 @@ export default function UsersPage() {
         <UserCreateForm />
       </section>
 
-      <section className="mt-8">
+      <section id="giris-kayitlari" className="mt-8 scroll-mt-6">
         <AuthEvents />
       </section>
     </div>

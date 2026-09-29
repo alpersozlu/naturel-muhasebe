@@ -460,6 +460,121 @@ export const dailyRecordRouter = router({
       };
     }),
 
+  /**
+   * Everything the store TYPED IN for the day (no file): the cash count,
+   * gift vouchers, hand invoices, cash advances, corporate purchases
+   * without a receipt. Listed under "Bu güne ait yüklemeler" next to the
+   * uploads, so the staff see in one place what they entered (owner,
+   * 29.09.2026: these only showed as a small line under each form).
+   */
+  entriesForStoreDate: protectedProcedure
+    .input(setReportedCashSchema.pick({ store_id: true, date: true }))
+    .query(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      const day = new Date(`${input.date}T00:00:00.000Z`);
+      const dr = await ctx.prisma.dailyRecord.findUnique({
+        where: { store_id_date: { store_id: input.store_id, date: day } },
+        select: {
+          id: true,
+          reported_cash_try: true,
+          reported_cash_note: true,
+          reported_cash_at: true,
+          gift_voucher_try: true,
+          gift_voucher_note: true,
+          gift_voucher_at: true,
+          mavi_gift_voucher_try: true,
+          mavi_gift_voucher_note: true,
+          mavi_gift_voucher_at: true,
+          cash_advances: {
+            orderBy: { created_at: "desc" },
+            include: { employee: { select: { full_name: true, email: true } } },
+          },
+          manual_invoices: {
+            orderBy: { created_at: "desc" },
+            include: { created_by_user: { select: { full_name: true, email: true } } },
+          },
+          corporate_purchases: { where: { upload_id: null }, orderBy: { created_at: "desc" } },
+        },
+      });
+      if (!dr) return [];
+      type Entry = {
+        id: string;
+        kind:
+          | "daily_cash"
+          | "gift_voucher"
+          | "mavi_gift_voucher"
+          | "cash_advance"
+          | "manual_invoice"
+          | "corporate_purchase";
+        amount_try: number;
+        note: string | null;
+        who: string | null;
+        at: Date;
+      };
+      const out: Entry[] = [];
+      if (dr.reported_cash_try !== null) {
+        out.push({
+          id: `cash-${dr.id}`,
+          kind: "daily_cash",
+          amount_try: dr.reported_cash_try.toNumber(),
+          note: dr.reported_cash_note,
+          who: null,
+          at: dr.reported_cash_at ?? day,
+        });
+      }
+      if (dr.gift_voucher_try !== null) {
+        out.push({
+          id: `gift-${dr.id}`,
+          kind: "gift_voucher",
+          amount_try: dr.gift_voucher_try.toNumber(),
+          note: dr.gift_voucher_note,
+          who: null,
+          at: dr.gift_voucher_at ?? day,
+        });
+      }
+      if (dr.mavi_gift_voucher_try !== null) {
+        out.push({
+          id: `mavigift-${dr.id}`,
+          kind: "mavi_gift_voucher",
+          amount_try: dr.mavi_gift_voucher_try.toNumber(),
+          note: dr.mavi_gift_voucher_note,
+          who: null,
+          at: dr.mavi_gift_voucher_at ?? day,
+        });
+      }
+      for (const a of dr.cash_advances) {
+        out.push({
+          id: `adv-${a.id}`,
+          kind: "cash_advance",
+          amount_try: a.amount_try.toNumber(),
+          note: [a.category, a.description].filter(Boolean).join(" · ") || null,
+          who: a.employee?.full_name ?? a.employee?.email ?? a.staff_name ?? null,
+          at: a.created_at,
+        });
+      }
+      for (const m of dr.manual_invoices) {
+        out.push({
+          id: `inv-${m.id}`,
+          kind: "manual_invoice",
+          amount_try: m.amount_try.toNumber(),
+          note: [m.invoice_no ? `No ${m.invoice_no}` : null, m.description].filter(Boolean).join(" · ") || null,
+          who: m.created_by_user.full_name ?? m.created_by_user.email,
+          at: m.created_at,
+        });
+      }
+      for (const c of dr.corporate_purchases) {
+        out.push({
+          id: `corp-${c.id}`,
+          kind: "corporate_purchase",
+          amount_try: c.amount_try.toNumber(),
+          note: [c.type === "corporate" ? "Kurumsal" : "Yönetim", c.person_name, c.company_name ? `(${c.company_name})` : null, c.is_paid ? "ödendi" : "borç"].filter(Boolean).join(" · "),
+          who: null,
+          at: c.created_at,
+        });
+      }
+      return out.sort((a, b) => b.at.getTime() - a.at.getTime());
+    }),
+
   /** Mevcut müdür nakit girişini oku (form'u doldurmak için). */
   getReportedCash: protectedProcedure
     .input(setReportedCashSchema.pick({ store_id: true, date: true }))

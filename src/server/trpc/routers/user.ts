@@ -38,6 +38,16 @@ export const userRouter = router({
     })
   ),
 
+  /** Last successful sign-in per e-mail (AuthEvent kind "login_ok"). */
+  lastLogins: adminProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.prisma.authEvent.groupBy({
+      by: ["email"],
+      where: { kind: "login_ok" },
+      _max: { created_at: true },
+    });
+    return rows.map((r) => ({ email: r.email, at: r._max.created_at }));
+  }),
+
   get: adminProcedure.input(userIdSchema).query(async ({ ctx, input }) => {
     const user = await ctx.prisma.user.findUnique({
       where: { id: input.id },

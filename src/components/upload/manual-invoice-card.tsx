@@ -56,6 +56,7 @@ export function ManualInvoiceCard({
       });
       // Z raporu durumunu güncelle (mevcut Z varsa kural yeniden değerlendirilebilir)
       utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+      utils.dailyRecord.entriesForStoreDate.invalidate({ store_id: storeId, date });
       reset({
         amount: 0,
         currency: "TRY",
@@ -96,6 +97,7 @@ export function ManualInvoiceCard({
         date,
       });
       utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+      utils.dailyRecord.entriesForStoreDate.invalidate({ store_id: storeId, date });
     },
     onError: (e) => toast.error(e.message),
   });

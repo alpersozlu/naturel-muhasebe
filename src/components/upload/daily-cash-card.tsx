@@ -70,6 +70,7 @@ export function DailyCashCard({
       toast.success("Günlük nakit kaydedildi");
       utils.dailyRecord.getReportedCash.invalidate({ store_id: storeId, date });
       utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+      utils.dailyRecord.entriesForStoreDate.invalidate({ store_id: storeId, date });
     },
     onError: (e) => toast.error(e.message),
   });

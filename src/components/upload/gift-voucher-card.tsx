@@ -70,6 +70,7 @@ export function GiftVoucherCard({
       toast.success("Hediye çeki kaydedildi");
       utils.dailyRecord.getGiftVoucher.invalidate({ store_id: storeId, date });
       utils.dailyRecord.reconciliation.invalidate({ store_id: storeId, date });
+      utils.dailyRecord.entriesForStoreDate.invalidate({ store_id: storeId, date });
     },
     onError: (e) => toast.error(e.message),
   });

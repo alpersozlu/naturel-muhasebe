@@ -67,6 +67,7 @@ export function MaviGiftVoucherCard({
   const save = trpc.dailyRecord.setMaviGiftVoucher.useMutation({
     onSuccess: () => {
       toast.success("Mavi hediye çeki kaydedildi");
+      utils.dailyRecord.entriesForStoreDate.invalidate({ store_id: storeId, date });
       utils.dailyRecord.getMaviGiftVoucher.invalidate({
         store_id: storeId,
         date,

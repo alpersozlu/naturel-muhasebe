@@ -76,6 +76,7 @@ export function CorporatePurchaseCard({
 
   const invalidate = () => {
     utils.corporatePurchase.listForStoreDate.invalidate({ store_id: storeId, date });
+    utils.dailyRecord.entriesForStoreDate.invalidate({ store_id: storeId, date });
   };
 
   const [receiptFile, setReceiptFile] = useState<File | null>(null);

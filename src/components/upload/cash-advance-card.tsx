@@ -82,6 +82,7 @@ export function CashAdvanceCard({
     onSuccess: () => {
       toast.success("Peşin ödeme kaydedildi");
       utils.cashAdvance.listForStoreDate.invalidate({ store_id: storeId, date });
+      utils.dailyRecord.entriesForStoreDate.invalidate({ store_id: storeId, date });
       reset({
         amount: 0,
         currency: "TRY",
@@ -99,6 +100,7 @@ export function CashAdvanceCard({
     onSuccess: () => {
       toast.success("Silindi");
       utils.cashAdvance.listForStoreDate.invalidate({ store_id: storeId, date });
+      utils.dailyRecord.entriesForStoreDate.invalidate({ store_id: storeId, date });
     },
     onError: (e) => toast.error(e.message),
   });
