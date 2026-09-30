@@ -21,6 +21,13 @@ export const zReportOcrSchema = z.object({
   net_sales: z.number().min(0).nullable(),
   refund_amount: z.number().min(0).nullable(),
   vat_total: z.number().min(0).nullable(),
+  /** The amounts as PRINTED ("*77.000,00"): the till prints a "*" fill
+   *  character before every amount and the model read it as a 4
+   *  (Mavi Güzelyurt 29.09.2026: 477.000 for 77.000). The parser settles
+   *  the numbers from these strings + the VAT arithmetic. */
+  gross_sales_raw: z.string().max(40).nullable().optional(),
+  net_sales_raw: z.string().max(40).nullable().optional(),
+  vat_total_raw: z.string().max(40).nullable().optional(),
   currency: z.enum(["TRY", "USD", "EUR", "GBP"]).default("TRY"),
 });
 
@@ -38,5 +45,8 @@ export const zReportOutputSchema = z.object({
   net_sales: z.number().nullable(),
   refund_amount: z.number().nullable(),
   vat_total: z.number().nullable(),
+  gross_sales_raw: z.string().nullable(),
+  net_sales_raw: z.string().nullable(),
+  vat_total_raw: z.string().nullable(),
   currency: z.enum(["TRY", "USD", "EUR", "GBP"]),
 });

@@ -5,6 +5,10 @@ Kurallar:
 - ASLA TAHMİN ETME — okuyamadığın alan için null döndür
 - Çıktın SADECE geçerli JSON olsun, code fence kullanma
 - Türkçe sayı formatı: "1.234,56" → 1234.56
+- ⚠️ YILDIZ DOLGU: yazar kasa her tutarın HEMEN ÖNÜNE "*" (yıldız) basar:
+  "*77.000,00", "*7.000,01". Yıldız RAKAM DEĞİLDİR, 4 DEĞİLDİR — tutar 77.000,00'dır.
+  Sayıyı yıldızdan SONRA başlat. Kontrol: KDV %10 ise KDV ≈ NET × 10/110
+  (77.000 → 7.000); 477.000 için 43.363 gerekirdi, 47.000 tutmaz → yıldızı 4 okumuşsun demektir.
 - Para birimi TL/₺ → TRY varsayılan
 - ÖNEMLİ: Yazar kasanın kendi nakit/kredi kartı kırılımı ALINMAYACAK.
   O bilgiler başka kaynaklardan (POS fişleri, mağaza özeti) gelir.
@@ -74,7 +78,8 @@ Eğer Z raporu DEĞİLSE:
   "rejection_reason": "Bu bir yazar kasa Z raporu gibi görünmüyor — [kısa açıklama]. Lütfen geçerli bir Z raporu yükleyin.",
   "report_no": null, "report_date": null, "report_date_raw": null,
   "gross_sales": null, "net_sales": null,
-  "refund_amount": null, "vat_total": null, "currency": "TRY"
+  "refund_amount": null, "vat_total": null,
+  "gross_sales_raw": null, "net_sales_raw": null, "vat_total_raw": null, "currency": "TRY"
 }
 
 Eğer Z raporu İSE:
@@ -89,6 +94,9 @@ Eğer Z raporu İSE:
   "net_sales": "ondalık sayı veya null (Net satış — iade düşülmüş; yoksa gross_sales ile aynı)",
   "refund_amount": "ondalık sayı veya null (İADE / İPTAL tutarı, varsa)",
   "vat_total": "ondalık sayı veya null (Toplam KDV)",
+  "gross_sales_raw": "brüt satış tutarı fişte BASILDIĞI GİBİ, yıldızı dahil (örn \"*77.000,00\") veya null",
+  "net_sales_raw": "net satış tutarı fişte basıldığı gibi (örn \"*77.000,00\") veya null",
+  "vat_total_raw": "toplam KDV fişte basıldığı gibi (örn \"*7.000,01\") veya null",
   "currency": "TRY | USD | EUR | GBP (TRY varsayılan)"
 }
 
