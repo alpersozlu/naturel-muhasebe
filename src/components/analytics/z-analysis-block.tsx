@@ -59,6 +59,7 @@ type Store = {
   manual_invoice_total: number;
   combined: number;
   visa_total: number;
+  floor_total: number;
   cash_total: number;
   sales_total: number;
   days: Array<{
@@ -69,11 +70,14 @@ type Store = {
     visa_total: number;
     cash_total: number;
     sales_total: number;
-    compliance: "passed" | "below_visa" | "above_sales" | "incomplete";
+    floor_total: number;
+    compliance: "passed" | "near_floor" | "below_visa" | "above_sales" | "incomplete";
   }>;
   compliance: "passed" | "below_visa" | "above_sales" | "mixed" | "no_data";
   below_visa_days: number;
+  near_floor_days: number;
   above_sales_days: number;
+  incomplete_days: number;
 };
 
 export function ZAnalysisBlock({
@@ -322,8 +326,9 @@ function StoreTable({ stores }: { stores: Store[] }) {
           Mağaza Bazında Z Tablosu
         </div>
         <div className="text-xs text-muted-foreground mb-4">
-          Toplam Z = Z Raporu + El Faturası. Alt sınır Visa, nakit varsa
-          Visa×1.05. Üst sınır toplam satış.
+          Toplam Z = Z Raporu + El Faturası. Alt sınır kart satışı (POS fişleri ile
+          özetteki kartın büyüğü) — altında kalan gün kapatılamaz. Nakit varsa
+          Visa×1,05 hedeftir; altı yalnız uyarı. Üst sınır toplam satış.
         </div>
         <div className="overflow-x-auto -mx-2 px-2">
           <table className="w-full text-sm">
@@ -333,8 +338,8 @@ function StoreTable({ stores }: { stores: Store[] }) {
                 <th className="text-right font-medium py-2 px-2">Z Raporu</th>
                 <th className="text-right font-medium py-2 px-2">El Faturası</th>
                 <th className="text-right font-medium py-2 px-2">Toplam Z</th>
-                <th className="text-right font-medium py-2 px-2">Visa</th>
-                <th className="text-right font-medium py-2 px-2">Z/Visa</th>
+                <th className="text-right font-medium py-2 px-2" title="POS fişleri ile özetteki kart satışının büyüğü">Kart tabanı</th>
+                <th className="text-right font-medium py-2 px-2">Z/Taban</th>
                 <th className="text-right font-medium py-2 px-2">Satış</th>
                 <th className="text-right font-medium py-2 pl-2 w-32">Durum</th>
               </tr>
@@ -354,7 +359,7 @@ function StoreTable({ stores }: { stores: Store[] }) {
 
 function StoreRow({ store }: { store: Store }) {
   const [open, setOpen] = useState(false);
-  const ratio = store.visa_total > 0 ? store.combined / store.visa_total : null;
+  const ratio = store.floor_total > 0 ? store.combined / store.floor_total : null;
   const hasData = store.days.length > 0;
   const complianceBadge = getComplianceBadge(store.compliance);
   return (
@@ -397,8 +402,11 @@ function StoreRow({ store }: { store: Store }) {
         <td className="py-3 px-2 text-right tabular-nums font-semibold text-foreground">
           {store.combined > 0 ? fmtShort(store.combined) : "—"}
         </td>
-        <td className="py-3 px-2 text-right tabular-nums text-muted-foreground">
-          {store.visa_total > 0 ? fmtShort(store.visa_total) : "—"}
+        <td
+          className="py-3 px-2 text-right tabular-nums text-muted-foreground"
+          title={store.visa_total > 0 ? `POS fişleri: ${fmtShort(store.visa_total)}` : undefined}
+        >
+          {store.floor_total > 0 ? fmtShort(store.floor_total) : "—"}
         </td>
         <td className="py-3 px-2 text-right tabular-nums">
           {ratio !== null ? (
@@ -420,7 +428,23 @@ function StoreRow({ store }: { store: Store }) {
         <td className="py-3 px-2 text-right tabular-nums text-muted-foreground">
           {store.sales_total > 0 ? fmtShort(store.sales_total) : "—"}
         </td>
-        <td className="py-3 pl-2 text-right">{complianceBadge}</td>
+        <td className="py-3 pl-2 text-right">
+          {complianceBadge}
+          {store.below_visa_days > 0 ? (
+            <div className="mt-1 text-[10px] text-rose-700">
+              {store.below_visa_days} gün kartın altında
+            </div>
+          ) : store.near_floor_days > 0 ? (
+            <div className="mt-1 text-[10px] text-amber-700">
+              {store.near_floor_days} gün ×1,05 hedefinin altında
+            </div>
+          ) : null}
+          {store.incomplete_days > 0 ? (
+            <div className="mt-0.5 text-[10px] text-muted-foreground" title="Özeti ya da kart satışı olmayan günler; satıra ve rozete dahil değil">
+              {store.incomplete_days} gün eksik belge
+            </div>
+          ) : null}
+        </td>
       </tr>
       {open && hasData ? (
         <tr>
@@ -438,7 +462,7 @@ function TotalRow({ stores }: { stores: Store[] }) {
     (acc, s) => ({
       z: acc.z + s.z_report_total,
       m: acc.m + s.manual_invoice_total,
-      visa: acc.visa + s.visa_total,
+      visa: acc.visa + s.floor_total,
       sales: acc.sales + s.sales_total,
     }),
     { z: 0, m: 0, visa: 0, sales: 0 }
@@ -528,7 +552,7 @@ function StoreDayDetails({ days }: { days: Store["days"] }) {
             <th className="text-right py-1.5 px-2">Z Rap.</th>
             <th className="text-right py-1.5 px-2">El Fat.</th>
             <th className="text-right py-1.5 px-2">Toplam Z</th>
-            <th className="text-right py-1.5 px-2">Visa</th>
+            <th className="text-right py-1.5 px-2">Taban</th>
             <th className="text-right py-1.5 px-2">Satış</th>
             <th className="text-right py-1.5 pl-2 w-24">Durum</th>
           </tr>
@@ -557,8 +581,11 @@ function StoreDayDetails({ days }: { days: Store["days"] }) {
               <td className="py-1.5 px-2 text-right tabular-nums font-semibold">
                 {d.combined > 0 ? fmtShort(d.combined) : "—"}
               </td>
-              <td className="py-1.5 px-2 text-right tabular-nums text-muted-foreground">
-                {d.visa_total > 0 ? fmtShort(d.visa_total) : "—"}
+              <td
+                className="py-1.5 px-2 text-right tabular-nums text-muted-foreground"
+                title={d.visa_total > 0 ? `POS fişleri: ${fmtShort(d.visa_total)}` : undefined}
+              >
+                {d.floor_total > 0 ? fmtShort(d.floor_total) : "—"}
               </td>
               <td className="py-1.5 px-2 text-right tabular-nums text-muted-foreground">
                 {d.sales_total > 0 ? fmtShort(d.sales_total) : "—"}
@@ -577,7 +604,9 @@ function StoreDayDetails({ days }: { days: Store["days"] }) {
 function ComplianceMini({ c }: { c: Store["days"][number]["compliance"] }) {
   if (c === "passed") return <Check className="inline h-3.5 w-3.5 text-emerald-600" />;
   if (c === "below_visa")
-    return <span className="text-rose-700 text-[10px] font-medium">VİSA ALTI</span>;
+    return <span className="text-rose-700 text-[10px] font-medium">KART ALTI</span>;
+  if (c === "near_floor")
+    return <span className="text-amber-700 text-[10px] font-medium">×1,05 ALTI</span>;
   if (c === "above_sales")
     return <span className="text-amber-700 text-[10px] font-medium">SATIŞ ÜSTÜ</span>;
   return <span className="text-muted-foreground/70 text-[10px]">—</span>;

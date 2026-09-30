@@ -27,6 +27,8 @@ export type StoreMonthZ = {
   manual_invoice_total: number; // El faturası
   combined: number; // = z_report_total + manual_invoice_total
   visa_total: number; // POS slip toplamı
+  /** Σ per-day max(POS slips, summary card) — the bar the month's Z is judged against. */
+  floor_total: number;
   cash_total: number; // Nakit
   sales_total: number; // Mağaza özeti satış toplamı
   /** Bu mağazanın günlük detayı — drill-down için */
@@ -38,13 +40,23 @@ export type StoreMonthZ = {
     visa_total: number;
     cash_total: number;
     sales_total: number;
-    compliance: "passed" | "below_visa" | "above_sales" | "incomplete";
+    /** The bar the Z must clear that day: max(POS slips, summary card). */
+    floor_total: number;
+    /**
+     * below_visa = under the card total (the day cannot be closed);
+     * near_floor = over the card total but under ×1,05 with cash on hand —
+     * a warning only, same as the lock rule (24d2644).
+     */
+    compliance: "passed" | "near_floor" | "below_visa" | "above_sales" | "incomplete";
   }>;
-  /** Aylık özet compliance */
+  /** Month verdict from the MONTH totals (what the row shows), not from single days. */
   compliance: "passed" | "below_visa" | "above_sales" | "mixed" | "no_data";
-  /** Visa altında olan günlerin toplam eksiği */
+  /** Days under the card total / under the ×1,05 target. */
   below_visa_days: number;
+  near_floor_days: number;
   above_sales_days: number;
+  /** Days without a store summary (or without card sales): shown, not judged. */
+  incomplete_days: number;
 };
 
 export type ZAnalysisSummary = {
@@ -95,20 +107,27 @@ const monthKey = (d: Date) =>
 const ymKey = (y: number, m: number) =>
   `${y}-${String(m).padStart(2, "0")}`;
 
+/**
+ * Same rule as the lock gate (verification/z-floor.ts): the hard floor is
+ * the card total — the larger of the POS slips and the summary's card line;
+ * ×1,05 (when cash is on hand) is a target, not a failure. Before this the
+ * table called every day under ×1,05 "Visa altı" (Mavi Lefkoşa 09/2026:
+ * 11 such days, all above the card total), so a store at Z/Visa 107 %
+ * carried a red badge.
+ */
 function dayCompliance(
   combined: number,
+  floor: number,
   visa: number,
   cash: number,
   sales: number | null
 ): StoreMonthZ["days"][number]["compliance"] {
   if (sales === null || sales === 0) return "incomplete";
-  if (visa <= 0) return "incomplete";
-
-  const cashPresent = cash > TOLERANCE_TL;
-  const floor = cashPresent ? visa * 1.05 : visa;
-  // Tolerance: tam matematiksel ≥ değil, küçük yuvarlama farklarına izin
+  if (floor <= 0) return "incomplete";
   if (combined < floor - TOLERANCE_TL) return "below_visa";
   if (combined > sales + TOLERANCE_TL) return "above_sales";
+  const cashPresent = cash > TOLERANCE_TL;
+  if (cashPresent && visa > 0 && combined < visa * 1.05 - TOLERANCE_TL) return "near_floor";
   return "passed";
 }
 
@@ -176,6 +195,7 @@ export async function zAnalysisSummary(
     z_report: number;
     manual_invoice: number;
     visa: number;
+    floor: number; // max(POS slips, summary card)
     cash: number;
     sales: number | null;
   };
@@ -191,6 +211,7 @@ export async function zAnalysisSummary(
       z_report: number;
       manual_invoice: number;
       visa: number;
+      floor: number;
       cash: number;
       sales: number;
       days: Record<string, DayBucket>;
@@ -217,11 +238,15 @@ export async function zAnalysisSummary(
         : null;
       const cash = eff ? eff.cash : 0;
       const sales = eff ? eff.sales : 0;
+      // Leaving a POS slip out must not lower the bar: the summary's card
+      // line counts as well.
+      const floor = Math.max(visa, eff ? eff.cc : 0);
 
       currentMonthByStore[dr.store_id] ??= {
         z_report: 0,
         manual_invoice: 0,
         visa: 0,
+        floor: 0,
         cash: 0,
         sales: 0,
         days: {},
@@ -230,6 +255,7 @@ export async function zAnalysisSummary(
       bucket.z_report += z_report;
       bucket.manual_invoice += manual;
       bucket.visa += visa;
+      bucket.floor += floor;
       bucket.cash += cash;
       bucket.sales += sales;
 
@@ -238,6 +264,7 @@ export async function zAnalysisSummary(
         z_report,
         manual_invoice: manual,
         visa,
+        floor,
         cash,
         sales: dr.store_summary ? sales : null,
       };
@@ -256,15 +283,17 @@ export async function zAnalysisSummary(
         manual_invoice_total: 0,
         combined: 0,
         visa_total: 0,
+        floor_total: 0,
         cash_total: 0,
         sales_total: 0,
         days: [],
         compliance: "no_data" as const,
         below_visa_days: 0,
+        near_floor_days: 0,
         above_sales_days: 0,
+        incomplete_days: 0,
       };
     }
-    const combined = data.z_report + data.manual_invoice;
     const days = Object.entries(data.days)
       .map(([date, d]) => {
         const dayCombined = d.z_report + d.manual_invoice;
@@ -274,40 +303,49 @@ export async function zAnalysisSummary(
           manual_invoice_total: d.manual_invoice,
           combined: dayCombined,
           visa_total: d.visa,
+          floor_total: d.floor,
           cash_total: d.cash,
           sales_total: d.sales ?? 0,
-          compliance: dayCompliance(dayCombined, d.visa, d.cash, d.sales),
+          compliance: dayCompliance(dayCombined, d.floor, d.visa, d.cash, d.sales),
         };
       })
       .sort((a, b) => b.date.localeCompare(a.date));
 
     const below = days.filter((d) => d.compliance === "below_visa").length;
+    const near = days.filter((d) => d.compliance === "near_floor").length;
     const above = days.filter((d) => d.compliance === "above_sales").length;
-    const passed = days.filter((d) => d.compliance === "passed").length;
+    // The row and its badge cover the days that can be judged — the ones
+    // with a summary and card sales. A day with a Z but no summary yet would
+    // push the month over its sales, a day with slips but no Z would pull
+    // it under the floor; those days are counted as "eksik" instead.
+    const withData = days.filter((d) => d.compliance !== "incomplete");
+    const sum = (f: (d: (typeof days)[number]) => number) => withData.reduce((s, d) => s + f(d), 0);
+    const zWD = sum((d) => d.z_report_total), mWD = sum((d) => d.manual_invoice_total);
+    const combinedWD = zWD + mWD, floorWD = sum((d) => d.floor_total), salesWD = sum((d) => d.sales_total);
     let storeCompliance: StoreMonthZ["compliance"] = "no_data";
-    if (days.length > 0) {
-      if (below === 0 && above === 0) storeCompliance = "passed";
-      else if (below > 0 && above === 0) storeCompliance = "below_visa";
-      else if (above > 0 && below === 0) storeCompliance = "above_sales";
-      else storeCompliance = "mixed";
-      // İncomplete sayıldıysa ama passed günler de varsa, passed kabul et
-      if (below === 0 && above === 0 && passed > 0) storeCompliance = "passed";
+    if (withData.length > 0) {
+      if (combinedWD < floorWD - TOLERANCE_TL) storeCompliance = "below_visa";
+      else if (salesWD > 0 && combinedWD > salesWD + TOLERANCE_TL) storeCompliance = "above_sales";
+      else storeCompliance = "passed";
     }
 
     return {
       store_id: store.id,
       store_name: store.name,
       brand_name: store.brand.name,
-      z_report_total: data.z_report,
-      manual_invoice_total: data.manual_invoice,
-      combined,
-      visa_total: data.visa,
-      cash_total: data.cash,
-      sales_total: data.sales,
+      z_report_total: zWD,
+      manual_invoice_total: mWD,
+      combined: combinedWD,
+      visa_total: sum((d) => d.visa_total),
+      floor_total: floorWD,
+      cash_total: sum((d) => d.cash_total),
+      sales_total: salesWD,
       days,
       compliance: storeCompliance,
       below_visa_days: below,
+      near_floor_days: near,
       above_sales_days: above,
+      incomplete_days: days.length - withData.length,
     };
   });
 
@@ -346,9 +384,7 @@ export async function zAnalysisSummary(
 
   // Compliance özeti
   const stores_passed = by_store.filter((s) => s.compliance === "passed").length;
-  const stores_below_visa = by_store.filter(
-    (s) => s.compliance === "below_visa" || s.compliance === "mixed"
-  ).length;
+  const stores_below_visa = by_store.filter((s) => s.compliance === "below_visa").length;
   const stores_above_sales = by_store.filter(
     (s) => s.compliance === "above_sales"
   ).length;
