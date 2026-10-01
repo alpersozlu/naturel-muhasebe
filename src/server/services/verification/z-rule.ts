@@ -4,7 +4,10 @@ import type { PrismaClient } from "@prisma/client";
 /**
  * Z raporu onay kuralı — kullanıcının iş kuralı:
  *
- *   Toplam Z = Z.net_sales_try + Σ(ManualInvoice.amount_try)
+ *   Toplam Z = Σ(günün TÜM Z raporları: parsed/confirmed) + Σ(ManualInvoice.amount_try)
+ *     Yazar kasa bir günde iki Z kesebilir (Mavi Güzelyurt 30.09.2026: Z-1116
+ *     42.650 + Z-1117 8.506). Kural tek tek Z'ye değil günün toplamına bakar
+ *     (sahibi, 01.10.2026); tek Z'ye bakınca ikisi de "Visa altı" çıkıyordu.
  *
  *   KESİN alt sınır (asla onaylanmaz):
  *     - Toplam Z ≥ Visa   → Z, Visa'nın ALTINDA olamaz. İstisnası yoktur.
@@ -27,8 +30,13 @@ export type ZApprovalCheck = {
   reasons: string[]; // ENGELLEYİCİ — boş ise onaylanabilir
   /** Onayı engellemeyen ama gösterilmesi gereken uyarılar */
   warnings: string[];
-  combined: number; // Z + manual invoices
+  combined: number; // Σ Z + manual invoices
+  /** Günün toplanan Z raporları — "Z-1116 42.650 + Z-1117 8.506" gibi gösterim için. */
+  z_parts: Array<{ report_no: string | null; net: number }>;
+  manual_invoice_total: number;
   cc_total: number;
+  /** Mağaza özetinin kart satışı (varsa); taban = max(POS, özet kart). */
+  summary_card: number | null;
   /** KESİN alt sınır = Visa. Bunun altı asla onaylanmaz. */
   cc_hard_floor: number | null;
   /** Beklenen alt sınır: nakit varsa Visa × 1.05, yoksa Visa. */
@@ -59,13 +67,19 @@ export async function checkZApproval(
           store_summary: true,
           manual_invoices: true,
           pos_slips: { include: { upload: { select: { status: true } } } },
+          z_reports: { include: { upload: { select: { id: true, status: true } } } },
         },
       },
     },
   });
   if (!z) return null;
 
-  const net_z = num(z.net_sales_try);
+  // Günün bütün Z raporları (bu yükleme dahil; başarısız/bekleyen olanlar hariç).
+  const dayZs = z.daily_record.z_reports.filter(
+    (r) => r.upload.id === uploadId || r.upload.status === "parsed" || r.upload.status === "confirmed"
+  );
+  const z_parts = dayZs.map((r) => ({ report_no: r.report_no, net: num(r.net_sales_try) }));
+  const net_z = z_parts.reduce((s, p) => s + p.net, 0);
   const invoicesSum = z.daily_record.manual_invoices.reduce(
     (s, inv) => s + num(inv.amount_try),
     0
@@ -76,15 +90,21 @@ export async function checkZApproval(
   const cc_total = z.daily_record.pos_slips
     .filter((p) => p.upload.status === "parsed" || p.upload.status === "confirmed")
     .reduce((s, p) => s + num(p.net_amount_try), 0);
+  // Taban, kilit kuralıyla aynı (24d2644): POS fişleri ile özetteki kart
+  // satışının BÜYÜĞÜ — bir slibi yüklememek çıtayı düşürmesin.
+  const summary_card = z.daily_record.store_summary
+    ? num(z.daily_record.store_summary.credit_card_total_try)
+    : null;
+  const hardFloorBase = Math.max(cc_total, summary_card ?? 0);
 
   const cashSales = z.daily_record.store_summary
     ? num(z.daily_record.store_summary.cash_sales_try)
     : 0;
   const cashPresent = cashSales > 0.01;
-  // KESİN sınır her zaman Visa'dır. %5 payı yalnız BEKLENTİdir (uyarı).
-  const cc_hard_floor = cc_total > 0 ? cc_total : null;
+  // KESİN sınır her zaman kart satışıdır. %5 payı yalnız BEKLENTİdir (uyarı).
+  const cc_hard_floor = hardFloorBase > 0 ? hardFloorBase : null;
   const cc_floor =
-    cc_total > 0 ? (cashPresent ? cc_total * 1.05 : cc_total) : null;
+    hardFloorBase > 0 ? (cashPresent ? hardFloorBase * 1.05 : hardFloorBase) : null;
 
   const total_sales = z.daily_record.store_summary
     ? num(z.daily_record.store_summary.sales_total_try)
@@ -93,24 +113,31 @@ export async function checkZApproval(
   const reasons: string[] = [];
   const warnings: string[] = [];
 
-  // 1. KESİN alt sınır — Z, Visa'nın altında olamaz (istisnasız).
+  const zLabel =
+    z_parts.length > 1
+      ? `Toplam Z = ${z_parts
+          .map((p) => `${p.report_no ? `Z-${p.report_no}` : "Z"} ${TRY_FMT.format(p.net)}`)
+          .join(" + ")}${invoicesSum > 0 ? ` + El faturası ${TRY_FMT.format(invoicesSum)}` : ""} = ${TRY_FMT.format(combined)} ₺`
+      : `Toplam Z ${TRY_FMT.format(combined)} ₺`;
+  const floorLabel =
+    summary_card !== null && summary_card > cc_total + 0.5
+      ? `kart satışı ${TRY_FMT.format(hardFloorBase)} ₺ (özet; POS fişleri ${TRY_FMT.format(cc_total)} ₺)`
+      : `Visa ${TRY_FMT.format(hardFloorBase)} ₺`;
+
+  // 1. KESİN alt sınır — günün Toplam Z'si kart satışının altında olamaz (istisnasız).
   if (cc_hard_floor !== null && combined < cc_hard_floor) {
     reasons.push(
-      `Toplam Z (${TRY_FMT.format(combined)} ₺) Visa'nın ALTINDA olamaz — Visa: ${TRY_FMT.format(
-        cc_total
-      )} ₺. Bu kuralın istisnası yoktur.`
+      `${zLabel} — ${floorLabel}'nın ALTINDA olamaz. Bu kuralın istisnası yoktur.${
+        z_parts.length > 1 ? " (Günün bütün Z raporları toplandı.)" : ""
+      }`
     );
   } else if (cc_floor !== null && combined < cc_floor) {
-    // Visa ile Visa×1.05 arasında: onaylanır, ama nakit varken Z'in Visa'ya
-    // bu kadar yakın olması beklenmez — uyarı düşür.
+    // Taban ile taban×1.05 arasında: onaylanır, ama nakit varken Z'in kart
+    // satışına bu kadar yakın olması beklenmez — uyarı düşür.
     warnings.push(
-      `Nakit satış var ama Toplam Z (${TRY_FMT.format(
-        combined
-      )} ₺) Visa'ya çok yakın. Beklenen en az ${TRY_FMT.format(
+      `Nakit satış var ama ${zLabel} kart satışına çok yakın. Beklenen en az ${TRY_FMT.format(
         cc_floor
-      )} ₺ (Visa ${TRY_FMT.format(
-        cc_total
-      )} ₺ × 1.05). Onaylandı — nakit satışın Z'e işlendiğini kontrol et.`
+      )} ₺ (${floorLabel} × 1.05). Onaylandı — nakit satışın Z'e işlendiğini kontrol et.`
     );
   } else if (cc_floor === null) {
     reasons.push(
@@ -118,12 +145,13 @@ export async function checkZApproval(
     );
   }
 
-  // 2. Üst sınır kontrolü — Z, toplam satıştan fazla olamaz.
+  // 2. Üst sınır kontrolü — günün Toplam Z'si toplam satıştan fazla olamaz
+  //    (iki Z toplanınca da).
   if (total_sales !== null && combined > total_sales) {
     reasons.push(
-      `Toplam Z (${TRY_FMT.format(combined)} ₺) Mağaza Özeti'ndeki toplam satıştan (${TRY_FMT.format(
+      `${zLabel} Mağaza Özeti'ndeki toplam satıştan (${TRY_FMT.format(
         total_sales
-      )} ₺) fazla olamaz.`
+      )} ₺) fazla olamaz.${z_parts.length > 1 ? " İki Z'nin toplamı satışı aşıyor — biri bu güne ait olmayabilir." : ""}`
     );
   } else if (total_sales === null) {
     reasons.push(
@@ -136,7 +164,10 @@ export async function checkZApproval(
     reasons,
     warnings,
     combined,
+    z_parts,
+    manual_invoice_total: invoicesSum,
     cc_total,
+    summary_card,
     cc_hard_floor,
     cc_floor,
     total_sales,

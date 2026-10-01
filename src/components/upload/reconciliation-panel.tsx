@@ -1218,9 +1218,12 @@ function ZFarkBadge({
   if (status === "no_z") {
     return <span className="text-muted-foreground">—</span>;
   }
+  // Passed but under the ×1,05 target (over the card total) → amber, not green.
   const tone =
     status === "passed"
-      ? "text-emerald-700"
+      ? diff < 0
+        ? "text-amber-700"
+        : "text-emerald-700"
       : status === "below_visa"
         ? "text-rose-700"
         : "text-amber-700";

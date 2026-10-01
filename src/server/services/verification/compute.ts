@@ -310,10 +310,14 @@ export async function computeDay(
     posSumTRY > 0 ? (cashPresent ? posSumTRY * 1.05 : posSumTRY) : 0;
   const salesCeiling = summarySales;
 
+  // The hard floor is the card total (POS slips or the summary's card line,
+  // whichever is larger) — the same bar the lock gate uses. ×1.05 is only
+  // the target; the row's difference is still shown against it.
+  const zHardFloor = Math.max(posSumTRY, ccTotal);
   let zStatus: "passed" | "below_visa" | "above_sales" | "no_z";
   if (combinedZ <= TOLERANCE_TL) {
     zStatus = "no_z";
-  } else if (visaFloor > 0 && combinedZ < visaFloor - TOLERANCE_TL) {
+  } else if (zHardFloor > 0 && combinedZ < zHardFloor - TOLERANCE_TL) {
     zStatus = "below_visa";
   } else if (salesCeiling > 0 && combinedZ > salesCeiling + TOLERANCE_TL) {
     zStatus = "above_sales";
@@ -422,7 +426,7 @@ export async function computeDay(
         summary_card: ccTotal,
         // The larger of the two card figures: leaving a POS slip out must
         // not lower the bar the Z has to clear.
-        hard_floor: Math.max(posSumTRY, ccTotal),
+        hard_floor: zHardFloor,
       },
     },
     {

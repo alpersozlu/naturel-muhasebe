@@ -87,9 +87,10 @@ export default async function DayDetailPage({
         .reduce((s, p) => s + num(p.net_amount_try), 0)
     : 0;
 
-  const zTotal = dailyRecord?.z_reports[0]
-    ? num(dailyRecord.z_reports[0].net_sales_try)
-    : 0;
+  // A register can print more than one Z on a day (Mavi Güzelyurt 30.09.2026:
+  // Z-1116 + Z-1117) — the card shows the day's sum, not the first one.
+  const zCount = dailyRecord?.z_reports.length ?? 0;
+  const zTotal = dailyRecord?.z_reports.reduce((s, z) => s + num(z.net_sales_try), 0) ?? 0;
 
   const summaryTotal = dailyRecord?.store_summary
     ? num(dailyRecord.store_summary.sales_total_try)
@@ -177,10 +178,10 @@ export default async function DayDetailPage({
       {/* KPI strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <KpiCard
-          label="Z Raporu (Net)"
+          label={zCount > 1 ? `Z Raporu (Net) · ${zCount} Z` : "Z Raporu (Net)"}
           value={zTotal}
           accent="text-cyan-700"
-          empty={!dailyRecord?.z_reports[0]}
+          empty={zCount === 0}
         />
         <KpiCard
           label="POS Toplamı"
