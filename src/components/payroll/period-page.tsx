@@ -524,12 +524,12 @@ function StoreCard({
               disabled={closed}
             />
           </label>
-          <label className="text-xs text-muted-foreground">
-            HQ hedefi
+          <label className="text-xs text-muted-foreground" title="Genel merkezin (Mavi / Derimod HQ) mağazaya verdiği aylık satış hedefi — müdür komisyonu buna göre">
+            Merkez hedefi (aylık)
             <MoneyInput
               value={target}
               onChange={setTarget}
-              placeholder="hedef"
+              placeholder="merkezin hedefi"
               className="mt-0.5 h-8 w-36 text-sm"
               disabled={closed}
             />
