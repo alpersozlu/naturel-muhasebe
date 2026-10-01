@@ -118,12 +118,12 @@ model User {
   store_access    UserStoreAccess[]
   audit_logs      AuditLog[]
   manual_invoices ManualInvoice[]
-  uploads               Upload[]      @relation("UploadedByUser")
-  approved_days         DailyRecord[] @relation("ApprovedByUser")
-  reconciled_days       DailyRecord[] @relation("ReconciliationNotesByUser")
-  verifications         Verification[]
-  cash_advances         CashAdvance[]
-  expenses              Expense[]
+  uploads         Upload[]          @relation("UploadedByUser")
+  approved_days   DailyRecord[]     @relation("ApprovedByUser")
+  reconciled_days DailyRecord[]     @relation("ReconciliationNotesByUser")
+  verifications   Verification[]
+  cash_advances   CashAdvance[]
+  expenses        Expense[]
 
   @@index([role])
 }
@@ -150,15 +150,18 @@ model Store {
   created_at DateTime  @default(now())
   deleted_at DateTime?
 
-  user_access     UserStoreAccess[]
-  daily_records   DailyRecord[]
-  budget_limits   BudgetLimit[]
-  merge_groups    DayMergeGroup[]
-  nebim_sale_lines NebimSaleLine[]
-  outlet_stock_items OutletStockItem[]
-  nebim_action_prices NebimActionPrice[]
-  nebim_targets   NebimStoreTarget[]
-  nebim_voucher_txns NebimVoucherTxn[]
+  user_access          UserStoreAccess[]
+  daily_records        DailyRecord[]
+  budget_limits        BudgetLimit[]
+  merge_groups         DayMergeGroup[]
+  nebim_sale_lines     NebimSaleLine[]
+  outlet_stock_items   OutletStockItem[]
+  nebim_action_prices  NebimActionPrice[]
+  nebim_targets        NebimStoreTarget[]
+  nebim_voucher_txns   NebimVoucherTxn[]
+  payroll_employees    PayrollEmployee[]
+  payroll_lines        PayrollLine[]
+  payroll_store_months PayrollStoreMonth[]
 
   @@index([brand_id])
   @@index([deleted_at])
@@ -345,26 +348,26 @@ model DailyRecord {
 // ─────────────────────────────────────────────────────────────
 
 model Upload {
-  id               String       @id @default(uuid())
-  daily_record_id  String
-  daily_record     DailyRecord  @relation(fields: [daily_record_id], references: [id])
-  type             UploadType
-  file_url         String // Supabase Storage path
-  file_hash        String? // SHA-256 of original buffer (duplicate detection)
-  mime_type        String
-  file_size_bytes  Int
-  uploaded_by      String
-  uploaded_by_user User         @relation("UploadedByUser", fields: [uploaded_by], references: [id])
-  uploaded_at      DateTime     @default(now())
-  raw_ocr_json     Json? // Claude'un ham çıktısı
-  parsed_data_json Json? // Zod ile validate edilmiş hali
+  id                      String       @id @default(uuid())
+  daily_record_id         String
+  daily_record            DailyRecord  @relation(fields: [daily_record_id], references: [id])
+  type                    UploadType
+  file_url                String // Supabase Storage path
+  file_hash               String? // SHA-256 of original buffer (duplicate detection)
+  mime_type               String
+  file_size_bytes         Int
+  uploaded_by             String
+  uploaded_by_user        User         @relation("UploadedByUser", fields: [uploaded_by], references: [id])
+  uploaded_at             DateTime     @default(now())
+  raw_ocr_json            Json? // Claude'un ham çıktısı
+  parsed_data_json        Json? // Zod ile validate edilmiş hali
   // Kullanıcının yükleme anında girdiği meta bilgiler — OCR sonucunu
   // override eder. Örn expense için {category, description}.
-  user_meta_json   Json?
-  status           UploadStatus @default(pending)
-  error_message    String? // OCR fail olursa
-  date_mismatch    Boolean      @default(false) // slip_date != daily_record.date
-  duplicate_of_id  String? // Bu upload bir başkasının kopyası ise FK
+  user_meta_json          Json?
+  status                  UploadStatus @default(pending)
+  error_message           String? // OCR fail olursa
+  date_mismatch           Boolean      @default(false) // slip_date != daily_record.date
+  duplicate_of_id         String? // Bu upload bir başkasının kopyası ise FK
   // Authenticity screening (2026-09-20, after a machine-generated POS slip for
   // exactly the day's missing amount). ok | suspicious | synthetic | cleared.
   // The report (reasons, file traces, vision notes) is for admins only.
@@ -422,11 +425,10 @@ model PosSlip {
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
 
+  @@unique([upload_id, bank_name])
   @@index([daily_record_id])
   @@index([bank_name])
   @@index([daily_record_id, content_fingerprint])
-
-  @@unique([upload_id, bank_name])
   @@index([upload_id])
 }
 
@@ -437,19 +439,19 @@ model StoreSummary {
   daily_record_id String      @unique // 1:1 — her gün 1 özet
   daily_record    DailyRecord @relation(fields: [daily_record_id], references: [id])
 
-  sales_total          Decimal? @db.Decimal(14, 2)
-  cash_sales           Decimal? @db.Decimal(14, 2)
-  credit_card_total    Decimal? @db.Decimal(14, 2)
-  loyalty_points_total Decimal? @db.Decimal(14, 2) // Kartuş Puan
+  sales_total            Decimal? @db.Decimal(14, 2)
+  cash_sales             Decimal? @db.Decimal(14, 2)
+  credit_card_total      Decimal? @db.Decimal(14, 2)
+  loyalty_points_total   Decimal? @db.Decimal(14, 2) // Kartuş Puan
   // Alışveriş Çeki Toplam — Mavi HQ (Türkiye) tarafından iade edilen çekler.
   // Satış toplamına dahil bir ödeme kalemi; iade takibi için ayrı saklanır.
   shopping_voucher_total Decimal? @db.Decimal(14, 2)
   // Havale (Banka Transferi) — özette ayrı kalem varsa dolu. Yoksa null/0
   // sayılır ve nakit dekontu cash_sales içine işlenmiş varsayılır.
-  wire_transfer_total  Decimal? @db.Decimal(14, 2)
-  opening_balance      Decimal? @db.Decimal(14, 2)
-  closing_balance      Decimal? @db.Decimal(14, 2)
-  currency             Currency @default(TRY)
+  wire_transfer_total    Decimal? @db.Decimal(14, 2)
+  opening_balance        Decimal? @db.Decimal(14, 2)
+  closing_balance        Decimal? @db.Decimal(14, 2)
+  currency               Currency @default(TRY)
 
   // Özetin kapsadığı tarih aralığı (Derimod gün birleşmesi). Tek gün ise
   // period_start = period_end = o gün. Birleşik ise aralık (örn 19-20 May).
@@ -458,13 +460,13 @@ model StoreSummary {
   period_end   DateTime? @db.Date
 
   // TRY çevrilmiş halleri (raporlama için)
-  sales_total_try          Decimal? @db.Decimal(14, 2)
-  cash_sales_try           Decimal? @db.Decimal(14, 2)
-  credit_card_total_try    Decimal? @db.Decimal(14, 2)
-  loyalty_points_total_try Decimal? @db.Decimal(14, 2)
+  sales_total_try            Decimal? @db.Decimal(14, 2)
+  cash_sales_try             Decimal? @db.Decimal(14, 2)
+  credit_card_total_try      Decimal? @db.Decimal(14, 2)
+  loyalty_points_total_try   Decimal? @db.Decimal(14, 2)
   shopping_voucher_total_try Decimal? @db.Decimal(14, 2)
-  wire_transfer_total_try  Decimal? @db.Decimal(14, 2)
-  fx_rate_used             Decimal? @db.Decimal(10, 4)
+  wire_transfer_total_try    Decimal? @db.Decimal(14, 2)
+  fx_rate_used               Decimal? @db.Decimal(10, 4)
 
   user_corrected Boolean  @default(false)
   created_at     DateTime @default(now())
@@ -617,8 +619,8 @@ model CorporatePurchase {
 // ─────────────────────────────────────────────────────────────
 
 model BudgetLimit {
-  id    String  @id @default(uuid())
-  name  String? // Opsiyonel açıklayıcı isim ("Lefkoşa kira limiti" vs.)
+  id   String  @id @default(uuid())
+  name String? // Opsiyonel açıklayıcı isim ("Lefkoşa kira limiti" vs.)
 
   // null = tüm mağazalar için global limit
   store_id String?
@@ -637,11 +639,11 @@ model BudgetLimit {
 
   alert_pct Decimal @default(80) @db.Decimal(5, 2) // %80'e ulaşınca erken uyarı
 
-  is_active  Boolean   @default(true)
+  is_active  Boolean  @default(true)
   notes      String?
   created_by String?
-  created_at DateTime  @default(now())
-  updated_at DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   @@index([store_id])
   @@index([is_active])
@@ -777,12 +779,12 @@ model DealerDailyReport {
 
   // ── ANA ALANLAR ─────────
   // Tüm satırların Net Tutar toplamı (iadelerle nette)
-  net_sales_try Decimal @db.Decimal(14, 2)
+  net_sales_try    Decimal  @db.Decimal(14, 2)
   // Kartuş Kart (sadakat puanı kullanımı, TL) — fiş başına BİR KEZ sayılır;
   // kolon fişin her satırında aynı değerle tekrar eder.
-  loyalty_try Decimal @db.Decimal(14, 2)
+  loyalty_try      Decimal  @db.Decimal(14, 2)
   // Hediye Kart ödemeleri (fiş başına bir kez — kolon her satırda tekrar eder)
-  gift_card_try Decimal? @db.Decimal(14, 2)
+  gift_card_try    Decimal? @db.Decimal(14, 2)
   // Payment breakdown from the receipt head rows (2026-09-19). Per day:
   // net = cash + card + gift_card + loyalty + wire + other. Null on reports
   // parsed before these columns existed.
@@ -797,8 +799,8 @@ model DealerDailyReport {
   line_count        Int // Toplam satır (ürün) sayısı
   refund_count      Int // İade satırı sayısı
   // Dosya kapsam aralığı (1+ gün olabilir; sadece seçili güne filtre uygulanır)
-  source_date_min DateTime? @db.Date
-  source_date_max DateTime? @db.Date
+  source_date_min   DateTime? @db.Date
+  source_date_max   DateTime? @db.Date
 
   // Replay guard: SHA-256(store_code|report_date|net_sales|transaction_count)
   content_fingerprint String?
@@ -944,22 +946,22 @@ model NebimSaleLine {
 // ─────────────────────────────────────────────────────────────
 
 model NebimVoucherTxn {
-  id              String   @id @default(uuid())
-  company_code    Int
-  payment_line_id String // Nebim trPaymentLine.PaymentLineID (idempotent anahtar)
-  payment_no      String?
-  txn_date        DateTime @db.Date
-  txn_time        String? // "HH:MM:SS"
-  store_id        String?
-  store           Store?   @relation(fields: [store_id], references: [id])
+  id               String   @id @default(uuid())
+  company_code     Int
+  payment_line_id  String // Nebim trPaymentLine.PaymentLineID (idempotent anahtar)
+  payment_no       String?
+  txn_date         DateTime @db.Date
+  txn_time         String? // "HH:MM:SS"
+  store_id         String?
+  store            Store?   @relation(fields: [store_id], references: [id])
   nebim_store_code String? // S01/S02/S03
-  amount          Decimal  @db.Decimal(14, 2) // eksi=düzenleme, artı=kullanım
-  customer_code   String?
-  customer_name   String?
-  serial          String? // cdGiftCard.SerialNumber (CV...)
-  invoice_ref     String? // trGiftCardPaymentHeader.DocumentNumber (varsa fatura bağı)
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
+  amount           Decimal  @db.Decimal(14, 2) // eksi=düzenleme, artı=kullanım
+  customer_code    String?
+  customer_name    String?
+  serial           String? // cdGiftCard.SerialNumber (CV...)
+  invoice_ref      String? // trGiftCardPaymentHeader.DocumentNumber (varsa fatura bağı)
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
 
   @@unique([company_code, payment_line_id])
   @@index([txn_date])
@@ -1130,4 +1132,249 @@ model AuthEvent {
 
   @@index([created_at])
   @@index([email, created_at])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAAŞLAR (BORDRO) — Mert'ten devralınan NTR bordro düzeni (01.10.2026).
+// Tutarlar NET'tir. Ay = PayrollPeriod; kişi×ay = PayrollLine; para hareketleri
+// ve düzeltmeler PayrollEntry (asla silinmez, iptal = voided_at). Komisyon
+// tabloları kodda (services/payroll/rules.ts), Nisan 2026 onaylı.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum PayrollPayMethod {
+  garanti // Garanti toplu maaş talimatı (TGB Yeni Maaş Dosyası)
+  ziraat // Ziraat — Garanti talimatında YOK, ayrı ödenir
+  cash // Nakit liste
+}
+
+enum PayrollCommissionProfile {
+  mavi_asistan // kendi cirosu / kendi hedefi; ND + denim oranları
+  mavi_mudur // mağaza cirosu / mağaza hedefi
+  mavi_vice // müdür oranı × 0,75
+  deri_asistan // kendi cirosu
+  deri_mudur // mağaza cirosu
+  none // komisyon yok (kasiyer, depo, lojistik, sabit maaş)
+}
+
+enum PayrollEmployeeStatus {
+  active
+  inactive // kadroda ama bu ay çalışmıyor / ödenmiyor
+  left // ayrıldı (end_date)
+}
+
+enum PayrollPeriodStatus {
+  open
+  closed
+}
+
+enum PayrollEntryKind {
+  advance // avans — ödenmiş sayılır, o ayın maaşından düşer
+  payment // Ödeme 1 / Ödeme 2 / tekil talimat / nakit
+  deduction // kesinti — hak edişten düşer (devir, kasa farkı, borç, çalışma izni, çift ödeme)
+  addition // ek hak ediş — izin ödemesi, bonus, düzeltme
+}
+
+enum PayrollChannel {
+  garanti
+  ziraat
+  cash
+  other
+}
+
+enum PayrollBatchKind {
+  advance // ay ortası avans talimatı
+  payment1 // Ödeme 1 — baz maaş (avans ve kesinti düşülmüş)
+  payment2 // Ödeme 2 — mesai + komisyon + prim
+  single // tekil / dönem dışı
+}
+
+enum PayrollBatchStatus {
+  prepared // dosya hazırlandı, henüz bankaya gitmedi
+  sent // gönderildi / ödendi — ödemeler sayılır
+  void // iptal
+}
+
+model PayrollEmployee {
+  id                 String                   @id @default(uuid())
+  store_id           String
+  store              Store                    @relation(fields: [store_id], references: [id])
+  full_name          String
+  position           String // "Mağaza Müdürü", "Satış Asistanı", "Kasiyer", "Depo"…
+  commission_profile PayrollCommissionProfile @default(none)
+  base_salary        Decimal                  @db.Decimal(14, 2) // aylık NET
+  pay_method         PayrollPayMethod         @default(garanti)
+  bank_account_name  String? // talimattaki isim ("HASAN KOKUR")
+  bank_branch_code   String?
+  bank_account_no    String?
+  iban               String?
+  is_registered      Boolean                  @default(true) // kayıtsız nakit personel = false
+  is_gross_minimum   Boolean                  @default(false) // brüt asgari üzerinden nakit çalışır
+  perfume_eligible   Boolean                  @default(false) // parfüm primi (Mavi kasiyer)
+  garment_eligible   Boolean                  @default(false) // giysi primi (Derimod)
+  paid_month_early   Boolean                  @default(false) // maaşı bir ay önceden ödenir (cari talimatta 0)
+  nebim_name         String? // Derimod Satışları'ndaki satıcı adı — ciro eşlemesi
+  aliases            String[]                 @default([]) // SAP / KPI / HR / banka adları
+  start_date         DateTime?                @db.Date
+  end_date           DateTime?                @db.Date
+  status             PayrollEmployeeStatus    @default(active)
+  notes              String? // kalıcı notlar (Not sütunu mantığı)
+  sort_order         Int                      @default(0)
+  created_at         DateTime                 @default(now())
+  updated_at         DateTime                 @updatedAt
+  deleted_at         DateTime?
+
+  lines   PayrollLine[]
+  entries PayrollEntry[]
+  loans   PayrollLoan[]
+
+  @@index([store_id])
+  @@index([status])
+  @@index([deleted_at])
+}
+
+model PayrollPeriod {
+  id         String              @id @default(uuid())
+  year       Int
+  month      Int
+  status     PayrollPeriodStatus @default(open)
+  notes      String?
+  closed_at  DateTime?
+  created_at DateTime            @default(now())
+  updated_at DateTime            @updatedAt
+
+  lines        PayrollLine[]
+  store_months PayrollStoreMonth[]
+  entries      PayrollEntry[]
+  batches      PayrollBatch[]
+
+  @@unique([year, month])
+}
+
+/// Mağazanın aylık cirosu ve HQ hedefi — müdür / müdür yrd. komisyonu buradan.
+model PayrollStoreMonth {
+  id             String        @id @default(uuid())
+  period_id      String
+  period         PayrollPeriod @relation(fields: [period_id], references: [id])
+  store_id       String
+  store          Store         @relation(fields: [store_id], references: [id])
+  revenue        Decimal?      @db.Decimal(14, 2) // mağaza cirosu (SAP / Nebim net)
+  target         Decimal?      @db.Decimal(14, 2) // HQ hedefi
+  revenue_source String? // "nebim" | "manual"
+  notes          String?
+  updated_at     DateTime      @updatedAt
+
+  @@unique([period_id, store_id])
+}
+
+/// Kişi × ay. Girdiler burada; hesaplanan tutarlar okunurken üretilir
+/// (services/payroll/compute.ts) — bayat sayı kalmaz.
+model PayrollLine {
+  id                   String                   @id @default(uuid())
+  period_id            String
+  period               PayrollPeriod            @relation(fields: [period_id], references: [id])
+  employee_id          String
+  employee             PayrollEmployee          @relation(fields: [employee_id], references: [id])
+  store_id             String
+  store                Store                    @relation(fields: [store_id], references: [id])
+  position             String
+  commission_profile   PayrollCommissionProfile
+  base_salary          Decimal                  @db.Decimal(14, 2) // o ayki NET baz (anlık kopya)
+  overtime_hours       Decimal                  @default(0) @db.Decimal(8, 2)
+  overtime_note        String?
+  own_revenue_nd       Decimal?                 @db.Decimal(14, 2) // Mavi asistan: denim dışı
+  own_revenue_denim    Decimal?                 @db.Decimal(14, 2) // Mavi asistan: denim
+  own_revenue          Decimal?                 @db.Decimal(14, 2) // Derimod asistan: kendi cirosu
+  own_target           Decimal?                 @db.Decimal(14, 2)
+  achievement_accepted Decimal?                 @db.Decimal(7, 4) // ÖZEL: yönetimin kabul ettiği başarı (1.0000 = %100)
+  commission_override  Decimal?                 @db.Decimal(14, 2) // elle girilen komisyon tutarı
+  commission_note      String?
+  perfume_units        Int                      @default(0)
+  garment_units        Int                      @default(0)
+  top_seller           Boolean                  @default(false)
+  extra_premium        Decimal                  @default(0) @db.Decimal(14, 2)
+  extra_premium_note   String?
+  note                 String? // Not sütunu — denetim izi
+  created_at           DateTime                 @default(now())
+  updated_at           DateTime                 @updatedAt
+
+  entries PayrollEntry[]
+
+  @@unique([period_id, employee_id])
+  @@index([store_id])
+}
+
+/// Para hareketi / düzeltme. Silinmez; iptal voided_at ile işaretlenir ve
+/// toplamlara girmez ama listede görünür (tarihçe korunur).
+model PayrollEntry {
+  id              String           @id @default(uuid())
+  line_id         String
+  line            PayrollLine      @relation(fields: [line_id], references: [id])
+  period_id       String
+  period          PayrollPeriod    @relation(fields: [period_id], references: [id])
+  employee_id     String
+  employee        PayrollEmployee  @relation(fields: [employee_id], references: [id])
+  kind            PayrollEntryKind
+  category        String? // deduction: carry_over|cash_shortfall|loan|work_permit|double_payment|other · addition: leave_payout|bonus|other · payment: payment1|payment2|single
+  channel         PayrollChannel?
+  entry_date      DateTime         @db.Date
+  amount          Decimal          @db.Decimal(14, 2)
+  note            String?
+  reference       String? // talimat dosya adı, dekont, kaynak
+  batch_id        String?
+  batch           PayrollBatch?    @relation(fields: [batch_id], references: [id])
+  loan_id         String?
+  loan            PayrollLoan?     @relation(fields: [loan_id], references: [id])
+  cash_advance_id String?          @unique // DocuFlow kasa avansı (CashAdvance) bağlantısı
+  created_by      String?
+  created_by_name String?
+  created_at      DateTime         @default(now())
+  voided_at       DateTime?
+  void_note       String?
+  voided_by       String?
+
+  @@index([line_id])
+  @@index([period_id])
+  @@index([employee_id])
+  @@index([batch_id])
+}
+
+/// Banka talimatı veya nakit listesi — tek seferde üretilen ödeme grubu.
+model PayrollBatch {
+  id              String             @id @default(uuid())
+  period_id       String
+  period          PayrollPeriod      @relation(fields: [period_id], references: [id])
+  kind            PayrollBatchKind
+  channel         PayrollChannel
+  status          PayrollBatchStatus @default(prepared)
+  pay_date        DateTime           @db.Date
+  title           String
+  total           Decimal            @db.Decimal(14, 2)
+  count           Int
+  file_name       String?
+  created_by      String?
+  created_by_name String?
+  created_at      DateTime           @default(now())
+  sent_at         DateTime?
+  voided_at       DateTime?
+
+  entries PayrollEntry[]
+
+  @@index([period_id])
+}
+
+/// Şirket borcu (kredi). Geri ödemeler loan_id'li deduction kayıtlarıdır.
+model PayrollLoan {
+  id             String          @id @default(uuid())
+  employee_id    String
+  employee       PayrollEmployee @relation(fields: [employee_id], references: [id])
+  principal      Decimal         @db.Decimal(14, 2)
+  opening_repaid Decimal         @default(0) @db.Decimal(14, 2) // sisteme girmeden önce ödenen
+  loan_date      DateTime?       @db.Date
+  note           String?
+  closed_at      DateTime?
+  created_at     DateTime        @default(now())
+
+  repayments PayrollEntry[]
+
+  @@index([employee_id])
 }

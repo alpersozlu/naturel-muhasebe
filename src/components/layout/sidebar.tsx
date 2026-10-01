@@ -17,6 +17,7 @@ import {
   Building2,
   FileSpreadsheet,
   Ticket,
+  Banknote,
 } from "lucide-react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ import { NrLogo } from "@/components/brand/nr-logo";
 const NAV_ADMIN = [
   { href: "/", icon: LayoutDashboard, key: "today" as const },
   { href: "/admin", icon: Shield, key: "admin" as const },
+  { href: "/payroll", icon: Banknote, key: "payroll" as const },
   { href: "/verification", icon: ClipboardCheck, key: "verification" as const },
   { href: "/cash-variance", icon: ShieldAlert, key: "cashVariance" as const },
   { href: "/z-analysis", icon: ScrollText, key: "zAnalysis" as const },

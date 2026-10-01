@@ -22,6 +22,7 @@
   "nav": {
     "today": "Today",
     "admin": "Admin Portal",
+    "payroll": "Payroll",
     "verification": "Verification",
     "cashVariance": "Cash Variance",
     "zAnalysis": "Z Analysis",
