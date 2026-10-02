@@ -184,7 +184,8 @@ export function BatchDialog({
                     </th>
                     <th className="py-2 text-left font-medium">Çalışan</th>
                     <th className="py-2 text-right font-medium">{isPayment2 ? "Ekstra" : "Baz"}</th>
-                    <th className="py-2 text-right font-medium">{isPayment2 ? "Kesinti" : "Avans"}</th>
+                    {!isPayment2 ? <th className="py-2 text-right font-medium">Avans</th> : null}
+                    <th className="py-2 text-right font-medium">Kesinti</th>
                     <th className="py-2 text-right font-medium">Net kalan</th>
                     <th className="py-2 text-right font-medium">Tutar</th>
                   </tr>
@@ -214,9 +215,10 @@ export function BatchDialog({
                           {r.note ? <div className="text-[11px] text-amber-800">{r.note}</div> : null}
                         </td>
                         <td className="py-2 text-right tabular-nums">{money(isPayment2 ? r.extras : r.base)}</td>
-                        <td className="py-2 text-right tabular-nums text-amber-800">
-                          {isPayment2 ? (r.deductions ? `−${money(r.deductions)}` : "—") : r.advances ? money(r.advances) : "—"}
-                        </td>
+                        {!isPayment2 ? (
+                          <td className="py-2 text-right tabular-nums text-amber-800">{r.advances ? money(r.advances) : "—"}</td>
+                        ) : null}
+                        <td className="py-2 text-right tabular-nums text-rose-700">{r.deductions ? `−${money(r.deductions)}` : "—"}</td>
                         <td className="py-2 text-right tabular-nums">{money(r.net_remaining)}</td>
                         <td className="py-2 pl-3 text-right">
                           <MoneyInput
