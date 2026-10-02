@@ -1,6 +1,7 @@
 import "server-only";
 import ExcelJS from "exceljs";
-import { GARANTI_TALIMAT, ODEME_TIPLERI } from "./bank-config";
+import JSZip from "jszip";
+import { GARANTI_TGB_TEMPLATE_B64 } from "./garanti-template";
 
 export type TalimatRow = {
   name: string; // talimattaki isim (büyük harf)
@@ -23,99 +24,106 @@ export function talimatFileName(isoDate: string, kindLabel: string): string {
   return `${d} ${MONTHS[Number(m) - 1]} ${y} - ${kindLabel} Talimat.xlsx`;
 }
 
+const DATA_COLS = ["A", "B", "C", "D", "E", "F", "G", "H", "I"] as const;
+const FIRST_DATA_ROW = 13;
+const ROW_IZAHAT = "maaş ödemesi";
+const BANKA_KODU = "62";
+
+function escXml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+function round2(v: number): number {
+  return Math.round((v + Number.EPSILON) * 100) / 100;
+}
+function cellStr(ref: string, style: string | undefined, text: string): string {
+  return `<c r="${ref}"${style ? ` s="${style}"` : ""} t="inlineStr"><is><t xml:space="preserve">${escXml(text)}</t></is></c>`;
+}
+function cellNum(ref: string, style: string | undefined, v: number): string {
+  return `<c r="${ref}"${style ? ` s="${style}"` : ""}><v>${v}</v></c>`;
+}
+function cellEmpty(ref: string, style: string | undefined): string {
+  return `<c r="${ref}"${style ? ` s="${style}"` : ""}/>`;
+}
+/** Sayısal metin → sayı hücresi (şube/hesap), değilse metin hücresi. */
+function cellNumOrStr(ref: string, style: string | undefined, s: string): string {
+  return /^\d{1,15}$/.test(s) ? cellNum(ref, style, Number(s)) : cellStr(ref, style, s);
+}
+
 /**
- * Garanti "TGB Yeni Maaş Dosyası" — bankanın şablonu bire bir:
- * B1 kurum, B2 şube, B3 hesap, B4 adet (formül), B5 toplam (formül),
- * B6 "TL ", B7 tarih metni, B8 "M", B9 "MAAS ODEMESI"; 12. satır başlık,
- * 13. satırdan itibaren kişi başı bir satır (İsim, TCKN boş, 62, Şube,
- * Hesap, IBAN, Tutar, Borç İzahat, Alacak İzahat).
+ * Garanti "TGB Yeni Maaş Dosyası" — bankanın GERÇEK şablonu üzerine yazılır
+ * (garanti-template.ts: Naturel'in bankaya gönderdiği dosyadan kişi satırları
+ * temizlenmiş hali). Biçimler, veri doğrulamaları, koşullu biçimler, N/O
+ * listeleri, C sütunu açıklama formülleri ve 4991 hazır satır olduğu gibi
+ * kalır; yalnız B7 (tarih), B4/B5 önbellek değerleri ve 13. satırdan itibaren
+ * A..I hücreleri yazılır. XML düzeyinde çalışır — hiçbir kütüphane şablonu
+ * yeniden üretmez, bankaya giden dosya şablonla birebir aynı kalır.
  */
 export async function buildGarantiTalimatXlsx(rows: TalimatRow[], isoDate: string): Promise<Buffer> {
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet(GARANTI_TALIMAT.sheet_name);
-  const K = GARANTI_TALIMAT;
+  const zip = await JSZip.loadAsync(Buffer.from(GARANTI_TGB_TEMPLATE_B64, "base64"));
+  const sheetPath = "xl/worksheets/sheet1.xml";
+  let sheet = await zip.file(sheetPath)!.async("string");
 
-  const put = (addr: string, v: ExcelJS.CellValue) => {
-    ws.getCell(addr).value = v;
-  };
-  put("A1", "Kurum Kodu");
-  put("B1", Number(K.kurum_kodu));
-  put("C1", "Garanti Bankası tarafından verilen kurum kodunuz.");
-  put("A2", "Şube Kodu");
-  put("B2", Number(K.sube_kodu));
-  put("C2", "Şubenizden öğreniniz");
-  put("A3", "Hesap");
-  put("B3", Number(K.hesap));
-  put("C3", "Maaş ödemesinde kullanacağınız hesap. 1299998-2 şeklinde kontrol digiti girmeyiniz.");
-  put("A4", "Toplam Adet");
-  put("B4", { formula: "COUNTA(A:A)-12+COUNTBLANK(A1:A12)", result: rows.length });
-  put("C4", "Toplam maaş adedi. (Giriş yapıldıkça otomatik olarak hesaplanır.)");
-  put("A5", "Toplam Tutar");
-  put("B5", { formula: "SUM(G:G)", result: round2(rows.reduce((s, r) => s + r.amount, 0)) });
-  put("C5", "Toplam ödeme tutarı. (Giriş yapıldıkça otomatik olarak hesaplanır.)");
-  put("A6", "Döviz Kodu");
-  put("B6", K.doviz);
-  put("C6", "Döviz kodunu listeden seçiniz.");
-  put("A7", "Ödeme Tarihi");
-  put("B7", talimatDateText(isoDate));
-  put("C7", "GGAAYYYY formatında. (Örnek: 04032001 giriniz.)");
-  put("A8", "Ödeme Tipi");
-  put("B8", K.odeme_tipi);
-  put("C8", "Ödeme tiplerini yandaki tabloda görebilirsiniz.");
-  put("A9", "Borç İzahat");
-  put("B9", K.borc_izahat);
-  put(
-    "A10",
-    "BİLGİLENDİRME : Dosyanızdaki bilgiler banka sistemine otomatik olarak yüklenecektir. Banka kodu boş veya  62 ise havale, 62'den farklı ise EFT'dir. Kayıtlar içinde EFT varsa ödeme tarihi işgünü olmalıdır. Başka bir excel dosyasından kopyalama yapmak istiyorsanız Edit/Paste Spacial seçeneğini Values seçerek kullanınız."
-  );
-  put("A11", "Herhangi bir hataya yol açmamak için dosyanın formatını değiştirmeyiniz, açıklamalara uyunuz. ");
-  // Ödeme tipleri tablosu (I1:L9) — bankanın şablonundaki bilgi bloğu
-  put("I1", "Ödeme Tipleri");
-  ODEME_TIPLERI.forEach(([code, label], i) => {
-    const r = 2 + Math.floor(i / 2);
-    const col = i % 2 === 0 ? ["I", "J"] : ["K", "L"];
-    put(`${col[0]}${r}`, code);
-    put(`${col[1]}${r}`, label);
-  });
+  // Şablonun 13. satırındaki stil kimlikleri (A..I) — yeni satırlar aynı biçimi alır.
+  const row13 = sheet.match(/<row r="13"[^>]*>[\s\S]*?<\/row>/)?.[0] ?? "";
+  const styleOf: Record<string, string | undefined> = {};
+  for (const col of DATA_COLS) {
+    styleOf[col] = row13.match(new RegExp(`<c r="${col}13"(?: s="(\\d+)")?`))?.[1];
+  }
 
-  const headers = [
-    "İsim",
-    "TCKN (Opsiyonel)",
-    "Banka Kodu",
-    "Şube Kodu",
-    "Hesap",
-    "IBAN (Boşluksuz 26 Karakter)",
-    "Tutar",
-    "Borç İzahat",
-    "Alacak izahat",
-  ];
-  headers.forEach((h, i) => put(`${String.fromCharCode(65 + i)}12`, h));
-  ws.getRow(12).font = { bold: true };
-
+  const total = round2(rows.reduce((s, r) => s + r.amount, 0));
+  const rowXml = new Map<number, string>();
   rows.forEach((r, i) => {
-    const n = 13 + i;
-    put(`A${n}`, r.name);
-    put(`C${n}`, Number(K.banka_kodu));
-    if (r.branch_code) put(`D${n}`, toNumOrText(r.branch_code));
-    if (r.account_no) put(`E${n}`, toNumOrText(r.account_no));
-    if (r.iban) put(`F${n}`, r.iban.replace(/\s+/g, ""));
-    put(`G${n}`, round2(r.amount));
-    put(`H${n}`, K.satir_izahat);
-    put(`I${n}`, K.satir_izahat);
+    const n = FIRST_DATA_ROW + i;
+    const cells =
+      cellStr(`A${n}`, styleOf.A, r.name) +
+      cellEmpty(`B${n}`, styleOf.B) +
+      cellStr(`C${n}`, styleOf.C, BANKA_KODU) +
+      (r.branch_code ? cellNumOrStr(`D${n}`, styleOf.D, r.branch_code.trim()) : cellEmpty(`D${n}`, styleOf.D)) +
+      (r.account_no ? cellNumOrStr(`E${n}`, styleOf.E, r.account_no.trim()) : cellEmpty(`E${n}`, styleOf.E)) +
+      (r.iban ? cellStr(`F${n}`, styleOf.F, r.iban.replace(/\s+/g, "")) : cellEmpty(`F${n}`, styleOf.F)) +
+      cellNum(`G${n}`, styleOf.G, round2(r.amount)) +
+      cellStr(`H${n}`, styleOf.H, ROW_IZAHAT) +
+      cellStr(`I${n}`, styleOf.I, ROW_IZAHAT);
+    rowXml.set(n, cells);
   });
 
-  ws.getColumn(1).width = 32;
-  ws.getColumn(3).width = 12;
-  ws.getColumn(4).width = 10;
-  ws.getColumn(5).width = 12;
-  ws.getColumn(6).width = 30;
-  ws.getColumn(7).width = 14;
-  ws.getColumn(7).numFmt = "#,##0.00";
-  ws.getColumn(8).width = 16;
-  ws.getColumn(9).width = 16;
+  // Var olan satırları yerinde değiştir: A..I yenisi, J.. şablondan.
+  const lastRow = FIRST_DATA_ROW + rows.length - 1;
+  const seen = new Set<number>();
+  sheet = sheet.replace(/<row r="(\d+)"([^>]*)>([\s\S]*?)<\/row>/g, (whole, rStr: string, attrs: string, inner: string) => {
+    const r = Number(rStr);
+    const cells = rowXml.get(r);
+    if (!cells) return whole;
+    seen.add(r);
+    const rest = inner.match(/<c r="[J-Q]\d+"[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g)?.join("") ?? "";
+    const attr = attrs.replace(/ spans="[^"]*"/, "") + ' spans="1:17"';
+    return `<row r="${r}"${attr}>${cells}${rest}</row>`;
+  });
+  // Şablonda bulunmayan satırlar (4991'den sonra) — sona eklenir.
+  const missing: string[] = [];
+  for (let r = FIRST_DATA_ROW; r <= lastRow; r++) {
+    if (!seen.has(r)) missing.push(`<row r="${r}" spans="1:17" ht="15">${rowXml.get(r)}</row>`);
+  }
+  if (missing.length) sheet = sheet.replace("</sheetData>", `${missing.join("")}</sheetData>`);
 
-  const out = await wb.xlsx.writeBuffer();
-  return Buffer.from(out as ArrayBuffer);
+  // B7 ödeme tarihi (GGAAYYYY, metin), B4/B5 önbellek değerleri.
+  sheet = sheet.replace(/<c r="B7"( s="\d+")?(?:\/>|[^>]*>[\s\S]*?<\/c>)/, (_m, s: string | undefined) =>
+    cellStr("B7", s?.match(/\d+/)?.[0], talimatDateText(isoDate))
+  );
+  sheet = sheet.replace(/(<c r="B4"[^>]*><f>[^<]*<\/f><v>)[^<]*(<\/v>)/, `$1${rows.length}$2`);
+  sheet = sheet.replace(/(<c r="B5"[^>]*><f>[^<]*<\/f><v>)[^<]*(<\/v>)/, `$1${total}$2`);
+  zip.file(sheetPath, sheet);
+
+  // Excel açılışta formülleri yeniden hesaplasın (B4/B5, C açıklamaları).
+  const wbPath = "xl/workbook.xml";
+  let wb = await zip.file(wbPath)!.async("string");
+  wb = /<calcPr[^>]*\/>/.test(wb)
+    ? wb.replace(/<calcPr([^>]*)\/>/, (m, a: string) => (a.includes("fullCalcOnLoad") ? m : `<calcPr${a} fullCalcOnLoad="1"/>`))
+    : wb.replace("</workbook>", '<calcPr fullCalcOnLoad="1"/></workbook>');
+  zip.file(wbPath, wb);
+
+  const out = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
+  return Buffer.from(out);
 }
 
 /**
@@ -170,7 +178,7 @@ export async function parseGarantiTalimat(buf: Buffer): Promise<Array<{ name: st
   if (!ws) return [];
   const out: Array<{ name: string; branch_code: string | null; account_no: string | null; iban: string | null; amount: number | null }> = [];
   ws.eachRow((row, n) => {
-    if (n < 13) return;
+    if (n < FIRST_DATA_ROW) return;
     const name = cellText(row.getCell(1).value);
     if (!name) return;
     out.push({
@@ -192,13 +200,12 @@ function cellText(v: ExcelJS.CellValue): string {
   return String(v).trim();
 }
 function toNum(v: ExcelJS.CellValue): number | null {
-  const t = cellText(v).replace(/\./g, "").replace(",", ".");
+  if (typeof v === "number") return v;
+  if (v && typeof v === "object" && "result" in v && typeof (v as { result?: unknown }).result === "number")
+    return (v as { result: number }).result;
+  // Metin: Türkçe biçim ("4.222,19") veya düz ("4222.19")
+  const raw = cellText(v);
+  const t = /,\d{1,2}$/.test(raw) ? raw.replace(/\./g, "").replace(",", ".") : raw.replace(/,/g, "");
   const n = Number(t);
   return Number.isFinite(n) && t !== "" ? n : null;
-}
-function toNumOrText(s: string): number | string {
-  return /^\d+$/.test(s) && s.length < 16 ? Number(s) : s;
-}
-function round2(v: number): number {
-  return Math.round((v + Number.EPSILON) * 100) / 100;
 }
