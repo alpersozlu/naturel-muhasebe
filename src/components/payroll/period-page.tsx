@@ -37,6 +37,7 @@ import {
 } from "./format";
 import { LineDialog } from "./line-dialog";
 import { BatchDialog, type BatchChoice } from "./batch-dialog";
+import { KpiDetailDialog, type KpiKind } from "./kpi-detail-dialog";
 
 type Key = { year: number; month: number };
 
@@ -72,6 +73,7 @@ export function PayrollPeriodPage() {
 
   const [openLineId, setOpenLineId] = useState<string | null>(null);
   const [batch, setBatch] = useState<BatchChoice | null>(null);
+  const [kpiDetail, setKpiDetail] = useState<KpiKind | null>(null);
 
   const invalidate = () => {
     void utils.payroll.periods.get.invalidate(key);
@@ -225,7 +227,7 @@ export function PayrollPeriodPage() {
         </div>
       ) : (
         <>
-          <Kpis data={data} />
+          <Kpis data={data} onOpen={setKpiDetail} />
 
           {/* İşlemler */}
           <div className="grid gap-4 lg:grid-cols-3">
@@ -336,6 +338,9 @@ export function PayrollPeriodPage() {
           onChanged={invalidate}
         />
       ) : null}
+      {kpiDetail && data ? (
+        <KpiDetailDialog kind={kpiDetail} data={data} onClose={() => setKpiDetail(null)} onOpenLine={setOpenLineId} />
+      ) : null}
       {batch && data ? (
         <BatchDialog
           periodId={data.period.id}
@@ -349,35 +354,54 @@ export function PayrollPeriodPage() {
   );
 }
 
-function Kpis({ data }: { data: PeriodView }) {
+function Kpis({ data, onOpen }: { data: PeriodView; onOpen: (k: KpiKind) => void }) {
   const t = data.totals;
-  const items = [
-    { label: "Toplam hak ediş", value: money(t.gross), hint: `${t.people} kişi · baz ${money(t.base, { cents: false })}` },
-    { label: "Ödenen", value: money(t.paid), hint: `avans ${money(t.advances, { cents: false })} · ödeme ${money(t.payments, { cents: false })}` },
+  const items: Array<{ label: string; value: string; hint: string; tone?: string; kind?: KpiKind }> = [
+    { label: "Toplam hak ediş", value: money(t.gross), hint: `${t.people} kişi · baz ${money(t.base)}` },
+    { label: "Ödenen", value: money(t.paid), hint: `avans ${money(t.advances)} · ödeme ${money(t.payments)}`, kind: "paid" },
     {
       label: "Maaşlar (Ödeme 1)",
       value: `${t.base_paid_count} / ${t.base_lines}`,
       hint: t.base_paid_count === t.base_lines ? "tüm baz maaşlar ödendi" : `${t.base_lines - t.base_paid_count} kişinin maaşı ödenmedi`,
       tone: t.base_paid_count === t.base_lines ? "text-emerald-700" : "text-amber-700",
+      kind: "salaries",
     },
     {
       label: "Net kalan",
       value: money(t.remaining),
-      hint: `${t.open} kişi açık · ekstra bekleyen ${money(t.extras_pending, { cents: false })}`,
+      hint: `${t.open} kişi açık · ekstra bekleyen ${money(t.extras_pending)}`,
       tone: t.remaining > 0.5 ? "text-amber-700" : "text-emerald-700",
+      kind: "remaining",
     },
-    { label: "Mesai + komisyon + prim", value: money(t.overtime + t.commission + t.premiums), hint: `kesinti ${money(t.deductions, { cents: false })}` },
+    { label: "Mesai + komisyon + prim", value: money(t.overtime + t.commission + t.premiums), hint: `kesinti ${money(t.deductions)}`, kind: "extras" },
     { label: "Uyarı", value: String(t.warnings), hint: t.warnings ? "kontrol edilmeli" : "temiz", tone: t.warnings ? "text-rose-700" : "text-emerald-700" },
   ];
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-      {items.map((it) => (
-        <div key={it.label} className="rounded-xl border bg-card p-4 shadow-xs">
-          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{it.label}</div>
-          <div className={cn("mt-1 text-xl font-semibold tabular-nums tracking-tight", it.tone)}>{it.value}</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">{it.hint}</div>
-        </div>
-      ))}
+      {items.map((it) =>
+        it.kind ? (
+          <button
+            key={it.label}
+            type="button"
+            onClick={() => onOpen(it.kind!)}
+            className="group rounded-xl border bg-card p-4 text-left shadow-xs transition-colors hover:border-primary/40 hover:bg-accent/40"
+            title="İsimleri gör"
+          >
+            <div className="flex items-center justify-between text-[11px] uppercase tracking-wider text-muted-foreground">
+              {it.label}
+              <span className="text-[10px] normal-case tracking-normal opacity-0 transition-opacity group-hover:opacity-100">isimler ›</span>
+            </div>
+            <div className={cn("mt-1 text-xl font-semibold tabular-nums tracking-tight", it.tone)}>{it.value}</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">{it.hint}</div>
+          </button>
+        ) : (
+          <div key={it.label} className="rounded-xl border bg-card p-4 shadow-xs">
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{it.label}</div>
+            <div className={cn("mt-1 text-xl font-semibold tabular-nums tracking-tight", it.tone)}>{it.value}</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">{it.hint}</div>
+          </div>
+        )
+      )}
     </div>
   );
 }
