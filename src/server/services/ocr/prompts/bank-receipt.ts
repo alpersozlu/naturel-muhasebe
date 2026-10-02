@@ -7,6 +7,9 @@ Kurallar:
 - Türkçe sayı formatı: "1.234,56" → 1234.56
 - IBAN'ı tam ve boşluksuz al (örn: TR12345678901234567890123456)
 - IBAN bu belge türünün AYIRT EDİCİ özelliğidir — IBAN yoksa kabul etme
+- Bankalar tutarı YAZIYLA da basar (Halkbank: "Y/(TL) UÇBİNYÜZ %00", İş Bankası: "YALNIZ ...").
+  Rakamı mutlaka yazıyla tutarla karşılaştır; "3,100.00" AMERİKAN biçimidir (virgül binlik, nokta kuruş) = 3100.00
+- Nokta vuruşlu/düşük çözünürlüklü dekontlarda 1↔6, 0↔8, 3↔8 karışır — yazıyla tutar varsa o esastır
 `;
 
 export const BANK_RECEIPT_USER_PROMPT = `Bu görseli ÖNCE doküman türü açısından değerlendir, sonra alanları çıkar.
@@ -34,6 +37,8 @@ Eğer İban dekontu DEĞİLSE:
   "bank_name": null,
   "iban": null,
   "amount": null,
+  "amount_raw": null,
+  "amount_in_words": null,
   "deposit_date": null,
   "currency": "TRY"
 }
@@ -45,13 +50,16 @@ Eğer İban dekontu İSE:
   "bank_name": "string veya null (İş Bankası, Ziraat, Garanti, Akbank, TEB, Koopbank vb.)",
   "iban": "string veya null (TR ile başlayan 26 karakter, boşluksuz)",
   "amount": "ondalık sayı veya null (yatırılan/transfer edilen tutar)",
+  "amount_raw": "tutarın belgede BASILDIĞI haliyle metin, örn. \"3,100.00\" veya \"3.100,00\" (yoksa null)",
+  "amount_in_words": "tutar YAZIYLA basılmışsa o satırın tamamı, örn. \"Y/(TL) UÇBİNYÜZ %00\" (yoksa null)",
   "deposit_date": "YYYY-MM-DD veya null (işlem tarihi)",
   "currency": "TRY | USD | EUR | GBP (TRY varsayılan)"
 }
 
 Eşleştirme rehberi:
 - "İşlem Tarihi" / "Valör Tarihi" / "Tarih" → deposit_date
-- "Tutar" / "İşlem Tutarı" / "Yatırılan Tutar" → amount
+- "Tutar" / "İşlem Tutarı" / "Yatırılan Tutar" / "Toplam" → amount (ve amount_raw: basıldığı gibi)
+- "Y/(TL)" / "Yalnız" / "Yazıyla" satırı → amount_in_words
 - "Alıcı IBAN" / "IBAN" / "Hesap No" → iban
 - "Banka" / banner üstündeki banka adı → bank_name
 - Para birimi sembolü: "TL"/"₺" → TRY, "$" → USD, "€" → EUR, "£" → GBP. Yoksa TRY.

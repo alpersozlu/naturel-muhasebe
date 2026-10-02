@@ -9,6 +9,7 @@ import {
   BANK_RECEIPT_SYSTEM_PROMPT,
   BANK_RECEIPT_USER_PROMPT,
 } from "../prompts/bank-receipt";
+import { reconcileReceiptAmount } from "../amount-words";
 
 function extractJson(raw: string): string {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -81,5 +82,15 @@ export async function parseBankReceipt(opts: {
     throw new Error(`Claude returned non-JSON output: ${rawText.slice(0, 200)}`);
   }
   const parsed = bankReceiptOcrSchema.parse(raw);
+  // Rakam ↔ yazıyla tutar ↔ basılı metin uzlaşması (02.10.2026: Halkbank
+  // dekontunda 3,100.00 → 3.168,68 okunmuştu; yazıyla "UÇBİNYÜZ" doğrusunu verir).
+  if (parsed.is_bank_receipt) {
+    const rec = reconcileReceiptAmount(parsed);
+    if (rec.source !== "model") {
+      console.warn("[bank-receipt] tutar düzeltildi:", rec.note);
+      parsed.amount = rec.amount;
+    }
+    if (raw && typeof raw === "object") (raw as Record<string, unknown>).amount_reconciliation = rec;
+  }
   return { raw, parsed, rawText };
 }
