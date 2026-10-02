@@ -372,6 +372,8 @@ export const payrollRouter = router({
         store_name: string;
         base: number;
         advances: number;
+        extras: number;
+        deductions: number;
         net_remaining: number;
         due: number;
         has_bank_details: boolean;
@@ -397,6 +399,8 @@ export const payrollRouter = router({
           store_name: l.store_name,
           base: l.base_salary,
           advances: l.calc.advances_total,
+          extras: l.calc.extras_total,
+          deductions: l.calc.deductions_total,
           net_remaining: l.calc.net_remaining,
           due: Math.round(due * 100) / 100,
           has_bank_details: l.has_bank_details,
@@ -424,6 +428,8 @@ export const payrollRouter = router({
               store_name: c.store_name,
               base: c.base_salary,
               advances: c.calc.advances_total,
+              extras: c.calc.extras_total,
+              deductions: c.calc.deductions_total,
               net_remaining: c.calc.net_remaining,
               due: c.calc.payment1_due,
               has_bank_details: c.has_bank_details,
@@ -446,10 +452,11 @@ export const payrollRouter = router({
       const total = Math.round(input.items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
       const period = await ctx.prisma.payrollPeriod.findUniqueOrThrow({ where: { id: input.period_id } });
       const label = KIND_LABEL[input.kind];
-      const file_name =
-        input.channel === "garanti"
-          ? talimatFileName(input.pay_date, label)
-          : `${input.pay_date} - ${input.channel === "cash" ? "Nakit" : "Ziraat"} ${label} Listesi.xlsx`;
+      // Dosya yalnız Garanti için (bankaya e-posta). Ziraat ve nakit dosyasız:
+      // kayıt anında ödendi sayılır (sahibi, 02.10.2026).
+      const wantsFile = input.channel === "garanti";
+      const paidNow = input.mark_sent || !wantsFile;
+      const file_name = wantsFile ? talimatFileName(input.pay_date, label) : null;
       const title = input.title ?? `${periodLabel(period.year, period.month)} · ${label} · ${input.channel === "garanti" ? "Garanti" : input.channel === "cash" ? "Nakit" : "Ziraat"} · ${input.pay_date}`;
 
       const batch = await ctx.prisma.$transaction(async (tx) => {
@@ -458,8 +465,8 @@ export const payrollRouter = router({
             period_id: input.period_id,
             kind: input.kind,
             channel: input.channel,
-            status: input.mark_sent ? "sent" : "prepared",
-            sent_at: input.mark_sent ? new Date() : null,
+            status: paidNow ? "sent" : "prepared",
+            sent_at: paidNow ? new Date() : null,
             pay_date: dateOnly(input.pay_date),
             title,
             total,
@@ -482,7 +489,7 @@ export const payrollRouter = router({
               entry_date: dateOnly(input.pay_date),
               amount: it.amount,
               note: l.period_id !== input.period_id ? `${periodLabel(l.period.year, l.period.month)} maaşı — bir ay önceden ödendi` : null,
-              reference: file_name,
+              reference: file_name ?? (input.channel === "cash" ? "Nakit ödeme" : "Ziraat ödemesi"),
               batch_id: b.id,
               created_by: ctx.user.id,
               created_by_name: ctx.user.full_name ?? ctx.user.email,
@@ -492,11 +499,13 @@ export const payrollRouter = router({
         return b;
       });
 
-      const file = await buildBatchFile(input.channel, input.pay_date, title, input.items.map((it) => {
-        const l = byId.get(it.line_id)!;
-        return { employee: l.employee, store: l.store.name, amount: it.amount, scope: label };
-      }));
-      return { id: batch.id, file_name, file_base64: file.toString("base64"), total, count: input.items.length };
+      const file = wantsFile
+        ? await buildBatchFile(input.channel, input.pay_date, title, input.items.map((it) => {
+            const l = byId.get(it.line_id)!;
+            return { employee: l.employee, store: l.store.name, amount: it.amount, scope: label };
+          }))
+        : null;
+      return { id: batch.id, file_name, file_base64: file ? file.toString("base64") : null, total, count: input.items.length };
     }),
 
     download: adminProcedure.input(idSchema).mutation(async ({ ctx, input }) => {

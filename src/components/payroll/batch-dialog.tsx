@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Download } from "lucide-react";
+import { AlertTriangle, Check, Download } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,8 @@ type Row = {
   store_name: string;
   base: number;
   advances: number;
+  extras: number;
+  deductions: number;
   net_remaining: number;
   due: number;
   has_bank_details: boolean;
@@ -49,7 +51,7 @@ export function BatchDialog({
   const [amounts, setAmounts] = useState<Record<string, number | undefined>>({});
   const [payDate, setPayDate] = useState(todayIso());
   const [markSent, setMarkSent] = useState(choice.channel !== "garanti");
-  const [result, setResult] = useState<{ file_name: string; file_base64: string; total: number; count: number } | null>(null);
+  const [result, setResult] = useState<{ file_name: string | null; file_base64: string | null; total: number; count: number } | null>(null);
 
   const prepare = trpc.payroll.batches.prepare.useMutation({
     onSuccess: (r) => {
@@ -73,8 +75,12 @@ export function BatchDialog({
   const create = trpc.payroll.batches.create.useMutation({
     onSuccess: (r) => {
       setResult(r);
-      triggerDownload(r.file_base64, r.file_name);
-      toast.success(`${r.count} kişi · ${money(r.total)} ₺ — dosya indirildi`);
+      if (r.file_base64 && r.file_name) {
+        triggerDownload(r.file_base64, r.file_name);
+        toast.success(`${r.count} kişi · ${money(r.total)} ₺ — dosya indirildi`);
+      } else {
+        toast.success(`${r.count} kişi · ${money(r.total)} ₺ — ödendi olarak işlendi`);
+      }
       onCreated();
     },
     onError: (e) => toast.error(e.message),
@@ -90,6 +96,7 @@ export function BatchDialog({
   const total = items.reduce((s, i) => s + i.amount, 0);
   const missingBank = (rows ?? []).filter((r) => checked[r.line_id] && !r.has_bank_details).length;
   const isGaranti = choice.channel === "garanti";
+  const isPayment2 = choice.kind === "payment2";
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -100,15 +107,16 @@ export function BatchDialog({
           </DialogTitle>
           <DialogDescription>
             {isGaranti
-              ? "Garanti \"TGB Yeni Maaş Dosyası\" formatında talimat üretilir. Kişileri ve tutarları kontrol et; dosya inince bankaya yükle, sonra \"Gönderildi\" işaretle."
-              : "İmza listesi (Excel) üretilir; ödemeler kaydedilir."}
+              ? "Garanti \"TGB Yeni Maaş Dosyası\" formatında talimat üretilir. Kişileri ve tutarları kontrol et; dosyayı bankaya e-posta ile gönder, ödeme gerçekleşince \"Gönderildi / ödendi\" işaretle."
+              : "Dosya üretilmez. Seçilen kişilerin ödemesi bu tarihle kaydedilir; kalan maaşları sıfırlanır."}
+            {isPayment2 ? " Ödeme 2 = mesai + komisyon + primler − kesintiler (kasa eksiği, fiyat farkı, faturasız masraf kişi penceresinden kesinti olarak girilir)." : ""}
             {choice.kind === "advance" ? " Avans tutarlarını elle gir; %50 sınırını geçenler işaretlenir." : ""}
           </DialogDescription>
         </DialogHeader>
 
         {result ? (
           <div className="rounded-xl border bg-emerald-50/50 p-4 text-sm space-y-2">
-            <div className="font-medium text-emerald-800">Hazırlandı: {result.file_name}</div>
+            <div className="font-medium text-emerald-800">{result.file_name ? `Hazırlandı: ${result.file_name}` : "Ödendi olarak işlendi"}</div>
             <div>
               {result.count} kişi · toplam <b>{money(result.total)} ₺</b>
               {markSent
@@ -117,10 +125,12 @@ export function BatchDialog({
                   ? " · dosyayı Garanti'ye e-posta ile gönderin; ödeme gerçekleşince talimatlar listesinde \"Gönderildi / ödendi\" işaretleyin"
                   : " · ödeme yapılınca talimatlar listesinde \"Gönderildi / ödendi\" işaretleyin"}
             </div>
-            <Button variant="outline" size="sm" onClick={() => triggerDownload(result.file_base64, result.file_name)}>
-              <Download className="h-3.5 w-3.5 mr-1.5" />
-              Tekrar indir
-            </Button>
+            {result.file_base64 && result.file_name ? (
+              <Button variant="outline" size="sm" onClick={() => triggerDownload(result.file_base64!, result.file_name!)}>
+                <Download className="h-3.5 w-3.5 mr-1.5" />
+                Tekrar indir
+              </Button>
+            ) : null}
           </div>
         ) : (
           <>
@@ -129,10 +139,14 @@ export function BatchDialog({
                 <Label className="text-xs text-muted-foreground">Ödeme tarihi</Label>
                 <Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className="w-44" />
               </div>
-              <label className="flex items-center gap-2 text-sm pb-2">
-                <input type="checkbox" className="h-4 w-4" checked={markSent} onChange={(e) => setMarkSent(e.target.checked)} />
-                Hemen &quot;ödendi&quot; say
-              </label>
+              {isGaranti ? (
+                <label className="flex items-center gap-2 text-sm pb-2">
+                  <input type="checkbox" className="h-4 w-4" checked={markSent} onChange={(e) => setMarkSent(e.target.checked)} />
+                  Hemen &quot;ödendi&quot; say
+                </label>
+              ) : (
+                <span className="pb-2 text-sm text-muted-foreground">Kaydedilince ödendi sayılır</span>
+              )}
               <div className="ml-auto text-sm">
                 <span className="text-muted-foreground">{items.length} kişi · </span>
                 <b className="tabular-nums">{money(total)} ₺</b>
@@ -169,8 +183,8 @@ export function BatchDialog({
                       />
                     </th>
                     <th className="py-2 text-left font-medium">Çalışan</th>
-                    <th className="py-2 text-right font-medium">Baz</th>
-                    <th className="py-2 text-right font-medium">Avans</th>
+                    <th className="py-2 text-right font-medium">{isPayment2 ? "Ekstra" : "Baz"}</th>
+                    <th className="py-2 text-right font-medium">{isPayment2 ? "Kesinti" : "Avans"}</th>
                     <th className="py-2 text-right font-medium">Net kalan</th>
                     <th className="py-2 text-right font-medium">Tutar</th>
                   </tr>
@@ -199,8 +213,10 @@ export function BatchDialog({
                           </div>
                           {r.note ? <div className="text-[11px] text-amber-800">{r.note}</div> : null}
                         </td>
-                        <td className="py-2 text-right tabular-nums">{money(r.base)}</td>
-                        <td className="py-2 text-right tabular-nums text-amber-800">{r.advances ? money(r.advances) : "—"}</td>
+                        <td className="py-2 text-right tabular-nums">{money(isPayment2 ? r.extras : r.base)}</td>
+                        <td className="py-2 text-right tabular-nums text-amber-800">
+                          {isPayment2 ? (r.deductions ? `−${money(r.deductions)}` : "—") : r.advances ? money(r.advances) : "—"}
+                        </td>
                         <td className="py-2 text-right tabular-nums">{money(r.net_remaining)}</td>
                         <td className="py-2 pl-3 text-right">
                           <MoneyInput
@@ -231,8 +247,8 @@ export function BatchDialog({
               }
               disabled={create.isPending || items.length === 0}
             >
-              <Download className="h-4 w-4 mr-2" />
-              Dosyayı oluştur ve indir
+              {isGaranti ? <Download className="h-4 w-4 mr-2" /> : <Check className="h-4 w-4 mr-2" />}
+              {isGaranti ? "Dosyayı oluştur ve indir" : "Ödendi olarak işle"}
             </Button>
           ) : null}
         </DialogFooter>

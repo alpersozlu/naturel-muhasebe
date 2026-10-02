@@ -744,10 +744,12 @@ function Batches({ data, onChanged }: { data: PeriodView; onChanged: () => void 
             </span>
             <span className="tabular-nums font-medium">{money(b.total)} ₺</span>
             <span className="flex-1 truncate text-xs text-muted-foreground">{b.file_name}</span>
-            <Button size="sm" variant="outline" onClick={() => download.mutate({ id: b.id })} disabled={download.isPending}>
-              <Download className="h-3.5 w-3.5 mr-1.5" />
-              İndir
-            </Button>
+            {b.file_name ? (
+              <Button size="sm" variant="outline" onClick={() => download.mutate({ id: b.id })} disabled={download.isPending}>
+                <Download className="h-3.5 w-3.5 mr-1.5" />
+                İndir
+              </Button>
+            ) : null}
             {b.status === "prepared" ? (
               <Button size="sm" onClick={() => setStatus.mutate({ id: b.id, status: "sent" })} disabled={setStatus.isPending}>
                 Gönderildi / ödendi

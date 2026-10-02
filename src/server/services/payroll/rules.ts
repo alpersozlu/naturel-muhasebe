@@ -125,9 +125,13 @@ export const POSITIONS = [
   "Lojistik",
 ] as const;
 
+// Sahibi (02.10.2026): kasa eksiği, fiyat farkı ve faturasız masraf gibi
+// kesintileri maaş ödendikten SONRA, Ödeme 2'den (prim/mesai) kendisi keser.
 export const DEDUCTION_CATEGORIES = {
   carry_over: "Önceki aydan devir",
-  cash_shortfall: "Kasa farkı",
+  cash_shortfall: "Kasa eksiği / kasa farkı",
+  price_difference: "Fiyat farkı",
+  uninvoiced_expense: "Faturasız masraf (personele kesilen)",
   loan: "Şirket borcu geri ödemesi",
   work_permit: "Çalışma izni geri alımı",
   double_payment: "Çift ödeme tahsili",
