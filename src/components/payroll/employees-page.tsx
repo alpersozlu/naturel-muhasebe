@@ -605,7 +605,7 @@ function LoanDialog({ employees, onClose, onSaved }: { employees: Emp[]; onClose
   const [category, setCategory] = useState<"loan" | "work_permit">("work_permit");
   const [principal, setPrincipal] = useState<number | undefined>(undefined);
   const [repaid, setRepaid] = useState<number | undefined>(undefined);
-  const [months, setMonths] = useState("12");
+  const [months, setMonths] = useState("1"); // sahibi: taksit yok, tek seferde
   const [installment, setInstallment] = useState<number | undefined>(undefined);
   const [auto, setAuto] = useState(true);
   const [start, setStart] = useState(nextMonthValue());
@@ -630,7 +630,7 @@ function LoanDialog({ employees, onClose, onSaved }: { employees: Emp[]; onClose
         <DialogHeader>
           <DialogTitle>Borç ekle</DialogTitle>
           <DialogDescription>
-            Çalışma izni veya şirket borcu. Otomatik taksit açıksa her ayın bordrosuna kesinti olarak kendiliğinden düşer, borç bitince durur.
+            Çalışma izni veya şirket borcu. Varsayılan tek seferde kesinti: ilk kesinti ayının bordrosuna borcun tamamı düşer. Taksit istenirse "kaç seferde" artırılır.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -668,7 +668,7 @@ function LoanDialog({ employees, onClose, onSaved }: { employees: Emp[]; onClose
             <F label="Daha önce ödenen">
               <MoneyInput value={repaid} onChange={setRepaid} />
             </F>
-            <F label="Kaç taksit">
+            <F label="Kaç seferde (1 = tek seferde)">
               <Input type="number" inputMode="numeric" min={1} max={60} value={months} onChange={(e) => setMonths(e.target.value)} />
             </F>
             <F label={`Aylık taksit${suggested ? ` (öneri ${money(suggested)})` : ""}`}>

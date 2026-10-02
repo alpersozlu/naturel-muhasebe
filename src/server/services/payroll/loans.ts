@@ -5,10 +5,11 @@ import type { PrismaClient } from "@prisma/client";
  * Otomatik taksit — şirket borcu / çalışma izni borcu.
  *
  * Sahibi (02.10.2026): "Çalışma izni borçları olursa sisteme gireyim ve
- * otomatik olarak maaşlarından kesilsin." Borç bir kez girilir
- * (toplam, aylık taksit, başlangıç ayı); her açılan dönemde kişinin
- * satırına taksit kadar kesinti düşer, kalan bitince durur. Bir ayın
- * taksidi iptal edilirse o ay atlanır (yeniden üretilmez).
+ * otomatik olarak maaşlarından kesilsin" + "taksit yok, tek seferde
+ * kesiyoruz". Borç bir kez girilir (toplam, kesinti tutarı = varsayılan
+ * tamamı, başlangıç ayı); açılan dönemde kişinin satırına kesinti düşer,
+ * kalan bitince durur. Taksitli girilirse her ay bir taksit. Bir ayın
+ * kesintisi iptal edilirse o ay atlanır (yeniden üretilmez).
  */
 const TRY = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const round2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
@@ -51,9 +52,12 @@ export async function applyLoanInstallments(prisma: PrismaClient, periodId: stri
         entry_date: new Date(Date.UTC(period.year, period.month, 0)), // ayın son günü
         amount,
         loan_id: loan.id,
-        note: `${label} taksidi ${seq}/${total} — toplam ${TRY.format(principal)} ₺, bu taksitten sonra kalan ${TRY.format(
-          round2(remaining - amount)
-        )} ₺ (otomatik)`,
+        note:
+          total === 1
+            ? `${label} — tek seferde kesinti, ${TRY.format(principal)} ₺ (otomatik)`
+            : `${label} taksidi ${seq}/${total} — toplam ${TRY.format(principal)} ₺, bu taksitten sonra kalan ${TRY.format(
+                round2(remaining - amount)
+              )} ₺ (otomatik)`,
         created_by_name: "Otomatik taksit",
       },
     });
