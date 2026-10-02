@@ -14,11 +14,11 @@ import type { PrismaClient } from "@prisma/client";
 const TRY = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const round2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 
-export async function applyLoanInstallments(prisma: PrismaClient, periodId: string): Promise<number> {
+export async function applyLoanInstallments(prisma: PrismaClient, periodId: string, loanId?: string): Promise<number> {
   const period = await prisma.payrollPeriod.findUnique({ where: { id: periodId } });
   if (!period || period.status === "closed") return 0;
   const loans = await prisma.payrollLoan.findMany({
-    where: { closed_at: null, auto_deduct: true, installment: { gt: 0 } },
+    where: { closed_at: null, auto_deduct: true, installment: { gt: 0 }, ...(loanId ? { id: loanId } : {}) },
     include: { repayments: { select: { amount: true, voided_at: true, period_id: true } } },
   });
   let created = 0;
@@ -66,10 +66,10 @@ export async function applyLoanInstallments(prisma: PrismaClient, periodId: stri
   return created;
 }
 
-/** Yeni/değişen borç: açık dönemlerin tamamına taksitleri işle (idempotent). */
-export async function applyLoanToOpenPeriods(prisma: PrismaClient): Promise<number> {
+/** Yeni/değişen borç: açık dönemlerin tamamına kesintileri işle (idempotent; yalnız o borç). */
+export async function applyLoanToOpenPeriods(prisma: PrismaClient, loanId?: string): Promise<number> {
   const open = await prisma.payrollPeriod.findMany({ where: { status: "open" }, orderBy: [{ year: "asc" }, { month: "asc" }] });
   let n = 0;
-  for (const p of open) n += await applyLoanInstallments(prisma, p.id);
+  for (const p of open) n += await applyLoanInstallments(prisma, p.id, loanId);
   return n;
 }

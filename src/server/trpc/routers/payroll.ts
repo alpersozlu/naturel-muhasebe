@@ -578,7 +578,7 @@ export const payrollRouter = router({
         data: { ...input, loan_date: input.loan_date ? dateOnly(input.loan_date) : null },
       });
       // Açık dönemlere (başlangıç ayından itibaren) taksitleri hemen işle.
-      if (loan.auto_deduct) await applyLoanToOpenPeriods(ctx.prisma);
+      if (loan.auto_deduct) await applyLoanToOpenPeriods(ctx.prisma, loan.id);
       return loan;
     }),
     update: loanAudited.input(loanUpdateSchema).mutation(async ({ ctx, input }) => {
@@ -587,7 +587,7 @@ export const payrollRouter = router({
         where: { id },
         data: { ...rest, ...(closed === undefined ? {} : { closed_at: closed ? new Date() : null }) },
       });
-      if (loan.auto_deduct && !loan.closed_at) await applyLoanToOpenPeriods(ctx.prisma);
+      if (loan.auto_deduct && !loan.closed_at) await applyLoanToOpenPeriods(ctx.prisma, loan.id);
       return loan;
     }),
     close: loanAudited.input(idSchema).mutation(({ ctx, input }) =>
