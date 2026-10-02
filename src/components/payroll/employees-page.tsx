@@ -630,7 +630,7 @@ function LoanDialog({ employees, onClose, onSaved }: { employees: Emp[]; onClose
         <DialogHeader>
           <DialogTitle>Borç ekle</DialogTitle>
           <DialogDescription>
-            Çalışma izni veya şirket borcu. Varsayılan tek seferde kesinti: ilk kesinti ayının bordrosuna borcun tamamı düşer. Taksit istenirse "kaç seferde" artırılır.
+            Çalışma izni veya şirket borcu. Varsayılan tek seferde kesinti: ilk kesinti ayının bordrosuna borcun tamamı düşer. Taksit istenirse "kaç seferde" artırılır. Kural: bir yıldan uzun süredir çalışanlardan çalışma izni KESİLMEZ.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">

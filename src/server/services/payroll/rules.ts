@@ -16,7 +16,11 @@ export const TOP_SELLER_PREMIUM = 3000;
 export const PERFUME_PREMIUM_PER_UNIT = 50;
 /** Giysi primi — Derimod personeli, adet başına. */
 export const GARMENT_PREMIUM_PER_UNIT = 200;
-/** Çalışma izni yıllık maliyeti; erken ayrılan kalan ayları öder (ay bazında). */
+/**
+ * Çalışma izni yıllık maliyeti; erken ayrılan kalan ayları öder (ay bazında).
+ * KURAL (sahibi, 02.10.2026): bir yıldan uzun süredir çalışanlardan çalışma izni
+ * ücreti KESİLMEZ; yalnız ilk yılındakilerden tek seferde kesilir.
+ */
 export const WORK_PERMIT_ANNUAL_COST = 17000;
 /** Avans netin bu oranını geçerse uyarı (Mevlüde %74, Emre %57 olmuştu). */
 export const ADVANCE_WARN_SHARE = 0.5;
