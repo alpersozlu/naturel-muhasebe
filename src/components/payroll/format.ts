@@ -1,7 +1,8 @@
 /** Bordro ekranlarının ortak biçimleri ve etiketleri (istemci tarafı). */
 
 const TRY2 = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const TRY0 = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 0 });
+// Kuruş her yerde yazılır (sahibi, 02.10.2026) — "cents: false" artık yalnız geriye uyumluluk.
+const TRY0 = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const PCT1 = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 export function money(v: number | null | undefined, opts?: { zero?: string; cents?: boolean }): string {

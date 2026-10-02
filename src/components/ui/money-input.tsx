@@ -31,11 +31,15 @@ export function formatTrMoneyInput(raw: string): string {
   return `${intFmt},${rest.join("").slice(0, 2)}`;
 }
 
-/** number → "11.000,50" (alan odakta değilken gösterilen hal) */
+/**
+ * number → "11.000,50" (alan odakta değilken gösterilen hal).
+ * Kuruş her zaman yazılır ("61.677,00") — sahibi, 02.10.2026: "gerçek rakam
+ * formatında olsun, 00'ları da olsun".
+ */
 export function formatTrMoneyValue(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return "";
   return new Intl.NumberFormat("tr-TR", {
-    minimumFractionDigits: 0,
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(v);
 }
