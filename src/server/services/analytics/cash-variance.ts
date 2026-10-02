@@ -1,5 +1,5 @@
 import "server-only";
-import { effectiveSummary, cumulativePrevSummarySelect } from "@/server/services/verification/effective-summary";
+import { computeDay } from "@/server/services/verification/compute";
 import type { PrismaClient } from "@prisma/client";
 import type { AnalyticsFilter } from "@/lib/zod-schemas/analytics";
 import { TOLERANCE_TL } from "@/lib/constants";
@@ -8,10 +8,12 @@ import { TOLERANCE_TL } from "@/lib/constants";
  * Kasa Farkı Analitiği
  *
  * Mağazaların gün-gün uzlaşma farklarını toplar:
- *   - documents = POS toplam + Nakit (müdür sayımı varsa) + Kartuş puan
- *     (elimize geçen)
- *   - summary = StoreSummary.sales_total (olması gereken)
- *   - difference = documents − summary
+ *   - difference = doğrulama motorunun (computeDay) GENEL TOPLAM farkı:
+ *     documents (POS + nakit kaynakları + kartuş + havale dekontu + kurumsal)
+ *     − summary (StoreSummary.sales_total). Doğrulanmış günde saklı sonuç,
+ *     doğrulanmamış günde canlı hesap — Doğrulama Sistemi ekranıyla aynı rakam.
+ *     (02.10.2026: eski kısa formül IBAN dekontunu saymadığı için Mavi Girne
+ *     01.10'da −3.100,35 "eksik" gösteriyordu; doğrulama +68,33 diyordu.)
  *
  * Negatif = elimize geçen olması gerekenden az → EKSİK (kayıp/hırsızlık sinyali).
  * Pozitif = elimize geçen olması gerekenden fazla → fazla nakit / üst kalmış.
@@ -88,24 +90,31 @@ export async function cashVarianceSummary(
     },
     include: {
       store: { include: { brand: true } },
-      store_summary: {
-        select: {
-          cash_sales_try: true,
-          loyalty_points_total_try: true,
-          sales_total_try: true,
-          credit_card_total_try: true,
-        },
-      },
-      cumulative_prev: { select: cumulativePrevSummarySelect },
+      store_summary: { select: { sales_total_try: true } },
       verification: { select: { difference: true } },
-      pos_slips: {
-        select: {
-          net_amount_try: true,
-          upload: { select: { status: true } },
-        },
-      },
     },
   });
+
+  // Birleşik günler (merge group): motor grubun tamamını toplar; fark grubun
+  // SON gününe yazılır, diğer üyeler 0 — çift sayım olmasın.
+  const byId = new Map(records.map((r) => [r.id, r]));
+  const groupLast = new Map<string, string>();
+  for (const dr of records) {
+    if (!dr.merge_group_id) continue;
+    const cur = groupLast.get(dr.merge_group_id);
+    if (!cur || (dr.merge_index ?? 0) > (byId.get(cur)?.merge_index ?? 0)) groupLast.set(dr.merge_group_id, dr.id);
+  }
+  // Doğrulanmamış günlerin canlı hesabı — paralel (8'erli), grup başına bir kez.
+  const needLive = records.filter(
+    (r) => !r.verification && (!r.merge_group_id || groupLast.get(r.merge_group_id) === r.id)
+  );
+  const liveDiff = new Map<string, number>();
+  const CHUNK = 8;
+  for (let i = 0; i < needLive.length; i += CHUNK) {
+    const chunk = needLive.slice(i, i + CHUNK);
+    const out = await Promise.all(chunk.map((r) => computeDay(prisma, r.id).then((d) => d.difference)));
+    chunk.forEach((r, k) => liveDiff.set(r.id, out[k] ?? 0));
+  }
 
   // Aktif mağaza sayısı için kapsamdaki tüm mağazalar (varyans olmasa da sayılsın)
   const allStoresInScope = storeIds
@@ -137,27 +146,14 @@ export async function cashVarianceSummary(
   for (const dr of records) {
     if (!dr.store_summary) continue;
 
-    const includedPos = dr.pos_slips.filter(
-      (p) => p.upload.status === "parsed" || p.upload.status === "confirmed"
-    );
-    const posSum = includedPos.reduce((s, p) => s + num(p.net_amount_try), 0);
-
-    // Cumulative (Mavi) days: the summary includes the previous day.
-    const eff = effectiveSummary(dr.store_summary, dr.cumulative_prev?.store_summary);
-    const summaryCash = eff.cash;
-    const loyalty = eff.loyalty;
-    const summarySales = eff.sales;
-    const reportedCash = dr.reported_cash_try ? num(dr.reported_cash_try) : null;
-    const effectiveCash = reportedCash ?? summaryCash;
-
-    // The reconciliation engine's result is the truth for a day that has
-    // been verified (it knows vouchers, expenses, bank receipts, wire,
-    // corporate purchases and merge groups); the inline formula is only
-    // the fallback for days nobody has reconciled yet.
-    const documents = posSum + effectiveCash + loyalty;
-    const summary = summarySales;
-    // Sign konvansiyonu: docs − summary (elime geçen − olması gereken)
-    const diff = dr.verification ? num(dr.verification.difference) : documents - summary;
+    // Doğrulanmış günde saklı sonuç; doğrulanmamış günde motorun canlı
+    // hesabı (dekont/havale, masraf, hediye çeki, kurumsal, birleşik gün —
+    // Doğrulama Sistemi ekranıyla birebir aynı). Sign: docs − summary.
+    const diff = dr.verification
+      ? num(dr.verification.difference)
+      : dr.merge_group_id && groupLast.get(dr.merge_group_id) !== dr.id
+        ? 0
+        : (liveDiff.get(dr.id) ?? 0);
 
     // Tolerans içindeyse yine de net_diff'e ekle ama days listesine alma
     const bucket = byStoreMap[dr.store_id];
