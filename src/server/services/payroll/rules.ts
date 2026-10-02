@@ -133,7 +133,7 @@ export const DEDUCTION_CATEGORIES = {
   price_difference: "Fiyat farkı",
   uninvoiced_expense: "Faturasız masraf (personele kesilen)",
   loan: "Şirket borcu geri ödemesi",
-  work_permit: "Çalışma izni geri alımı",
+  work_permit: "Çalışma izni borcu",
   double_payment: "Çift ödeme tahsili",
   other: "Diğer kesinti",
 } as const;

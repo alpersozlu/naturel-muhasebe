@@ -1362,13 +1362,21 @@ model PayrollBatch {
   @@index([period_id])
 }
 
-/// Şirket borcu (kredi). Geri ödemeler loan_id'li deduction kayıtlarıdır.
+/// Şirket borcu (kredi) veya çalışma izni borcu. Geri ödemeler loan_id'li
+/// deduction kayıtlarıdır. auto_deduct + installment: her açılan dönemde
+/// taksit kesintisi kendiliğinden düşer (services/payroll/loans.ts), borç
+/// bitince durur; bir ayın taksidi iptal edilirse o ay atlanır.
 model PayrollLoan {
   id             String          @id @default(uuid())
   employee_id    String
   employee       PayrollEmployee @relation(fields: [employee_id], references: [id])
+  category       String          @default("loan") // "loan" | "work_permit"
   principal      Decimal         @db.Decimal(14, 2)
   opening_repaid Decimal         @default(0) @db.Decimal(14, 2) // sisteme girmeden önce ödenen
+  installment    Decimal?        @db.Decimal(14, 2) // aylık taksit
+  auto_deduct    Boolean         @default(false)
+  start_year     Int?
+  start_month    Int?
   loan_date      DateTime?       @db.Date
   note           String?
   closed_at      DateTime?

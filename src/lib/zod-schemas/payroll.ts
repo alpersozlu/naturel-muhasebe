@@ -154,12 +154,29 @@ export const batchStatusSchema = z.object({
   note: text(500),
 });
 
+export const loanCategoryEnum = z.enum(["loan", "work_permit"]);
+
 export const loanCreateSchema = z.object({
   employee_id: z.string().uuid(),
+  category: loanCategoryEnum.default("loan"),
   principal: z.number().finite().positive().max(100_000_000),
   opening_repaid: money.default(0),
+  installment: money.nullable().optional(),
+  auto_deduct: z.boolean().default(false),
+  start_year: z.number().int().min(2024).max(2100).nullable().optional(),
+  start_month: z.number().int().min(1).max(12).nullable().optional(),
   loan_date: dateStr.nullable().optional(),
   note: text(500),
+});
+
+export const loanUpdateSchema = z.object({
+  id: z.string().uuid(),
+  installment: money.nullable().optional(),
+  auto_deduct: z.boolean().optional(),
+  start_year: z.number().int().min(2024).max(2100).nullable().optional(),
+  start_month: z.number().int().min(1).max(12).nullable().optional(),
+  note: text(500),
+  closed: z.boolean().optional(),
 });
 
 export const importAccountsSchema = z.object({

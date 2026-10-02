@@ -16,6 +16,7 @@ import {
   importAccountsSchema,
   lineUpdateSchema,
   loanCreateSchema,
+  loanUpdateSchema,
   periodIdSchema,
   periodKeySchema,
   storeMonthUpsertSchema,
@@ -38,6 +39,7 @@ import {
   talimatFileName,
 } from "@/server/services/payroll/talimat";
 import { periodLabel } from "@/server/services/payroll/rules";
+import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
 
 const employeeAudited = withAudit("PayrollEmployee");
 const periodAudited = withAudit("PayrollPeriod");
@@ -549,8 +551,13 @@ export const payrollRouter = router({
           id: l.id,
           employee_id: l.employee_id,
           full_name: l.employee.full_name,
+          category: l.category as "loan" | "work_permit",
           principal: Number(l.principal),
           opening_repaid: Number(l.opening_repaid),
+          installment: l.installment != null ? Number(l.installment) : null,
+          auto_deduct: l.auto_deduct,
+          start_year: l.start_year,
+          start_month: l.start_month,
           repaid,
           outstanding: Math.round((Number(l.principal) - Number(l.opening_repaid) - repaid) * 100) / 100,
           loan_date: l.loan_date ? isoDate(l.loan_date) : null,
@@ -566,11 +573,23 @@ export const payrollRouter = router({
         };
       });
     }),
-    create: loanAudited.input(loanCreateSchema).mutation(({ ctx, input }) =>
-      ctx.prisma.payrollLoan.create({
+    create: loanAudited.input(loanCreateSchema).mutation(async ({ ctx, input }) => {
+      const loan = await ctx.prisma.payrollLoan.create({
         data: { ...input, loan_date: input.loan_date ? dateOnly(input.loan_date) : null },
-      })
-    ),
+      });
+      // Açık dönemlere (başlangıç ayından itibaren) taksitleri hemen işle.
+      if (loan.auto_deduct) await applyLoanToOpenPeriods(ctx.prisma);
+      return loan;
+    }),
+    update: loanAudited.input(loanUpdateSchema).mutation(async ({ ctx, input }) => {
+      const { id, closed, ...rest } = input;
+      const loan = await ctx.prisma.payrollLoan.update({
+        where: { id },
+        data: { ...rest, ...(closed === undefined ? {} : { closed_at: closed ? new Date() : null }) },
+      });
+      if (loan.auto_deduct && !loan.closed_at) await applyLoanToOpenPeriods(ctx.prisma);
+      return loan;
+    }),
     close: loanAudited.input(idSchema).mutation(({ ctx, input }) =>
       ctx.prisma.payrollLoan.update({ where: { id: input.id }, data: { closed_at: new Date() } })
     ),

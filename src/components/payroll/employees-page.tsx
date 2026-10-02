@@ -27,6 +27,7 @@ import {
 import { STATUS_LABEL, dmy, money, todayIso } from "./format";
 
 type Emp = inferRouterOutputs<AppRouter>["payroll"]["employees"]["list"][number];
+type Loan = inferRouterOutputs<AppRouter>["payroll"]["loans"]["list"][number];
 
 export function EmployeesPage() {
   const utils = trpc.useUtils();
@@ -37,6 +38,7 @@ export function EmployeesPage() {
   const [leaving, setLeaving] = useState<Emp | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [loanOpen, setLoanOpen] = useState(false);
+  const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
 
   const invalidate = () => {
     void utils.payroll.employees.list.invalidate();
@@ -195,26 +197,51 @@ export function EmployeesPage() {
 
       {loans.data && loans.data.length > 0 ? (
         <section className="rounded-2xl border bg-card shadow-xs">
-          <header className="border-b px-4 py-3 font-semibold tracking-tight">Şirket borçları</header>
+          <header className="border-b px-4 py-3">
+            <div className="font-semibold tracking-tight">Borçlar — şirket borcu ve çalışma izni</div>
+            <div className="text-xs text-muted-foreground">
+              Otomatik taksitli borçlar her ayın bordrosuna kesinti olarak kendiliğinden düşer; borç bitince durur.
+            </div>
+          </header>
           <ul className="divide-y text-sm">
-            {loans.data.map((l) => (
-              <li key={l.id} className={cn("flex flex-wrap items-center gap-3 px-4 py-2.5", l.closed_at && "opacity-60")}>
-                <span className="font-medium">{l.full_name}</span>
-                <span className="text-muted-foreground">
-                  {money(l.principal)} ₺ borç{l.loan_date ? ` (${dmy(l.loan_date)})` : ""} · ödenen {money(l.opening_repaid + l.repaid)} ₺
-                </span>
-                <span className={cn("tabular-nums font-medium", l.outstanding > 0.5 ? "text-rose-700" : "text-emerald-700")}>
-                  kalan {money(l.outstanding)} ₺
-                </span>
-                {l.note ? <span className="text-xs text-muted-foreground">{l.note}</span> : null}
-                {l.repayments.length ? (
-                  <span className="text-xs text-muted-foreground">
-                    taksitler: {l.repayments.map((r) => `${dmy(r.date)} ${money(r.amount, { cents: false })}${r.voided ? " (iptal)" : ""}`).join(", ")}
+            {loans.data.map((l) => {
+              const done = l.outstanding <= 0.5;
+              return (
+                <li key={l.id} className={cn("flex flex-wrap items-center gap-3 px-4 py-2.5", (l.closed_at || done) && "opacity-60")}>
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[11px] font-medium ring-1",
+                      l.category === "work_permit" ? "bg-sky-50 text-sky-800 ring-sky-200/70" : "bg-slate-100 text-slate-700 ring-slate-200"
+                    )}
+                  >
+                    {l.category === "work_permit" ? "Çalışma izni" : "Şirket borcu"}
                   </span>
-                ) : null}
-                {l.closed_at ? <span className="text-xs">kapalı</span> : null}
-              </li>
-            ))}
+                  <span className="font-medium">{l.full_name}</span>
+                  <span className="text-muted-foreground">
+                    {money(l.principal)} ₺{l.loan_date ? ` (${dmy(l.loan_date)})` : ""} · ödenen {money(l.opening_repaid + l.repaid)} ₺
+                  </span>
+                  <span className={cn("tabular-nums font-medium", done ? "text-emerald-700" : "text-rose-700")}>
+                    {done ? "bitti" : `kalan ${money(l.outstanding)} ₺`}
+                  </span>
+                  {l.installment ? (
+                    <span className="text-xs text-muted-foreground">
+                      taksit {money(l.installment)} ₺/ay{l.auto_deduct ? " · otomatik" : " · elle"}
+                      {l.start_year && l.start_month ? ` · ${String(l.start_month).padStart(2, "0")}.${l.start_year}'den` : ""}
+                    </span>
+                  ) : null}
+                  {l.note ? <span className="text-xs text-muted-foreground">{l.note}</span> : null}
+                  {l.repayments.length ? (
+                    <span className="text-xs text-muted-foreground">
+                      kesilen: {l.repayments.map((r) => `${r.period} ${money(r.amount)}${r.voided ? " (iptal)" : ""}`).join(", ")}
+                    </span>
+                  ) : null}
+                  {l.closed_at ? <span className="text-xs">kapalı</span> : null}
+                  <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setEditingLoan(l)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}
@@ -225,6 +252,7 @@ export function EmployeesPage() {
       {leaving ? <LeaveDialog employee={leaving} onClose={() => setLeaving(null)} onSaved={invalidate} /> : null}
       {importOpen ? <ImportDialog onClose={() => setImportOpen(false)} onDone={invalidate} /> : null}
       {loanOpen ? <LoanDialog employees={list.data ?? []} onClose={() => setLoanOpen(false)} onSaved={invalidate} /> : null}
+      {editingLoan ? <LoanEditDialog loan={editingLoan} onClose={() => setEditingLoan(null)} onSaved={invalidate} /> : null}
     </div>
   );
 }
@@ -565,26 +593,45 @@ function ImportDialog({ onClose, onDone }: { onClose: () => void; onDone: () => 
   );
 }
 
+function nextMonthValue(): string {
+  const d = new Date();
+  const m = d.getMonth() + 2; // gelecek ay
+  const y = d.getFullYear() + (m > 12 ? 1 : 0);
+  return `${y}-${String(((m - 1) % 12) + 1).padStart(2, "0")}`;
+}
+
 function LoanDialog({ employees, onClose, onSaved }: { employees: Emp[]; onClose: () => void; onSaved: () => void }) {
   const [employeeId, setEmployeeId] = useState("");
+  const [category, setCategory] = useState<"loan" | "work_permit">("work_permit");
   const [principal, setPrincipal] = useState<number | undefined>(undefined);
   const [repaid, setRepaid] = useState<number | undefined>(undefined);
+  const [months, setMonths] = useState("12");
+  const [installment, setInstallment] = useState<number | undefined>(undefined);
+  const [auto, setAuto] = useState(true);
+  const [start, setStart] = useState(nextMonthValue());
   const [date, setDate] = useState("");
   const [note, setNote] = useState("");
   const create = trpc.payroll.loans.create.useMutation({
     onSuccess: () => {
-      toast.success("Borç kaydedildi");
+      toast.success("Borç kaydedildi — taksitler açık aylara işlendi");
       onSaved();
       onClose();
     },
     onError: (e) => toast.error(e.message),
   });
+  const base = (principal ?? 0) - (repaid ?? 0);
+  const m = Math.max(1, Math.round(Number(months) || 0));
+  const suggested = base > 0 ? Math.round((base / m) * 100) / 100 : undefined;
+  const effInstallment = installment ?? suggested;
+  const [sy, sm] = start.split("-").map(Number);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Şirket borcu ekle</DialogTitle>
-          <DialogDescription>Geri ödemeler bordro satırına &quot;Kesinti → Şirket borcu&quot; olarak girilir; kalan burada izlenir.</DialogDescription>
+          <DialogTitle>Borç ekle</DialogTitle>
+          <DialogDescription>
+            Çalışma izni veya şirket borcu. Otomatik taksit açıksa her ayın bordrosuna kesinti olarak kendiliğinden düşer, borç bitince durur.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <F label="Çalışan">
@@ -593,23 +640,125 @@ function LoanDialog({ employees, onClose, onSaved }: { employees: Emp[]; onClose
                 <SelectValue placeholder="Seç" />
               </SelectTrigger>
               <SelectContent>
-                {employees.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.full_name} — {e.store_name}
-                  </SelectItem>
-                ))}
+                {employees
+                  .filter((e) => e.status !== "left")
+                  .map((e) => (
+                    <SelectItem key={e.id} value={e.id}>
+                      {e.full_name} — {e.store_name}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </F>
-          <F label="Borç tutarı">
-            <MoneyInput value={principal} onChange={setPrincipal} />
+          <F label="Tür">
+            <Select value={category} onValueChange={(v) => setCategory(v as "loan" | "work_permit")}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="work_permit">Çalışma izni borcu</SelectItem>
+                <SelectItem value="loan">Şirket borcu (kredi)</SelectItem>
+              </SelectContent>
+            </Select>
           </F>
-          <F label="Daha önce ödenen (sisteme girmeden)">
-            <MoneyInput value={repaid} onChange={setRepaid} />
+          <div className="grid grid-cols-2 gap-3">
+            <F label="Borç tutarı">
+              <MoneyInput value={principal} onChange={setPrincipal} />
+            </F>
+            <F label="Daha önce ödenen">
+              <MoneyInput value={repaid} onChange={setRepaid} />
+            </F>
+            <F label="Kaç taksit">
+              <Input type="number" inputMode="numeric" min={1} max={60} value={months} onChange={(e) => setMonths(e.target.value)} />
+            </F>
+            <F label={`Aylık taksit${suggested ? ` (öneri ${money(suggested)})` : ""}`}>
+              <MoneyInput value={installment} onChange={setInstallment} placeholder={suggested ? money(suggested) : ""} />
+            </F>
+            <F label="İlk kesinti ayı">
+              <Input type="month" value={start} onChange={(e) => setStart(e.target.value)} />
+            </F>
+            <F label="Borç tarihi">
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </F>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
+            Taksitleri maaştan otomatik kes
+          </label>
+          <F label="Not">
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="örn. çalışma izni ücreti şirketçe ödendi (02.10.2026)" />
           </F>
-          <F label="Tarih">
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          </F>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Vazgeç
+          </Button>
+          <Button
+            onClick={() =>
+              create.mutate({
+                employee_id: employeeId,
+                category,
+                principal: principal ?? 0,
+                opening_repaid: repaid ?? 0,
+                installment: effInstallment ?? null,
+                auto_deduct: auto && !!effInstallment,
+                start_year: sy || null,
+                start_month: sm || null,
+                loan_date: date || null,
+                note: note || null,
+              })
+            }
+            disabled={create.isPending || !employeeId || !principal}
+          >
+            Kaydet
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LoanEditDialog({ loan, onClose, onSaved }: { loan: Loan; onClose: () => void; onSaved: () => void }) {
+  const [installment, setInstallment] = useState<number | undefined>(loan.installment ?? undefined);
+  const [auto, setAuto] = useState(loan.auto_deduct);
+  const [start, setStart] = useState(loan.start_year && loan.start_month ? `${loan.start_year}-${String(loan.start_month).padStart(2, "0")}` : "");
+  const [note, setNote] = useState(loan.note ?? "");
+  const [closed, setClosed] = useState(!!loan.closed_at);
+  const update = trpc.payroll.loans.update.useMutation({
+    onSuccess: () => {
+      toast.success("Borç güncellendi");
+      onSaved();
+      onClose();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const [sy, sm] = start ? start.split("-").map(Number) : [null, null];
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Borç — {loan.full_name}</DialogTitle>
+          <DialogDescription>
+            {money(loan.principal)} ₺ · kalan {money(loan.outstanding)} ₺. Taksit ve otomatik kesinti ayarı; geçmiş kesintiler değişmez.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <F label="Aylık taksit">
+              <MoneyInput value={installment} onChange={setInstallment} />
+            </F>
+            <F label="İlk kesinti ayı">
+              <Input type="month" value={start} onChange={(e) => setStart(e.target.value)} />
+            </F>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
+            Taksitleri maaştan otomatik kes
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4" checked={closed} onChange={(e) => setClosed(e.target.checked)} />
+            Borcu kapat (artık kesilmesin)
+          </label>
           <F label="Not">
             <Input value={note} onChange={(e) => setNote(e.target.value)} />
           </F>
@@ -620,9 +769,9 @@ function LoanDialog({ employees, onClose, onSaved }: { employees: Emp[]; onClose
           </Button>
           <Button
             onClick={() =>
-              create.mutate({ employee_id: employeeId, principal: principal ?? 0, opening_repaid: repaid ?? 0, loan_date: date || null, note: note || null })
+              update.mutate({ id: loan.id, installment: installment ?? null, auto_deduct: auto, start_year: sy, start_month: sm, note: note || null, closed })
             }
-            disabled={create.isPending || !employeeId || !principal}
+            disabled={update.isPending}
           >
             Kaydet
           </Button>

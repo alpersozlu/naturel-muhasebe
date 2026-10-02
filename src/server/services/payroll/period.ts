@@ -2,6 +2,7 @@ import "server-only";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { computeLine, type EntryLike, type LineCalc, type LineInput } from "./compute";
 import { periodLabel } from "./rules";
+import { applyLoanInstallments } from "./loans";
 
 export const num = (v: Prisma.Decimal | number | null | undefined): number | null =>
   v == null ? null : Number(v);
@@ -384,6 +385,8 @@ export async function ensureLines(prisma: PrismaClient, periodId: string): Promi
       update: {},
     });
   }
+  // Otomatik borç taksitleri (çalışma izni / şirket borcu)
+  await applyLoanInstallments(prisma, periodId);
   return missing.length;
 }
 
