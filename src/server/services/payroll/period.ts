@@ -197,6 +197,11 @@ export type PeriodView = {
     remaining: number;
     open: number;
     warnings: number;
+    /** Baz maaşı olan kişi sayısı ve bunlardan maaşı tamamen ödenenler */
+    base_lines: number;
+    base_paid_count: number;
+    /** Maaşı ödenmişlerde bekleyen ekstralar (Ödeme 2) */
+    extras_pending: number;
   };
   batches: Array<{
     id: string;
@@ -290,6 +295,9 @@ export async function loadPeriodView(prisma: PrismaClient, periodId: string): Pr
     remaining: sum((l) => l.calc.net_remaining),
     open: all.filter((l) => Math.abs(l.calc.net_remaining) > 0.5).length,
     warnings: all.reduce((s, l) => s + l.calc.flags.filter((f) => f.level !== "info").length, 0),
+    base_lines: all.filter((l) => l.base_salary > 0).length,
+    base_paid_count: all.filter((l) => l.base_salary > 0 && l.calc.base_paid).length,
+    extras_pending: sum((l) => (l.calc.base_paid ? l.calc.payment2_due : 0)),
   };
 
   const alerts = all.flatMap((l) =>

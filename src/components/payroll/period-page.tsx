@@ -354,12 +354,23 @@ function Kpis({ data }: { data: PeriodView }) {
   const items = [
     { label: "Toplam hak ediş", value: money(t.gross), hint: `${t.people} kişi · baz ${money(t.base, { cents: false })}` },
     { label: "Ödenen", value: money(t.paid), hint: `avans ${money(t.advances, { cents: false })} · ödeme ${money(t.payments, { cents: false })}` },
-    { label: "Net kalan", value: money(t.remaining), hint: `${t.open} kişi açık`, tone: t.remaining > 0.5 ? "text-amber-700" : "text-emerald-700" },
+    {
+      label: "Maaşlar (Ödeme 1)",
+      value: `${t.base_paid_count} / ${t.base_lines}`,
+      hint: t.base_paid_count === t.base_lines ? "tüm baz maaşlar ödendi" : `${t.base_lines - t.base_paid_count} kişinin maaşı ödenmedi`,
+      tone: t.base_paid_count === t.base_lines ? "text-emerald-700" : "text-amber-700",
+    },
+    {
+      label: "Net kalan",
+      value: money(t.remaining),
+      hint: `${t.open} kişi açık · ekstra bekleyen ${money(t.extras_pending, { cents: false })}`,
+      tone: t.remaining > 0.5 ? "text-amber-700" : "text-emerald-700",
+    },
     { label: "Mesai + komisyon + prim", value: money(t.overtime + t.commission + t.premiums), hint: `kesinti ${money(t.deductions, { cents: false })}` },
     { label: "Uyarı", value: String(t.warnings), hint: t.warnings ? "kontrol edilmeli" : "temiz", tone: t.warnings ? "text-rose-700" : "text-emerald-700" },
   ];
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       {items.map((it) => (
         <div key={it.label} className="rounded-xl border bg-card p-4 shadow-xs">
           <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{it.label}</div>
@@ -685,6 +696,11 @@ function LineRow({ line, onOpen }: { line: ComputedLine; onOpen: (id: string) =>
         >
           {closed ? "0,00 ✓" : money(c.net_remaining)}
         </span>
+        {!closed ? (
+          <div className="mt-0.5 text-[10px] text-muted-foreground">
+            {c.base_paid ? "maaş ödendi · ekstra bekliyor" : `maaş eksik ${money(c.payment1_due, { cents: false })}`}
+          </div>
+        ) : null}
       </td>
     </tr>
   );

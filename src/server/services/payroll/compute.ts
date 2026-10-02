@@ -128,6 +128,10 @@ export type LineCalc = {
   payment1_due: number;
   /** Ödeme 1 sonrası kalan: OT + komisyon + primler */
   payment2_due: number;
+  /** Baz maaş tamamen ödendi mi (sahibinin akışı: Garanti + Ziraat + nakit → "maaşlar kapandı") */
+  base_paid: boolean;
+  /** Ödeme 2 kapsamı: mesai + komisyon + primler + ek hak edişler */
+  extras_total: number;
   entries: AnnotatedEntry[];
   flags: Flag[];
 };
@@ -295,6 +299,7 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
   const p1raw = line.base_salary + additions - deductions - paid;
   const payment1 = Math.max(0, Math.min(p1raw, net));
   const payment2 = Math.max(0, net - payment1);
+  const extras = overtime + commission.final + perfume + garment + topSeller + extra + additions;
 
   const flags: Flag[] = [];
   if (line.status === "left") flags.push({ code: "left", level: "info", text: "Ayrıldı — son bordro / çıkış mutabakatı." });
@@ -365,6 +370,8 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
     net_remaining: round2(net),
     payment1_due: round2(payment1),
     payment2_due: round2(payment2),
+    base_paid: payment1 <= 0.5,
+    extras_total: round2(extras),
     entries: annotated,
     flags,
   };

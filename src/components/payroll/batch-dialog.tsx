@@ -111,7 +111,11 @@ export function BatchDialog({
             <div className="font-medium text-emerald-800">Hazırlandı: {result.file_name}</div>
             <div>
               {result.count} kişi · toplam <b>{money(result.total)} ₺</b>
-              {markSent ? " · ödendi olarak işlendi" : " · bankaya yükleyince \"Gönderildi / ödendi\" işaretle (talimatlar listesinde)"}
+              {markSent
+                ? " · ödendi olarak işlendi"
+                : isGaranti
+                  ? " · dosyayı Garanti'ye e-posta ile gönderin; ödeme gerçekleşince talimatlar listesinde \"Gönderildi / ödendi\" işaretleyin"
+                  : " · ödeme yapılınca talimatlar listesinde \"Gönderildi / ödendi\" işaretleyin"}
             </div>
             <Button variant="outline" size="sm" onClick={() => triggerDownload(result.file_base64, result.file_name)}>
               <Download className="h-3.5 w-3.5 mr-1.5" />
