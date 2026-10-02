@@ -90,12 +90,15 @@ export async function checkZApproval(
   const cc_total = z.daily_record.pos_slips
     .filter((p) => p.upload.status === "parsed" || p.upload.status === "confirmed")
     .reduce((s, p) => s + num(p.net_amount_try), 0);
-  // Taban, kilit kuralıyla aynı (24d2644): POS fişleri ile özetteki kart
-  // satışının BÜYÜĞÜ — bir slibi yüklememek çıtayı düşürmesin.
+  // Taban = mağazanın SİSTEME YÜKLEDİĞİ POS fişlerinin toplamı (sahibi,
+  // 01.10.2026: "Mavi'nin sistemine girdikleri POS'lara değil, sisteme
+  // yükledikleri POS'lara bak" — Mavi Lefkoşa 01.10: SAP kart 305.393,80,
+  // fişler 292.094,00, Z 305.095 geçmeli). Özetteki kart satışı yalnız hiç
+  // fiş yüklenmediyse taban olur; fişlerden yüksekse uyarı düşer.
   const summary_card = z.daily_record.store_summary
     ? num(z.daily_record.store_summary.credit_card_total_try)
     : null;
-  const hardFloorBase = Math.max(cc_total, summary_card ?? 0);
+  const hardFloorBase = cc_total > 0 ? cc_total : (summary_card ?? 0);
 
   const cashSales = z.daily_record.store_summary
     ? num(z.daily_record.store_summary.cash_sales_try)
@@ -120,9 +123,18 @@ export async function checkZApproval(
           .join(" + ")}${invoicesSum > 0 ? ` + El faturası ${TRY_FMT.format(invoicesSum)}` : ""} = ${TRY_FMT.format(combined)} ₺`
       : `Toplam Z ${TRY_FMT.format(combined)} ₺`;
   const floorLabel =
-    summary_card !== null && summary_card > cc_total + 0.5
-      ? `kart satışı ${TRY_FMT.format(hardFloorBase)} ₺ (özet; POS fişleri ${TRY_FMT.format(cc_total)} ₺)`
-      : `Visa ${TRY_FMT.format(hardFloorBase)} ₺`;
+    cc_total > 0
+      ? `Visa (yüklenen POS fişleri) ${TRY_FMT.format(hardFloorBase)} ₺`
+      : `kart satışı ${TRY_FMT.format(hardFloorBase)} ₺ (özet; POS fişi yüklenmedi)`;
+  if (summary_card !== null && cc_total > 0 && summary_card > cc_total + 1) {
+    warnings.push(
+      `Özet/SAP kart satışı ${TRY_FMT.format(summary_card)} ₺, yüklenen POS fişleri ${TRY_FMT.format(
+        cc_total
+      )} ₺ — fark ${TRY_FMT.format(summary_card - cc_total)} ₺. Kural yüklenen fişlere bakar; eksik POS fişi veya POS dışı kart tahsilatı olabilir.`
+    );
+  } else if (cc_total <= 0 && (summary_card ?? 0) > 0) {
+    warnings.push(`POS fişi yüklenmedi — özetteki kart satışı ${TRY_FMT.format(summary_card ?? 0)} ₺ taban alındı.`);
+  }
 
   // 1. KESİN alt sınır — günün Toplam Z'si kart satışının altında olamaz (istisnasız).
   if (cc_hard_floor !== null && combined < cc_hard_floor) {

@@ -238,9 +238,9 @@ export async function zAnalysisSummary(
         : null;
       const cash = eff ? eff.cash : 0;
       const sales = eff ? eff.sales : 0;
-      // Leaving a POS slip out must not lower the bar: the summary's card
-      // line counts as well.
-      const floor = Math.max(visa, eff ? eff.cc : 0);
+      // The bar is the card total on the UPLOADED POS slips (owner,
+      // 01.10.2026); the summary's card line only when no slip was uploaded.
+      const floor = visa > 0 ? visa : eff ? eff.cc : 0;
 
       currentMonthByStore[dr.store_id] ??= {
         z_report: 0,

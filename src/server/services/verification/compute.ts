@@ -310,10 +310,12 @@ export async function computeDay(
     posSumTRY > 0 ? (cashPresent ? posSumTRY * 1.05 : posSumTRY) : 0;
   const salesCeiling = summarySales;
 
-  // The hard floor is the card total (POS slips or the summary's card line,
-  // whichever is larger) — the same bar the lock gate uses. ×1.05 is only
-  // the target; the row's difference is still shown against it.
-  const zHardFloor = Math.max(posSumTRY, ccTotal);
+  // The hard floor is the card total on the POS slips the store UPLOADED
+  // (owner, 01.10.2026: the SAP/summary card line is not the bar — Mavi
+  // Lefkoşa 01.10 had SAP card 305.393,80 vs slips 292.094,00 and Z 305.095
+  // must pass). The summary's card line is the bar only when no slip was
+  // uploaded at all. Same bar as the lock gate. ×1.05 is only the target.
+  const zHardFloor = posSumTRY > 0 ? posSumTRY : ccTotal;
   let zStatus: "passed" | "below_visa" | "above_sales" | "no_z";
   if (combinedZ <= TOLERANCE_TL) {
     zStatus = "no_z";
@@ -424,8 +426,8 @@ export async function computeDay(
         sales_ceiling: salesCeiling,
         cash_present: cashPresent,
         summary_card: ccTotal,
-        // The larger of the two card figures: leaving a POS slip out must
-        // not lower the bar the Z has to clear.
+        // Uploaded POS slips total; the summary's card line only when no
+        // slip was uploaded (owner, 01.10.2026).
         hard_floor: zHardFloor,
       },
     },

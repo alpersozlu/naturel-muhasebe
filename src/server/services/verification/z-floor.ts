@@ -1,8 +1,10 @@
 /**
  * Z below Visa — the hard rule: the day's total Z (Z report + manual
  * invoices) may never be lower than the card sales of the same day.
- * Card sales = the larger of the POS slips total and the store summary's
- * credit-card total, so an omitted slip does not lower the bar.
+ * Card sales = the total of the POS slips the store UPLOADED (owner,
+ * 01.10.2026: "look at the slips they uploaded, not the card figure in
+ * Mavi's system"); the summary's card line is the bar only when no slip
+ * was uploaded at all.
  *
  * Measured 2026-09-23: Mavi Girne 22.09.2026 was locked with Z 105.000,00
  * against Visa 106.486,89 — the lock gate checked that a Z existed, never
@@ -50,10 +52,18 @@ export function zBelowVisa(rows: Row[]): ZFloorShortfall | null {
 const TRY = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function zFloorMessage(f: ZFloorShortfall): string {
+  const basis =
+    f.pos_total > 0.005
+      ? `Visa (yüklenen POS fişleri toplamı) ${TRY.format(f.visa)} ₺` +
+        (f.summary_card > f.pos_total + 1
+          ? ` (mağaza özeti kart satışı ${TRY.format(f.summary_card)} ₺ — fişlerden ${TRY.format(
+              f.summary_card - f.pos_total
+            )} ₺ fazla; eksik POS fişi olabilir)`
+          : "")
+      : `Visa ${TRY.format(f.visa)} ₺ (POS fişi yüklenmedi — mağaza özeti kart satışı)`;
   return (
     `Z raporu Visa'nın altında — gün kapatılamaz. Toplam Z ${TRY.format(f.combined)} ₺, ` +
-    `Visa (kredi kartı satışı) ${TRY.format(f.visa)} ₺ — POS fişleri ${TRY.format(f.pos_total)} ₺ ile ` +
-    `mağaza özeti kredi kartı ${TRY.format(f.summary_card)} ₺ arasından büyük olan. Z en az Visa kadar olmalı: ` +
+    `${basis}. Z en az Visa kadar olmalı: ` +
     `${TRY.format(f.shortfall)} ₺ eksik. Z raporunu kontrol edin; kartla yapılan satış ` +
     `yazar kasadan geçmediyse aradaki farkı El Faturası ile tamamlayın, sonra günü kilitleyin.`
   );

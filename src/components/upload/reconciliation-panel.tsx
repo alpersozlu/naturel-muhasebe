@@ -295,8 +295,8 @@ export function ReconciliationPanel({
                 </div>
               </div>
               <div className="text-[11px] text-rose-700/80 mt-1.5">
-                Visa = POS fişleri {TRY_FMT.format(v.z_floor.pos_total)} ₺ ile mağaza özeti kredi kartı{" "}
-                {TRY_FMT.format(v.z_floor.summary_card)} ₺ arasından büyük olan.
+                Visa = yüklenen POS fişleri toplamı ({TRY_FMT.format(v.z_floor.pos_total)} ₺). Mağaza özeti kredi kartı{" "}
+                {TRY_FMT.format(v.z_floor.summary_card)} ₺ yalnız fiş yüklenmediyse taban olur.
               </div>
               <div className="text-xs text-rose-800 mt-2 leading-relaxed">
                 Z en az Visa kadar olmalı. Z raporunu kontrol edin; kartla yapılan bir satış yazar

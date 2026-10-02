@@ -326,8 +326,8 @@ function StoreTable({ stores }: { stores: Store[] }) {
           Mağaza Bazında Z Tablosu
         </div>
         <div className="text-xs text-muted-foreground mb-4">
-          Toplam Z = Z Raporu + El Faturası. Alt sınır kart satışı (POS fişleri ile
-          özetteki kartın büyüğü) — altında kalan gün kapatılamaz. Nakit varsa
+          Toplam Z = Z Raporu + El Faturası. Alt sınır kart satışı (yüklenen POS
+          fişleri toplamı; fiş yoksa özetteki kart) — altında kalan gün kapatılamaz. Nakit varsa
           Visa×1,05 hedeftir; altı yalnız uyarı. Üst sınır toplam satış.
         </div>
         <div className="overflow-x-auto -mx-2 px-2">
@@ -338,7 +338,7 @@ function StoreTable({ stores }: { stores: Store[] }) {
                 <th className="text-right font-medium py-2 px-2">Z Raporu</th>
                 <th className="text-right font-medium py-2 px-2">El Faturası</th>
                 <th className="text-right font-medium py-2 px-2">Toplam Z</th>
-                <th className="text-right font-medium py-2 px-2" title="POS fişleri ile özetteki kart satışının büyüğü">Kart tabanı</th>
+                <th className="text-right font-medium py-2 px-2" title="Yüklenen POS fişleri toplamı (fiş yoksa özetteki kart satışı)">Kart tabanı</th>
                 <th className="text-right font-medium py-2 px-2">Z/Taban</th>
                 <th className="text-right font-medium py-2 px-2">Satış</th>
                 <th className="text-right font-medium py-2 pl-2 w-32">Durum</th>
