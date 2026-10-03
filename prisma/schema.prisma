@@ -1432,6 +1432,10 @@ model DealerDailyRep {
   kartus          Decimal  @db.Decimal(16, 4)
   net_ciro        Decimal  @db.Decimal(16, 4)
   units           Decimal  @db.Decimal(12, 2)
+  /// Denim TAHMİNİ (ürün adından; bkz. looksLikeDenim) — yalnız akla yatkınlık
+  /// kontrolü içindir, prim bu rakamla ödenmez. null = dosyada ürün kolonu yok.
+  denim_est       Decimal? @db.Decimal(16, 4)
+  denim_units_est Decimal? @db.Decimal(12, 2)
   line_count      Int
   source          String // "upload" günlük yükleme · "archive" geçmiş dosya
   /// Dosya SAP'nin kendi dışa aktarımı mı (true) yoksa başka bir programda

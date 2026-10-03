@@ -28,7 +28,10 @@ import type { DailyRepMonth } from "@/server/services/dealer-report/daily-reps";
  * Σ Stok KDV Matrahı − Kartuş payı. Eylül 2026 Girne'de dört asistan ve
  * mağaza toplamı ay sonu belgeleriyle kuruşu kuruşuna aynı çıktı. Günler tam
  * ve fark 250 ₺'yi aşıyorsa aktarım durur; günler eksikse yalnız uyarır.
- * Denim ayrımı günlük dosyadan ÇIKMAZ (ürün grubu kolonu yok) — KPI dosyası.
+ * Denim ayrımı günlük dosyadan kesin ÇIKMAZ (ürün grubu kolonu yok) — prim
+ * KPI dosyasındaki denim tutarıyla ödenir. Ama ürün adından bir TAHMİN çıkar
+ * (mavi-sap-parser.ts looksLikeDenim); KPI tutarı bu tahminden çok saparsa
+ * uyarı verilir. Denim oranı denim dışının üç katı olduğu için önemlidir.
  */
 export const MAVI_STORE_CODE_BY_KEY: Record<string, string> = {
   lefkosa: "9400",
@@ -373,6 +376,8 @@ export type PerfPersonRow = {
   /** bordro satırında şu an kayıtlı toplam ciro (denim + denim dışı) */
   line_total: number | null;
   denim_tl: number | null;
+  /** günlük dosyalardan ürün adına göre TAHMİN edilen denim cirosu (yalnız akla yatkınlık kontrolü) */
+  denim_daily_est: number | null;
   nd_tl: number | null;
   kpi_category_tl: number | null;
   denim_units_kpi: number | null;
@@ -453,6 +458,13 @@ const dayList = (days: string[]) => {
 const DAILY_ERROR_TL = 250;
 /** Bu tutara kadar fark "aynı" sayılır (yuvarlama). */
 const DAILY_SAME_TL = 1;
+/**
+ * Denim tahmini toleransı. Tahmin, KPI'daki gerçek denim tutarından ortalama
+ * %1,7, en çok %6,3 saptı (11 kişi-ay; küçük cirolu kişide yüzde büyür) —
+ * uyarı için hem %8 hem 10.000 ₺ aşılmalı.
+ */
+const DENIM_EST_TOL_SHARE = 0.08;
+const DENIM_EST_TOL_TL = 10_000;
 
 export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], daily: DailyRepMonth | null = null): PerfCheck {
   const bi = docs.find((d): d is BiPdfParsed => d.kind === "bi_pdf");
@@ -464,7 +476,15 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
   const dailyComplete = !!daily && daily.complete;
 
   // Kişiler: önce satış temsilcisi koduyla, kod yoksa isimle birleştirilir.
-  type Slot = { name: string; code: string | null; bi?: BiPerson; kpi?: KpiPerson; itpos?: ItPosRepsParsed["persons"][number]; daily?: number };
+  type Slot = {
+    name: string;
+    code: string | null;
+    bi?: BiPerson;
+    kpi?: KpiPerson;
+    itpos?: ItPosRepsParsed["persons"][number];
+    daily?: number;
+    dailyDenim?: number | null;
+  };
   const slots: Slot[] = [];
   const byCode = new Map<string, Slot>();
   const byName = new Map<string, Slot>();
@@ -489,6 +509,7 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
   for (const p of hasDaily ? daily!.persons : []) {
     const s = slot(p.name, p.code);
     s.daily = r2((s.daily ?? 0) + p.net_ciro);
+    s.dailyDenim = s.dailyDenim === null || p.denim_est == null ? null : r2((s.dailyDenim ?? 0) + p.denim_est);
   }
 
   const rows: PerfPersonRow[] = [];
@@ -534,6 +555,20 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
         });
       }
     }
+    // Denim: KPI dosyasındaki tutar ↔ günlük dosyalardan ürün adına göre tahmin.
+    // Tahmin ±%3 civarında oynar; bu yüzden yalnız büyük sapmada ve yalnız UYARI.
+    const denim_daily_est = hasDaily ? (s.dailyDenim ?? (s.daily == null ? 0 : null)) : null;
+    if (dailyComplete && denim_tl != null && denim_daily_est != null) {
+      const diff = r2(denim_tl - denim_daily_est);
+      if (Math.abs(diff) > Math.max(DENIM_EST_TOL_TL, DENIM_EST_TOL_SHARE * Math.max(denim_tl, denim_daily_est))) {
+        rf.push({
+          level: "warn",
+          text: `Denim tutarı (KPI ${TRY.format(denim_tl)}) günlük dosyalardan çıkan tahminden (≈ ${TRY.format(denim_daily_est)}) ${TRY.format(Math.abs(diff))} ${
+            diff > 0 ? "yüksek" : "düşük"
+          }`,
+        });
+      }
+    }
     const duKpi = s.kpi ? s.kpi.denim_units_erkek + s.kpi.denim_units_kadin : null;
     const duBi = s.bi?.denim_units ?? null;
     if (duKpi != null && duBi != null && duKpi !== duBi) {
@@ -568,6 +603,7 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
       net_used_source,
       line_total,
       denim_tl,
+      denim_daily_est,
       nd_tl: net_used != null && denim_tl != null ? r2(net_used - denim_tl) : null,
       kpi_category_tl: s.kpi?.category_tl_total ?? null,
       denim_units_kpi: duKpi,

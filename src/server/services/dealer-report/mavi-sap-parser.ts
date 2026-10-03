@@ -44,6 +44,13 @@ import { createHash } from "crypto";
  * masters: Girne August 2026 (store 3.575.185,04 and all four sales
  * assistants exact), Güzelyurt July and August 2026 (store and assistants
  * within the master's whole-lira rounding). Hediye Kart is NOT deducted.
+ *
+ * DENIM ESTIMATE. Denim earns three times the commission rate, but the export
+ * has no product-group column, so "denim" cannot be read off it exactly. It
+ * can be approximated — see looksLikeDenim. Against the KPI report's own denim
+ * figure the estimate lands within ±3 % for 9 of 11 person-months (Girne
+ * August + September, Güzelyurt August 2026; mean 1,7 %, worst 6,3 %). Good
+ * enough to notice a KPI file whose denim was inflated; never used to pay.
  */
 export const MAVI_STORE_CODE_MAP: Record<string, string> = {
   "9400": "Lefkoşa",
@@ -51,6 +58,20 @@ export const MAVI_STORE_CODE_MAP: Record<string, string> = {
   "9402": "Mağusa",
   "9403": "Güzelyurt",
 };
+
+const DENIM_GROUPS = new Set(["M00", "M04", "M10", "M13", "M14"]);
+const GARMENT_WORD = /PANTOLON|ŞORT|ETEK|ELB[İI]SE|CEKET|YELEK|TULUM|EŞOFMAN/;
+
+/**
+ * Denim bottoms carry a FIT name ("MARLON Classic Denim", "SIENA Dark Used",
+ * "TIM 90's Used") where every other garment carries a Turkish description
+ * ("DOKUMA PANTOLON", "MODELLİ DOKUMA ŞORT"), and they sit in five material
+ * groups: M00 / M04 (men's trousers, shorts) and M10 / M13 / M14 (women's
+ * trousers, skirts, shorts).
+ */
+export function looksLikeDenim(material: string, name: string): boolean {
+  return DENIM_GROUPS.has(material.slice(0, 3).toUpperCase()) && !GARMENT_WORD.test(name.toLocaleUpperCase("tr"));
+}
 
 export type ParsedDealerRep = {
   code: string; // "94010050" — "—" when the line has none
@@ -62,6 +83,9 @@ export type ParsedDealerRep = {
   net_ciro: number; // matrah − kartus  → SAP "Net Ciro"
   units: number; // Σ line Miktar (refunds negative)
   lines: number;
+  /** Estimated denim share of net_ciro (see looksLikeDenim); null when the export has no product columns. */
+  denim: number | null;
+  denim_units: number | null;
 };
 
 export type ParsedDealerDay = {
@@ -183,6 +207,9 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
   const qtyCols = headerKeys.map((k, i) => (k === "miktar" ? i : -1)).filter((i) => i >= 0);
   const cQty = qtyCols.length ? qtyCols[qtyCols.length - 1]! : -1; // line quantity is the later "Miktar"
   const repsAvailable = cMatrah >= 0 && cRepName >= 0;
+  const cMaterial = col("malzeme");
+  const cProduct = col("adı"); // the product name; "Satış Temsilcisi Adı" is a different key
+  const denimAvailable = cMaterial >= 0 && cProduct >= 0;
 
   type Receipt = {
     dayKey: string;
@@ -191,7 +218,7 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
     isRefund: boolean;
     head: unknown[] | null;
     first: unknown[];
-    items: Array<{ code: string; name: string; matrah: number; net: number; qty: number }>;
+    items: Array<{ code: string; name: string; matrah: number; net: number; qty: number; denim: boolean }>;
   };
   const receipts = new Map<string, Receipt>();
   const storeCodes = new Set<string>();
@@ -221,6 +248,7 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
         matrah: toNum(row[cMatrah]),
         net: toNum(row[cNet]),
         qty: cQty >= 0 ? toNum(row[cQty]) : 0,
+        denim: denimAvailable && looksLikeDenim(toStr(row[cMaterial]), toStr(row[cProduct])),
       });
     }
     if (toStr(row[cType]).toLocaleLowerCase("tr").includes("iade")) r.isRefund = true;
@@ -279,7 +307,18 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
         const share = Math.abs(r.net) > 0.005 ? it.net / r.net : 1 / r.items.length;
         let p = reps.get(it.code);
         if (!p) {
-          p = { code: it.code, name: it.name, matrah: 0, net: 0, kartus: 0, net_ciro: 0, units: 0, lines: 0 };
+          p = {
+            code: it.code,
+            name: it.name,
+            matrah: 0,
+            net: 0,
+            kartus: 0,
+            net_ciro: 0,
+            units: 0,
+            lines: 0,
+            denim: denimAvailable ? 0 : null,
+            denim_units: denimAvailable ? 0 : null,
+          };
           reps.set(it.code, p);
         }
         p.matrah += it.matrah;
@@ -287,6 +326,10 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
         p.kartus += loyalty * share;
         p.units += it.qty;
         p.lines += 1;
+        if (it.denim) {
+          p.denim = (p.denim ?? 0) + it.matrah - loyalty * share;
+          p.denim_units = (p.denim_units ?? 0) + it.qty;
+        }
         d.net_ex_vat += it.matrah;
       }
     }
@@ -348,6 +391,8 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
           kartus: round4(p.kartus),
           net_ciro: round4(p.matrah - p.kartus),
           units: round2(p.units),
+          denim: p.denim == null ? null : round4(p.denim),
+          denim_units: p.denim_units == null ? null : round2(p.denim_units),
         }))
         .sort((a, b) => b.net_ciro - a.net_ciro),
     }));

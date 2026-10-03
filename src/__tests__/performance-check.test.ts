@@ -19,10 +19,10 @@ const kpi = (persons: Array<[string, string, number]>): KpiParsed => ({
 const line = (id: string, full_name: string, profile = "mavi_asistan"): PerfLineRef => ({
   line_id: id, employee_id: `e-${id}`, full_name, aliases: [], bank_account_name: null, commission_profile: profile, own_revenue_nd: null, own_revenue_denim: null, top_seller: false,
 });
-const daily = (persons: Array<[string, string, number]>, over: Partial<DailyRepMonth> = {}): DailyRepMonth => ({
+const daily = (persons: Array<[string, string, number, number?]>, over: Partial<DailyRepMonth> = {}): DailyRepMonth => ({
   days_expected: 30, days_present: 30, days_missing: [], month_over: true, complete: true, upload_days: 30, archive_days: 0, not_original_days: [],
   store_net: Math.round(persons.reduce((s, p) => s + p[2], 0) * 100) / 100,
-  persons: persons.map(([code, name, net_ciro]) => ({ code, name, net_ciro, kartus: 0, units: 0, days: 30 })),
+  persons: persons.map(([code, name, net_ciro, denim_est]) => ({ code, name, net_ciro, kartus: 0, units: 0, days: 30, denim_est: denim_est ?? null, denim_units_est: null })),
   ...over,
 });
 const LINES = [line("1", "Maral Rahmanova"), line("2", "Enes Demir")];
@@ -87,6 +87,19 @@ describe("performans çapraz kontrolü — günlük bayi dosyaları", () => {
     expect(c.top_seller).toBe("Maral Rahmanova");
     expect(c.ready).toBe(false); // KPI yok → denim ayrımı yapılamaz
     expect(hasError(c)).toBe(false);
+  });
+
+  it("KPI'daki denim tutarı günlük tahminden çok saparsa uyarır, küçük sapmada susar — aktarımı durdurmaz", () => {
+    const docs = (denim: number) => [bi([["94010020", "Maral Rahmanova", 1038234], ["94010049", "Enes Demir", 806726]]), kpi([["94010020", "Maral Rahmanova", denim]])];
+    const d = daily([["94010020", "Maral Rahmanova", 1038234.31, 349318.67], ["94010049", "Enes Demir", 806726.21, 233025.84]]);
+    const near = buildPerformanceCheck(docs(344317.35), LINES, d); // gerçek Eylül 2026: tahmin %1,5 yüksek
+    expect(near.rows.find((r) => r.code === "94010020")!.flags.some((f) => f.text.startsWith("Denim tutarı"))).toBe(false);
+    expect(near.rows.find((r) => r.code === "94010020")!.denim_daily_est).toBe(349318.67);
+    const far = buildPerformanceCheck(docs(444317.35), LINES, d); // 100.000 ₺ şişirilmiş
+    const flag = far.rows.find((r) => r.code === "94010020")!.flags.find((f) => f.text.startsWith("Denim tutarı"));
+    expect(flag?.level).toBe("warn");
+    expect(hasError(far)).toBe(false);
+    expect(far.ready).toBe(true);
   });
 
   it("kodsuz satır isimle aynı kişiye eklenir; kısa ad bordrodaki uzun adla eşleşir", () => {

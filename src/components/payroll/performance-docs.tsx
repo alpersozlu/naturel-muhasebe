@@ -190,7 +190,7 @@ export function PerformanceDocs({
       </div>
 
       {check ? (
-        <details className="mt-2" open={hasError || check.flags.some((f) => f.level === "warn")}>
+        <details className="mt-2" open={hasError || check.flags.some((f) => f.level === "warn") || check.rows.some((r) => r.flags.some((f) => f.level === "warn"))}>
           <summary className="cursor-pointer select-none text-xs text-muted-foreground">
             Çapraz kontrol:{" "}
             <span className={cn("font-medium", hasError ? "text-rose-700" : check.ready ? "text-emerald-700" : "text-amber-800")}>
@@ -235,7 +235,10 @@ export function PerformanceDocs({
                     <th className="py-1 text-right font-medium">Net ciro (BI)</th>
                     <th className="py-1 text-right font-medium">Net ciro (IT POS)</th>
                     <th className="py-1 text-right font-medium">Bordroda</th>
-                    <th className="py-1 text-right font-medium">Denim</th>
+                    <th className="py-1 text-right font-medium">Denim (KPI)</th>
+                    <th className="py-1 text-right font-medium" title="Günlük bayi dosyalarındaki ürün adlarından tahmin — yalnız karşılaştırma için">
+                      Denim ≈ günlük
+                    </th>
                     <th className="py-1 text-right font-medium">Denim dışı</th>
                     <th className="py-1 text-right font-medium">Denim adet KPI / BI</th>
                     <th className="py-1 text-right font-medium">Kadın denim</th>
@@ -270,6 +273,7 @@ export function PerformanceDocs({
                         <td className="py-1 text-right tabular-nums">{money(r.net_itpos)}</td>
                         <td className="py-1 text-right tabular-nums text-muted-foreground">{money(r.line_total)}</td>
                         <td className="py-1 text-right tabular-nums">{money(r.denim_tl)}</td>
+                        <td className="py-1 text-right tabular-nums text-muted-foreground">{money(r.denim_daily_est)}</td>
                         <td className="py-1 text-right tabular-nums">{money(r.nd_tl)}</td>
                         <td className="py-1 text-right tabular-nums">
                           {r.denim_units_kpi ?? "—"} / {r.denim_units_bi ?? "—"}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
-import { parseMaviSapBuffer } from "@/server/services/dealer-report/mavi-sap-parser";
+import { looksLikeDenim, parseMaviSapBuffer } from "@/server/services/dealer-report/mavi-sap-parser";
 
 /**
  * Per-salesperson "Net Ciro" from the daily SAP export:
@@ -15,13 +15,13 @@ const HEADER = [
 ];
 const SERIAL_1_SEP = 46266; // 2026-09-01
 
-type Line = { qty: number; matrah: number; net: number; rep: [string, string] };
+type Line = { qty: number; matrah: number; net: number; rep: [string, string]; product?: [string, string] };
 function receipt(day: number, ref: string, lines: Line[], pay: { cash?: number; card?: number; kartus?: number }, type = "Normal Satış") {
   const total = lines.reduce((s, l) => s + l.net, 0);
   return lines.map((l, i) => {
     const head = i === 0;
     return [
-      "9401", SERIAL_1_SEP + day - 1, type, ref, null, head ? lines.length : null, "M00", "ürün", null, null, l.qty,
+      "9401", SERIAL_1_SEP + day - 1, type, ref, null, head ? lines.length : null, l.product?.[0] ?? "M0620155-900003", l.product?.[1] ?? "POLO TİŞÖRT Siyah, M", null, null, l.qty,
       16, l.matrah, l.net - l.matrah, l.net, 0, l.net, head ? "Kredi" : null, null, null,
       head ? total : null, head ? (pay.cash ?? 0) : null, "TRY", head ? "BANKA" : null, head ? (pay.card ?? 0) : null,
       0, pay.kartus ?? 0, null, null, // Kartuş repeats on every line of the receipt
@@ -63,6 +63,29 @@ describe("bayi gün sonu — satış temsilcisi bazında Net Ciro", () => {
     expect(enes.units).toBe(3);
     // the people add up to the store: Σ matrah − Σ Kartuş
     expect(day.reps.reduce((s, r) => s + r.net_ciro, 0)).toBe(3500 - 300);
+  });
+
+  it("denim tahmini: fit adlı pantolon/şort/etek satırları; Kartuş payı düşülmüş", () => {
+    expect(looksLikeDenim("M0042487866071", "JAKE Mavi Black, 32/32")).toBe(true);
+    expect(looksLikeDenim("M0428123456789", "TIM 90's Used")).toBe(true); // erkek denim şort
+    expect(looksLikeDenim("M1010547-87822007", "SIENA Dark Used")).toBe(true);
+    expect(looksLikeDenim("M1421000-1", "TAYLOR SHORT Dark")).toBe(true); // İngilizce SHORT — denim şort
+    expect(looksLikeDenim("M0010547-70219006", "DOKUMA PANTOLON Jet Black, 32")).toBe(false);
+    expect(looksLikeDenim("M1420392-83859005", "Modelli dokuma şort White Pepper, L")).toBe(false);
+    expect(looksLikeDenim("M1310583-91753002", "DOKUMA MINI ELBISE Black")).toBe(false);
+    expect(looksLikeDenim("M0620155-900003", "POLO TİŞÖRT Siyah, M")).toBe(false); // tişört grubu
+    expect(looksLikeDenim("M0110154-1", "DRAKE Mid Brushed")).toBe(false); // ceket grubu
+
+    const buf = workbook([
+      ...receipt(1, "R1", [
+        { qty: 1, matrah: 2000, net: 2320, rep: MARAL, product: ["M0042487866071", "JAKE Mavi Black"] },
+        { qty: 1, matrah: 1000, net: 1160, rep: MARAL },
+      ], { card: 3180, kartus: 300 }),
+    ]);
+    const maral = parseMaviSapBuffer(buf).days[0]!.reps[0]!;
+    expect(maral.net_ciro).toBe(2700);
+    expect(maral.denim).toBe(1800); // 2.000 − 300 × 2.320/3.480
+    expect(maral.denim_units).toBe(1);
   });
 
   it("iade eksi yazılır; günler ayrı tutulur", () => {

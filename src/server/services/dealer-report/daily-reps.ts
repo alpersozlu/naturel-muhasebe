@@ -100,6 +100,8 @@ export async function saveReportReps(
           kartus: p.kartus,
           net_ciro: p.net_ciro,
           units: p.units,
+          denim_est: p.denim,
+          denim_units_est: p.denim_units,
           line_count: p.lines,
           source: source!,
           sap_original: opts.sapOriginal,
@@ -126,7 +128,17 @@ export type DailyRepMonth = {
   /** Days whose file was re-saved outside SAP. */
   not_original_days: string[];
   store_net: number;
-  persons: Array<{ code: string; name: string; net_ciro: number; kartus: number; units: number; days: number }>;
+  persons: Array<{
+    code: string;
+    name: string;
+    net_ciro: number;
+    kartus: number;
+    units: number;
+    days: number;
+    /** Estimated denim revenue (product-name rule) — null when any of the person's days lacks it. */
+    denim_est: number | null;
+    denim_units_est: number | null;
+  }>;
 };
 
 /** Today's date where the stores are (UTC+3, no daylight saving). */
@@ -159,12 +171,22 @@ export async function loadMonthReps(
   for (const storeId of storeIds) {
     const mine = rows.filter((r) => r.store_id === storeId);
     const dayInfo = new Map<string, { source: string; original: boolean | null }>();
-    const persons = new Map<string, { code: string; name: string; net: number; kartus: number; units: number; days: Set<string> }>();
+    const persons = new Map<
+      string,
+      { code: string; name: string; net: number; kartus: number; units: number; days: Set<string>; denim: number; denimUnits: number; denimKnown: boolean }
+    >();
     let store = 0;
     for (const r of mine) {
       const k = iso(r.report_date);
       dayInfo.set(k, { source: r.source, original: r.sap_original });
-      const p = persons.get(r.rep_code) ?? { code: r.rep_code, name: r.rep_name, net: 0, kartus: 0, units: 0, days: new Set<string>() };
+      const p =
+        persons.get(r.rep_code) ??
+        { code: r.rep_code, name: r.rep_name, net: 0, kartus: 0, units: 0, days: new Set<string>(), denim: 0, denimUnits: 0, denimKnown: true };
+      if (r.denim_est == null) p.denimKnown = false;
+      else {
+        p.denim += Number(r.denim_est);
+        p.denimUnits += Number(r.denim_units_est ?? 0);
+      }
       p.name = r.rep_name; // rows are in date order — the latest spelling wins
       p.net += Number(r.net_ciro);
       p.kartus += Number(r.kartus);
@@ -187,7 +209,16 @@ export async function loadMonthReps(
         .map(([k]) => k),
       store_net: r2(store),
       persons: Array.from(persons.values())
-        .map((p) => ({ code: p.code, name: p.name, net_ciro: r2(p.net), kartus: r2(p.kartus), units: r2(p.units), days: p.days.size }))
+        .map((p) => ({
+          code: p.code,
+          name: p.name,
+          net_ciro: r2(p.net),
+          kartus: r2(p.kartus),
+          units: r2(p.units),
+          days: p.days.size,
+          denim_est: p.denimKnown ? r2(p.denim) : null,
+          denim_units_est: p.denimKnown ? r2(p.denimUnits) : null,
+        }))
         .sort((a, b) => b.net_ciro - a.net_ciro),
     });
   }
