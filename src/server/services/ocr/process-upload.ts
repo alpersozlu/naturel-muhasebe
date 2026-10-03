@@ -15,6 +15,8 @@ import { ASSESSED_TYPES, bankKey, inspectUpload } from "@/server/services/authen
 import { resolveBankFromTerminalHistory } from "./bank-from-terminal";
 import { applyAuthenticity } from "@/server/services/authenticity/apply";
 import { forwardDealerReport } from "@/server/services/mavi-iskonto/forward";
+import { saveReportReps } from "@/server/services/dealer-report/daily-reps";
+import { isSapOriginal, xlsxOrigin } from "@/server/services/xlsx-origin";
 import { reconcileExtraRowsWithSap } from "./extra-rows";
 import {
   parseMaviSapBuffer,
@@ -1178,6 +1180,20 @@ async function runDealerDailyReport(upload: Upload, buffer: Buffer): Promise<voi
   });
 
   await markParsed(upload.id, { totals: report.totals }, day);
+
+  // Per-salesperson revenue of the day — the independent check behind the
+  // month-end premium documents (see dealer-report/daily-reps.ts). The other
+  // days the same export carries fill gaps. Never fails the upload.
+  try {
+    await saveReportReps(prisma, {
+      storeId: dr.store_id,
+      report,
+      sapOriginal: isSapOriginal(await xlsxOrigin(buffer)),
+      primary: { date: dr.date, dailyRecordId: dr.id },
+    });
+  } catch (e) {
+    console.error("[OCR] dealer report: per-salesperson rows could not be saved", e);
+  }
 
   // The summary may already be on file with the two look-alike rows swapped.
   const existing = await prisma.storeSummary.findUnique({ where: { daily_record_id: upload.daily_record_id } });

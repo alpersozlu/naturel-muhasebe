@@ -352,6 +352,13 @@ export const uploadRouter = router({
         });
       }
       await ctx.prisma.upload.delete({ where: { id: input.id } });
+      // The day's per-salesperson rows came from this file; without it they
+      // are unbacked. (Rows another export contributed for this day stay.)
+      if (upload.type === "dealer_daily_report") {
+        await ctx.prisma.dealerDailyRep
+          .deleteMany({ where: { daily_record_id: upload.daily_record_id, source: "upload" } })
+          .catch((e) => console.error("[upload.delete] dealer rep cleanup failed", e));
+      }
       // Storage last: a failed object delete costs a stray file, a failed
       // row delete after the object is gone leaves a row that can never
       // be re-read.

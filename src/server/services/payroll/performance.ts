@@ -1,9 +1,10 @@
 import "server-only";
 import ExcelJS from "exceljs";
-import JSZip from "jszip";
 import { PDFParse } from "pdf-parse";
 import { createHash } from "node:crypto";
 import { normalizeName } from "./nebim-revenue";
+import { isSapOriginal, xlsxOrigin, type XlsxOrigin } from "@/server/services/xlsx-origin";
+import type { DailyRepMonth } from "@/server/services/dealer-report/daily-reps";
 
 /**
  * Ay sonu performans belgeleri (Mavi mağazaları) — BELİRLENİMCİ okuma.
@@ -20,6 +21,14 @@ import { normalizeName } from "./nebim-revenue";
  * Mert'in yöntemi (Ağustos 2026): kişi toplamı = SAP kişi Net ciro, denim =
  * KPI dosyası, denim dışı = fark (çocuk/sweatshirt KPI'da yok, ND'ye düşer).
  * Yapay zekâ kullanılmaz: xlsx başlıktan, PDF sekmeli metinden okunur.
+ *
+ * BAĞIMSIZ KONTROL (03.10.2026). Bu üç belge de ay sonunda, mağazadan gelir.
+ * Aynı Net Ciro, ay boyunca HER AKŞAM yüklenip kilitlenen günlük bayi gün
+ * sonu dosyalarından da kurulur (dealer-report/daily-reps.ts): kişi başına
+ * Σ Stok KDV Matrahı − Kartuş payı. Eylül 2026 Girne'de dört asistan ve
+ * mağaza toplamı ay sonu belgeleriyle kuruşu kuruşuna aynı çıktı. Günler tam
+ * ve fark 250 ₺'yi aşıyorsa aktarım durur; günler eksikse yalnız uyarır.
+ * Denim ayrımı günlük dosyadan ÇIKMAZ (ürün grubu kolonu yok) — KPI dosyası.
  */
 export const MAVI_STORE_CODE_BY_KEY: Record<string, string> = {
   lefkosa: "9400",
@@ -83,13 +92,7 @@ export type ItPosKpiParsed = {
 export type ItPosRepsParsed = { kind: "itpos_reps"; persons: Array<{ name: string; net_ciro: number; units: number | null; invoices: number | null }> };
 export type PerfParsed = BiPdfParsed | KpiParsed | ItPosKpiParsed | ItPosRepsParsed;
 
-export type PerfMeta = {
-  application: string | null;
-  creator: string | null;
-  last_modified_by: string | null;
-  created: string | null;
-  modified: string | null;
-};
+export type PerfMeta = XlsxOrigin;
 
 /** "1.038.234" · "2,63" · "2.414,5" · "19,8%" · "%43" · "4.057.009,16 TRY" → sayı */
 export function trNum(v: unknown): number | null {
@@ -114,23 +117,7 @@ export function sha256(buf: Buffer): string {
 }
 
 /** xlsx üstverisi: gerçek SAP dışa aktarımı "SAP UI5" izini taşır; Excel'de kaydedilince değişir. */
-async function xlsxMeta(buf: Buffer): Promise<PerfMeta> {
-  const meta: PerfMeta = { application: null, creator: null, last_modified_by: null, created: null, modified: null };
-  try {
-    const zip = await JSZip.loadAsync(buf);
-    const app = await zip.file("docProps/app.xml")?.async("string");
-    const core = await zip.file("docProps/core.xml")?.async("string");
-    const tag = (xml: string | undefined, name: string) => xml?.match(new RegExp(`<${name}[^>]*>([^<]*)</${name}>`))?.[1] ?? null;
-    meta.application = tag(app, "Application");
-    meta.creator = tag(core, "dc:creator");
-    meta.last_modified_by = tag(core, "cp:lastModifiedBy");
-    meta.created = tag(core, "dcterms:created");
-    meta.modified = tag(core, "dcterms:modified");
-  } catch {
-    /* üstveri okunamadı — genuine=null kalır */
-  }
-  return meta;
-}
+const xlsxMeta = xlsxOrigin;
 
 function cellText(v: ExcelJS.CellValue): string {
   if (v == null) return "";
@@ -344,7 +331,7 @@ export async function parsePerformanceFile(
   const isZip = buf.subarray(0, 2).toString("latin1") === "PK";
   if (!isZip) throw new Error(`"${fileName}" Excel (.xlsx) veya PDF değil.`);
   const [parsed, meta] = await Promise.all([parseXlsx(buf), xlsxMeta(buf)]);
-  const genuine = meta.application == null ? null : meta.application === "SAP UI5" && (meta.last_modified_by ?? "SAP UI5") === "SAP UI5";
+  const genuine = isSapOriginal(meta);
   return {
     parsed,
     meta,
@@ -369,14 +356,22 @@ export type PerfLineRef = {
   top_seller: boolean;
 };
 
+type Flag = { level: "error" | "warn" | "info"; text: string };
+
 export type PerfPersonRow = {
   name: string;
+  code: string | null;
   line_id: string | null;
   commission_profile: string | null;
   net_bi: number | null;
   net_itpos: number | null;
-  /** aktarımda kullanılacak toplam: IT POS (kuruşlu) varsa o, yoksa BI */
+  /** ay boyunca yüklenen günlük bayi dosyalarından yeniden hesaplanan Net Ciro */
+  net_daily: number | null;
+  /** aktarımda kullanılacak toplam: IT POS (kuruşlu) → günlük dosyalar (tam ve BI ile aynıysa) → BI */
   net_used: number | null;
+  net_used_source: "itpos" | "daily" | "bi" | null;
+  /** bordro satırında şu an kayıtlı toplam ciro (denim + denim dışı) */
+  line_total: number | null;
   denim_tl: number | null;
   nd_tl: number | null;
   kpi_category_tl: number | null;
@@ -385,13 +380,25 @@ export type PerfPersonRow = {
   kadin_denim_units: number | null;
   upt: number | null;
   single_pct: number | null;
-  flags: Array<{ level: "error" | "warn" | "info"; text: string }>;
+  flags: Flag[];
+};
+
+export type PerfDailySummary = {
+  days_expected: number;
+  days_present: number;
+  days_missing: string[];
+  month_over: boolean;
+  complete: boolean;
+  upload_days: number;
+  archive_days: number;
+  not_original_days: string[];
+  store_net: number;
 };
 
 export type PerfCheck = {
   docs: PerfKind[];
   store_net: number | null;
-  store_net_source: "itpos" | "bi" | null;
+  store_net_source: "itpos" | "bi" | "daily" | null;
   persons_sum: number | null;
   upt_itpos: number | null;
   upt_bi: number | null;
@@ -400,8 +407,12 @@ export type PerfCheck = {
   kadin_denim_units_store: number | null;
   denim_units_store: number | null;
   top_seller: string | null;
+  /** günlük bayi dosyalarının ay özeti — bağımsız kontrol */
+  daily: PerfDailySummary | null;
+  /** günlük dosyalar ay sonu belgeleriyle karşılaştırılabildi ve tuttu */
+  daily_agrees: boolean | null;
   rows: PerfPersonRow[];
-  flags: Array<{ level: "error" | "warn" | "info"; text: string }>;
+  flags: Flag[];
   ready: boolean;
 };
 
@@ -421,41 +432,107 @@ function matchLine(name: string, lines: PerfLineRef[]): PerfLineRef | null {
     const et = normalizeName(l.full_name).split(" ").filter(Boolean);
     return et[0] === t[0] && (et.length === 1 || et[et.length - 1] === t[t.length - 1]);
   });
-  return hits.length === 1 ? hits[0]! : null;
+  if (hits.length === 1) return hits[0]!;
+  // SAP'de "Fırat Öner", bordroda "Muhammet Fırat Öner": kısa adın bütün
+  // kelimeleri uzun adda geçiyorsa ve tek aday varsa aynı kişidir.
+  const sub = lines.filter((l) => {
+    const et = normalizeName(l.full_name).split(" ").filter(Boolean);
+    const [short, long] = t.length <= et.length ? [t, et] : [et, t];
+    return short.length >= 2 && short.every((w) => long.includes(w));
+  });
+  return sub.length === 1 ? sub[0]! : null;
 }
 
 const TRY = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const dayList = (days: string[]) => {
+  const d = days.map((x) => String(Number(x.slice(8, 10))));
+  return d.length > 12 ? `${d.slice(0, 12).join(", ")} … (+${d.length - 12})` : d.join(", ");
+};
 
-export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[]): PerfCheck {
+/** Günlük dosyalarla ay sonu belgesi arasındaki fark bu tutarı aşarsa aktarım durur. */
+const DAILY_ERROR_TL = 250;
+/** Bu tutara kadar fark "aynı" sayılır (yuvarlama). */
+const DAILY_SAME_TL = 1;
+
+export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], daily: DailyRepMonth | null = null): PerfCheck {
   const bi = docs.find((d): d is BiPdfParsed => d.kind === "bi_pdf");
   const kpi = docs.find((d): d is KpiParsed => d.kind === "kpi_xlsx");
   const itk = docs.find((d): d is ItPosKpiParsed => d.kind === "itpos_kpi");
   const itr = docs.find((d): d is ItPosRepsParsed => d.kind === "itpos_reps");
-  const flags: PerfCheck["flags"] = [];
+  const flags: Flag[] = [];
+  const hasDaily = !!daily && daily.days_present > 0;
+  const dailyComplete = !!daily && daily.complete;
 
-  const names = new Map<string, { name: string; bi?: BiPerson; kpi?: KpiPerson; itpos?: ItPosRepsParsed["persons"][number] }>();
-  const slot = (name: string) => {
+  // Kişiler: önce satış temsilcisi koduyla, kod yoksa isimle birleştirilir.
+  type Slot = { name: string; code: string | null; bi?: BiPerson; kpi?: KpiPerson; itpos?: ItPosRepsParsed["persons"][number]; daily?: number };
+  const slots: Slot[] = [];
+  const byCode = new Map<string, Slot>();
+  const byName = new Map<string, Slot>();
+  const slot = (name: string, code?: string | null) => {
     const k = normalizeName(name);
-    if (!names.has(k)) names.set(k, { name });
-    return names.get(k)!;
+    const c = code && /^\d{6,10}$/.test(code) ? code : null;
+    let s = (c ? byCode.get(c) : undefined) ?? byName.get(k);
+    if (!s) {
+      s = { name, code: c };
+      slots.push(s);
+    }
+    if (c) {
+      if (!s.code) s.code = c;
+      if (!byCode.has(c)) byCode.set(c, s);
+    }
+    if (!byName.has(k)) byName.set(k, s);
+    return s;
   };
-  for (const p of bi?.persons ?? []) slot(p.name).bi = p;
-  for (const p of kpi?.persons ?? []) slot(p.name).kpi = p;
+  for (const p of bi?.persons ?? []) slot(p.name, p.code).bi = p;
+  for (const p of kpi?.persons ?? []) slot(p.name, p.code).kpi = p;
   for (const p of itr?.persons ?? []) slot(p.name).itpos = p;
+  for (const p of hasDaily ? daily!.persons : []) {
+    const s = slot(p.name, p.code);
+    s.daily = r2((s.daily ?? 0) + p.net_ciro);
+  }
 
   const rows: PerfPersonRow[] = [];
-  for (const s of Array.from(names.values())) {
+  for (const s of slots) {
     const line = matchLine(s.name, lines);
     const net_bi = s.bi?.net_tl ?? null;
     const net_itpos = s.itpos?.net_ciro ?? null;
-    const net_used = net_itpos ?? net_bi;
+    // Günlük dosyalar varken kişinin hiç satırı yoksa günlük cirosu 0'dır.
+    const net_daily = hasDaily ? (s.daily ?? 0) : null;
+    const ref = net_itpos ?? net_bi; // ay sonu belgesindeki rakam
+    // 1 ₺'ye kadar fark yuvarlamadır: BI tam liraya yuvarlar, Kartuş payı kuruşun altına iner.
+    const refTol = DAILY_SAME_TL;
+    let net_used: number | null;
+    let net_used_source: PerfPersonRow["net_used_source"];
+    if (net_itpos != null) [net_used, net_used_source] = [net_itpos, "itpos"];
+    else if (net_bi != null) {
+      // Günlük dosyalar tam ve BI ile aynı liradaysa kuruşlu olan günlük rakam kullanılır.
+      if (dailyComplete && net_daily != null && Math.abs(net_daily - net_bi) <= 1) [net_used, net_used_source] = [net_daily, "daily"];
+      else [net_used, net_used_source] = [net_bi, "bi"];
+    } else if (dailyComplete && net_daily != null) [net_used, net_used_source] = [net_daily, "daily"];
+    else [net_used, net_used_source] = [null, null];
+
     const denim_tl = s.kpi ? r2(s.kpi.denim_tl_erkek + s.kpi.denim_tl_kadin) : null;
-    const rf: PerfPersonRow["flags"] = [];
+    const rf: Flag[] = [];
     if (net_bi != null && net_itpos != null && Math.abs(net_bi - net_itpos) > 1) {
       rf.push({
         level: Math.abs(net_bi - net_itpos) > 250 ? "error" : "warn",
         text: `Kişi cirosu iki kaynakta farklı: IT POS ${TRY.format(net_itpos)} · BI ${TRY.format(net_bi)} (fark ${TRY.format(net_itpos - net_bi)})`,
       });
+    }
+    // Bağımsız kontrol: gün gün yüklenen bayi dosyalarının toplamı ↔ ay sonu belgesi.
+    if (net_daily != null && ref != null && Math.abs(ref - net_daily) > refTol) {
+      const diff = r2(ref - net_daily);
+      if (dailyComplete) {
+        rf.push({
+          level: Math.abs(diff) > DAILY_ERROR_TL ? "error" : "warn",
+          text: `Günlük dosyalar ${TRY.format(net_daily)} · ay sonu belgesi ${TRY.format(ref)} (belge ${diff > 0 ? "+" : "−"}${TRY.format(Math.abs(diff))})`,
+        });
+      } else if (net_daily > ref + refTol) {
+        rf.push({
+          level: "warn",
+          text: `Günlük dosyalar eksik olduğu halde (${TRY.format(net_daily)}) ay sonu belgesinden (${TRY.format(ref)}) yüksek`,
+        });
+      }
     }
     const duKpi = s.kpi ? s.kpi.denim_units_erkek + s.kpi.denim_units_kadin : null;
     const duBi = s.bi?.denim_units ?? null;
@@ -471,14 +548,25 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[]):
       });
     }
     if (denim_tl != null && net_used != null && denim_tl > net_used + 1) rf.push({ level: "error", text: "Denim tutarı toplam cirodan büyük" });
-    if (!line && (net_used ?? 0) > 1000) rf.push({ level: "warn", text: "Bordroda eşleşen personel yok — takma ad ekleyin" });
+    if (!line && (net_used ?? net_daily ?? 0) > 1000) rf.push({ level: "warn", text: "Bordroda eşleşen personel yok — takma ad ekleyin" });
+    const line_total = line && line.own_revenue_nd != null ? r2(line.own_revenue_nd + (line.own_revenue_denim ?? 0)) : null;
+    if (line && line.commission_profile === "mavi_asistan" && net_used != null) {
+      if (line_total == null) rf.push({ level: "info", text: "Bordroya henüz işlenmedi" });
+      else if (Math.abs(line_total - net_used) >= 1) {
+        rf.push({ level: "info", text: `Bordroda ${TRY.format(line_total)} kayıtlı — aktarınca ${TRY.format(net_used)} olur` });
+      }
+    }
     rows.push({
       name: s.name,
+      code: s.code,
       line_id: line?.line_id ?? null,
       commission_profile: line?.commission_profile ?? null,
       net_bi,
       net_itpos,
+      net_daily,
       net_used,
+      net_used_source,
+      line_total,
       denim_tl,
       nd_tl: net_used != null && denim_tl != null ? r2(net_used - denim_tl) : null,
       kpi_category_tl: s.kpi?.category_tl_total ?? null,
@@ -490,11 +578,13 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[]):
       flags: rf,
     });
   }
-  rows.sort((a, b) => (b.net_used ?? 0) - (a.net_used ?? 0));
+  rows.sort((a, b) => (b.net_used ?? b.net_daily ?? 0) - (a.net_used ?? a.net_daily ?? 0));
 
   const persons_sum = rows.some((r) => r.net_used != null) ? r2(rows.reduce((s, r) => s + (r.net_used ?? 0), 0)) : null;
-  const store_net = itk?.net_ciro ?? bi?.total.net_tl ?? null;
-  const store_net_source: PerfCheck["store_net_source"] = itk?.net_ciro != null ? "itpos" : bi?.total.net_tl != null ? "bi" : null;
+  const docStoreNet = itk?.net_ciro ?? bi?.total.net_tl ?? null;
+  const store_net = docStoreNet ?? (dailyComplete ? daily!.store_net : null);
+  const store_net_source: PerfCheck["store_net_source"] =
+    itk?.net_ciro != null ? "itpos" : bi?.total.net_tl != null ? "bi" : dailyComplete ? "daily" : null;
 
   if (itk?.net_ciro != null && bi?.total.net_tl != null && Math.abs(itk.net_ciro - bi.total.net_tl) > 5) {
     flags.push({
@@ -507,10 +597,64 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[]):
   } else if (store_net != null && persons_sum != null && Math.abs(store_net - persons_sum) > 1) {
     flags.push({ level: "info", text: `Kişi toplamı ile mağaza Net Ciro arasında ${TRY.format(persons_sum - store_net)} ₺ küçük fark (yuvarlama)` });
   }
+
+  // ── Günlük bayi dosyaları: bağımsız kontrol ───────────────────────────────
+  let daily_agrees: boolean | null = null;
+  if (daily) {
+    if (!hasDaily) {
+      flags.push({ level: "info", text: "Bu ayın günlük bayi gün sonu dosyaları sistemde yok — bağımsız kontrol yapılamadı" });
+    } else {
+      if (!daily.month_over) {
+        flags.push({ level: "info", text: `Ay bitmedi — günlük bayi dosyaları ${daily.days_present} gün` });
+      } else if (daily.days_missing.length) {
+        flags.push({
+          level: "warn",
+          text: `Günlük bayi dosyası eksik: ${daily.days_missing.length} gün (ayın ${dayList(daily.days_missing)}. günü) — o günleri içeren bayi gün sonu Excel'ini "Belge yükle" ile ekleyin`,
+        });
+      }
+      if (daily.not_original_days.length) {
+        flags.push({
+          level: "warn",
+          text: `${daily.not_original_days.length} günün bayi dosyası SAP'nin özgün dışa aktarımı değil, Excel'de yeniden kaydedilmiş (ayın ${dayList(daily.not_original_days)}. günü)`,
+        });
+      }
+      if (docStoreNet != null) {
+        const tol = DAILY_SAME_TL;
+        const diff = r2(docStoreNet - daily.store_net);
+        if (Math.abs(diff) <= tol) {
+          if (daily.complete) daily_agrees = true;
+        } else if (daily.complete) {
+          daily_agrees = false;
+          flags.push({
+            level: Math.abs(diff) > DAILY_ERROR_TL ? "error" : "warn",
+            text: `Mağaza cirosu: günlük dosyaların toplamı ${TRY.format(daily.store_net)} · ay sonu belgesi ${TRY.format(docStoreNet)} (belge ${diff > 0 ? "+" : "−"}${TRY.format(Math.abs(diff))})`,
+          });
+        } else if (daily.store_net > docStoreNet + tol) {
+          flags.push({
+            level: "warn",
+            text: `Günlük dosyalar eksik olduğu halde toplamı (${TRY.format(daily.store_net)}) ay sonu belgesindeki mağaza cirosundan (${TRY.format(docStoreNet)}) yüksek`,
+          });
+        }
+      }
+      if (daily_agrees === true && rows.some((r) => r.flags.some((f) => f.level !== "info" && f.text.startsWith("Günlük dosyalar")))) daily_agrees = false;
+    }
+  }
+
   if (bi && !bi.category_layout_ok) flags.push({ level: "warn", text: "BI raporunun kategori sayfası beklenen düzende değil — kadın/erkek denim adedi KPI dosyasından alındı" });
-  if (!bi) flags.push({ level: "warn", text: "BI Çalışan Performans Raporu (PDF) yüklenmedi" });
+  if (!bi) {
+    flags.push(
+      dailyComplete
+        ? { level: "info", text: "BI Çalışan Performans Raporu yüklenmedi — kişi ciroları günlük bayi dosyalarından alındı; denim adedi ikinci kaynakla doğrulanamadı" }
+        : { level: "warn", text: "BI Çalışan Performans Raporu (PDF) yüklenmedi" }
+    );
+  }
   if (!kpi) flags.push({ level: "warn", text: "Personel KPI Raporu (xlsx) yüklenmedi — denim ayrımı yapılamaz" });
-  if (!itk) flags.push({ level: "info", text: "IT POS Performans (KPI) yüklenmedi — mağaza cirosu BI raporundan alınır" });
+  if (!itk) {
+    flags.push({
+      level: "info",
+      text: bi ? "IT POS Performans (KPI) yüklenmedi — mağaza cirosu BI raporundan alınır" : dailyComplete ? "IT POS Performans (KPI) yüklenmedi — mağaza cirosu günlük bayi dosyalarından alınır" : "IT POS Performans (KPI) yüklenmedi",
+    });
+  }
   for (const l of lines.filter((x) => x.commission_profile === "mavi_asistan")) {
     if (!rows.some((r) => r.line_id === l.line_id)) flags.push({ level: "warn", text: `${l.full_name} belgelerde yok` });
   }
@@ -531,8 +675,22 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[]):
     kadin_denim_units_store: kpi ? kpi.persons.reduce((s, p) => s + p.denim_units_kadin, 0) : (bi?.total.kadin_denim_units ?? null),
     denim_units_store: bi?.total.denim_units ?? (kpi ? kpi.persons.reduce((s, p) => s + p.denim_units_erkek + p.denim_units_kadin, 0) : null),
     top_seller: top?.name ?? null,
+    daily: daily
+      ? {
+          days_expected: daily.days_expected,
+          days_present: daily.days_present,
+          days_missing: daily.days_missing,
+          month_over: daily.month_over,
+          complete: daily.complete,
+          upload_days: daily.upload_days,
+          archive_days: daily.archive_days,
+          not_original_days: daily.not_original_days,
+          store_net: daily.store_net,
+        }
+      : null,
+    daily_agrees,
     rows,
     flags,
-    ready: !!bi && !!kpi && !hasError,
+    ready: (!!bi || dailyComplete) && !!kpi && !hasError,
   };
 }

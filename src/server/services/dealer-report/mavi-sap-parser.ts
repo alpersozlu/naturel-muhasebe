@@ -34,12 +34,34 @@ import { createHash } from "crypto";
  * "Belge tarihi", so no real file was ever accepted. Dates are read as Excel
  * serial numbers and converted with integer arithmetic — no time zone is
  * involved, so the day cannot slip on a server that is not on UTC.
+ *
+ * PER-SALESPERSON REVENUE (03.10.2026). Every line carries "Satış Temsilcisi"
+ * (+ "Adı") and "Stok KDV Matrahı" (the line's amount without VAT). SAP's
+ * "Net Ciro" — the figure commissions are paid on — is
+ *     Σ Stok KDV Matrahı − Kartuş
+ * with the receipt's Kartuş (points redeemed, once per receipt) shared among
+ * its lines by their Net Tutar. Checked to the kuruş against the payroll
+ * masters: Girne August 2026 (store 3.575.185,04 and all four sales
+ * assistants exact), Güzelyurt July and August 2026 (store and assistants
+ * within the master's whole-lira rounding). Hediye Kart is NOT deducted.
  */
 export const MAVI_STORE_CODE_MAP: Record<string, string> = {
   "9400": "Lefkoşa",
   "9401": "Girne",
   "9402": "Mağusa",
   "9403": "Güzelyurt",
+};
+
+export type ParsedDealerRep = {
+  code: string; // "94010050" — "—" when the line has none
+  name: string;
+  // Amounts keep FOUR decimals (see the rounding note where they are built).
+  matrah: number; // Σ Stok KDV Matrahı (KDV hariç)
+  net: number; // Σ Net Tutar (KDV dahil)
+  kartus: number; // receipt Kartuş shared by Net Tutar
+  net_ciro: number; // matrah − kartus  → SAP "Net Ciro"
+  units: number; // Σ line Miktar (refunds negative)
+  lines: number;
 };
 
 export type ParsedDealerDay = {
@@ -57,6 +79,10 @@ export type ParsedDealerDay = {
   refund_count: number; // refund LINES (kept for continuity)
   /** Receipts whose payments do not add up to their total (should be 0). */
   inconsistent_receipts: number;
+  /** Σ Stok KDV Matrahı — 0 when the export has no such column. */
+  net_ex_vat: number;
+  /** Per salesperson; empty when the export lacks the rep / matrah columns. */
+  reps: ParsedDealerRep[];
 };
 
 export type ParsedDealerReport = {
@@ -150,6 +176,14 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
     if (k === "tutar" && headerKeys[i - 1] === "banka kodu") bankCols.push(i);
   });
 
+  // Per-salesperson columns (optional — older layouts may lack them).
+  const cMatrah = headerKeys.findIndex((k) => k.startsWith("stok kdv matrah"));
+  const cRepCode = col("satış temsilcisi");
+  const cRepName = col("satış temsilcisi adı");
+  const qtyCols = headerKeys.map((k, i) => (k === "miktar" ? i : -1)).filter((i) => i >= 0);
+  const cQty = qtyCols.length ? qtyCols[qtyCols.length - 1]! : -1; // line quantity is the later "Miktar"
+  const repsAvailable = cMatrah >= 0 && cRepName >= 0;
+
   type Receipt = {
     dayKey: string;
     lines: number;
@@ -157,6 +191,7 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
     isRefund: boolean;
     head: unknown[] | null;
     first: unknown[];
+    items: Array<{ code: string; name: string; matrah: number; net: number; qty: number }>;
   };
   const receipts = new Map<string, Receipt>();
   const storeCodes = new Set<string>();
@@ -174,11 +209,20 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
     const key = `${store}|${dayKey}|${ref}`;
     let r = receipts.get(key);
     if (!r) {
-      r = { dayKey, lines: 0, net: 0, isRefund: false, head: null, first: row };
+      r = { dayKey, lines: 0, net: 0, isRefund: false, head: null, first: row, items: [] };
       receipts.set(key, r);
     }
     r.lines += 1;
     r.net += toNum(row[cNet]);
+    if (repsAvailable) {
+      r.items.push({
+        code: (cRepCode >= 0 ? toStr(row[cRepCode]) : "") || "—",
+        name: toStr(row[cRepName]) || "—",
+        matrah: toNum(row[cMatrah]),
+        net: toNum(row[cNet]),
+        qty: cQty >= 0 ? toNum(row[cQty]) : 0,
+      });
+    }
     if (toStr(row[cType]).toLocaleLowerCase("tr").includes("iade")) r.isRefund = true;
     if (cHead >= 0 && row[cHead] !== null && row[cHead] !== "" && !r.head) r.head = row;
   }
@@ -193,6 +237,7 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
   const storeCode = Array.from(storeCodes)[0]!;
 
   const byDay = new Map<string, ParsedDealerDay>();
+  const repsByDay = new Map<string, Map<string, ParsedDealerRep>>();
   for (const r of Array.from(receipts.values())) {
     let d = byDay.get(r.dayKey);
     if (!d) {
@@ -210,8 +255,11 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
         line_count: 0,
         refund_count: 0,
         inconsistent_receipts: 0,
+        net_ex_vat: 0,
+        reps: [],
       };
       byDay.set(r.dayKey, d);
+      repsByDay.set(r.dayKey, new Map());
     }
     // Receipt-level amounts come from the head row; Kartuş / Hediye are the
     // same on every line, so the first line serves when no head is marked.
@@ -223,6 +271,25 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
     const card = r.head ? bankCols.reduce((s, c) => s + toNum(r.head![c]), 0) : 0;
     const wire = r.head ? at(cWire) : 0;
     const other = r.head ? at(cOther) : 0;
+
+    // Per salesperson: the receipt's Kartuş is shared by each line's Net Tutar.
+    if (r.items.length > 0) {
+      const reps = repsByDay.get(r.dayKey)!;
+      for (const it of r.items) {
+        const share = Math.abs(r.net) > 0.005 ? it.net / r.net : 1 / r.items.length;
+        let p = reps.get(it.code);
+        if (!p) {
+          p = { code: it.code, name: it.name, matrah: 0, net: 0, kartus: 0, net_ciro: 0, units: 0, lines: 0 };
+          reps.set(it.code, p);
+        }
+        p.matrah += it.matrah;
+        p.net += it.net;
+        p.kartus += loyalty * share;
+        p.units += it.qty;
+        p.lines += 1;
+        d.net_ex_vat += it.matrah;
+      }
+    }
 
     d.net_sales += r.net;
     d.loyalty += loyalty;
@@ -269,6 +336,20 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
       wire: round2(d.wire),
       other: round2(d.other),
       refund_total: round2(d.refund_total),
+      net_ex_vat: round2(d.net_ex_vat),
+      reps: Array.from(repsByDay.get(isoDate(d.date))?.values() ?? [])
+        // Four decimals: the Kartuş share is a fraction of a kuruş per line,
+        // and a month is ~30 of these per person — rounding each day to the
+        // kuruş would let the month total drift off SAP's own figure.
+        .map((p) => ({
+          ...p,
+          matrah: round4(p.matrah),
+          net: round4(p.net),
+          kartus: round4(p.kartus),
+          net_ciro: round4(p.matrah - p.kartus),
+          units: round2(p.units),
+        }))
+        .sort((a, b) => b.net_ciro - a.net_ciro),
     }));
 
   return {
@@ -349,4 +430,8 @@ function isoDate(d: Date): string {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function round4(n: number): number {
+  return Math.round(n * 10000) / 10000;
 }

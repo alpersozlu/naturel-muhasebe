@@ -48,10 +48,14 @@ import {
   buildPerformanceCheck,
   expectedStoreCode,
   parsePerformanceFile,
+  sha256,
   type PerfLineRef,
   type PerfParsed,
 } from "@/server/services/payroll/performance";
 import { uploadBufferToStorage } from "@/server/services/storage";
+import { parseMaviSapBuffer, type ParsedDealerReport } from "@/server/services/dealer-report/mavi-sap-parser";
+import { loadMonthReps, saveReportReps } from "@/server/services/dealer-report/daily-reps";
+import { isSapOriginal, xlsxOrigin } from "@/server/services/xlsx-origin";
 
 const employeeAudited = withAudit("PayrollEmployee");
 const periodAudited = withAudit("PayrollPeriod");
@@ -122,7 +126,8 @@ export const payrollRouter = router({
   performance: router({
     /** Mağaza mağaza yüklenen belgeler ve çapraz kontrol tablosu. */
     get: adminProcedure.input(periodIdSchema).query(async ({ ctx, input }) => {
-      const [docs, lines, stores] = await Promise.all([
+      const [period, docs, lines, stores] = await Promise.all([
+        ctx.prisma.payrollPeriod.findUniqueOrThrow({ where: { id: input.period_id } }),
         ctx.prisma.payrollPerformanceDoc.findMany({ where: { period_id: input.period_id }, orderBy: { created_at: "asc" } }),
         ctx.prisma.payrollLine.findMany({ where: { period_id: input.period_id }, include: { employee: true } }),
         ctx.prisma.store.findMany({
@@ -130,8 +135,16 @@ export const payrollRouter = router({
           select: { id: true },
         }),
       ]);
+      // Ay boyunca yüklenen günlük bayi dosyalarından kişi ciroları — bağımsız kontrol.
+      const daily = await loadMonthReps(
+        ctx.prisma,
+        stores.map((s) => s.id),
+        period.year,
+        period.month
+      );
       return stores.map((s) => {
         const sd = docs.filter((d) => d.store_id === s.id);
+        const sdaily = daily.get(s.id) ?? null;
         return {
           store_id: s.id,
           docs: sd.map((d) => ({
@@ -142,12 +155,14 @@ export const payrollRouter = router({
             created_at: d.created_at.toISOString(),
             uploaded_by_name: d.uploaded_by_name,
           })),
-          check: sd.length
-            ? buildPerformanceCheck(
-                sd.map((d) => d.parsed_json as unknown as PerfParsed),
-                lines.filter((l) => l.store_id === s.id).map(toPerfRef)
-              )
-            : null,
+          check:
+            sd.length || (sdaily?.days_present ?? 0) > 0
+              ? buildPerformanceCheck(
+                  sd.map((d) => d.parsed_json as unknown as PerfParsed),
+                  lines.filter((l) => l.store_id === s.id).map(toPerfRef),
+                  sdaily
+                )
+              : null,
         };
       });
     }),
@@ -160,13 +175,58 @@ export const payrollRouter = router({
         ctx.prisma.payrollPeriod.findUniqueOrThrow({ where: { id: input.period_id } }),
       ]);
       if (period.status === "closed") throw new TRPCError({ code: "BAD_REQUEST", message: "Kapalı ay — önce dönemi yeniden aç." });
+      const expected = expectedStoreCode(store.name, store.brand.name);
+
+      // Günlük bayi gün sonu dosyası da buraya bırakılabilir: eksik günleri
+      // doldurur (gün gün yüklenmiş olanın yerine geçmez).
+      if (buf.subarray(0, 2).toString("latin1") === "PK") {
+        let report: ParsedDealerReport | null = null;
+        try {
+          report = parseMaviSapBuffer(buf);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "";
+          // "formatında değil" → başka bir belge; diğer hatalar bayi dosyasının kendi sorunu.
+          if (!/formatında değil|veri satırı yok|sheet bulunamadı/.test(msg)) throw new TRPCError({ code: "BAD_REQUEST", message: msg || "Dosya okunamadı" });
+        }
+        if (report) {
+          if (expected && report.store_code !== expected) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Bu bayi gün sonu dosyası ${report.store_code} kodlu mağazaya ait; ${store.name} (${expected}) bekleniyordu.`,
+            });
+          }
+          const genuine = isSapOriginal(await xlsxOrigin(buf));
+          const saved = await saveReportReps(ctx.prisma, { storeId: store.id, report, sapOriginal: genuine });
+          if (!saved.has_rep_columns) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Bu bayi gün sonu dosyasında satış temsilcisi / KDV matrahı kolonları yok — kişi cirosu çıkarılamadı." });
+          }
+          const hash = sha256(buf);
+          await uploadBufferToStorage({
+            path: `${store.id}/payroll/bayi-gun-sonu/${hash.slice(0, 16)}.xlsx`,
+            buffer: buf,
+            mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          }).catch(() => undefined); // aynı dosya zaten depoda olabilir
+          const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+          return {
+            id: store.id,
+            kind: "daily_archive" as const,
+            file_name: input.file_name,
+            genuine,
+            date_min: iso(report.source_date_min),
+            date_max: iso(report.source_date_max),
+            written: saved.written,
+            kept: saved.kept,
+            mismatched: saved.mismatched,
+          };
+        }
+      }
+
       let res: Awaited<ReturnType<typeof parsePerformanceFile>>;
       try {
         res = await parsePerformanceFile(input.file_name, buf);
       } catch (e) {
         throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Dosya okunamadı" });
       }
-      const expected = expectedStoreCode(store.name, store.brand.name);
       const code = "store_code" in res.parsed ? res.parsed.store_code : null;
       if (expected && code && code !== expected) {
         throw new TRPCError({
@@ -198,7 +258,17 @@ export const payrollRouter = router({
         create: { period_id: period.id, store_id: store.id, kind: res.parsed.kind, ...data },
         update: { ...data, created_at: new Date() },
       });
-      return { id: row.id, kind: res.parsed.kind, file_name: row.file_name, genuine: row.genuine };
+      return {
+        id: row.id,
+        kind: res.parsed.kind,
+        file_name: row.file_name,
+        genuine: row.genuine,
+        date_min: null,
+        date_max: null,
+        written: [] as string[],
+        kept: [] as string[],
+        mismatched: [] as Array<{ date: string; on_file: number; in_file: number }>,
+      };
     }),
 
     remove: lineAudited.input(idSchema).mutation(async ({ ctx, input }) => {
@@ -219,15 +289,17 @@ export const payrollRouter = router({
         ctx.prisma.payrollPerformanceDoc.findMany({ where: { period_id: input.period_id, store_id: input.store_id } }),
         ctx.prisma.payrollLine.findMany({ where: { period_id: input.period_id, store_id: input.store_id }, include: { employee: true } }),
       ]);
-      if (docs.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Bu mağaza için belge yüklenmedi." });
+      const daily = (await loadMonthReps(ctx.prisma, [input.store_id], period.year, period.month)).get(input.store_id) ?? null;
+      if (docs.length === 0 && !daily?.complete) throw new TRPCError({ code: "BAD_REQUEST", message: "Bu mağaza için belge yüklenmedi." });
       const check = buildPerformanceCheck(
         docs.map((d) => d.parsed_json as unknown as PerfParsed),
-        lines.map(toPerfRef)
+        lines.map(toPerfRef),
+        daily
       );
       const hasError = check.flags.some((f) => f.level === "error") || check.rows.some((r) => r.flags.some((f) => f.level === "error"));
       if (hasError) throw new TRPCError({ code: "BAD_REQUEST", message: "Belgeler birbirini tutmuyor — kırmızı farklar çözülmeden aktarılamaz." });
       if (!check.ready && !input.force)
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Eksik belge var (BI raporu ve KPI dosyası gerekli). Yine de aktarmak için onay verin." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Eksik belge var (KPI dosyası ve BI raporu ya da tam günlük dosyalar gerekli). Yine de aktarmak için onay verin." });
 
       if (check.store_net != null) {
         await ctx.prisma.payrollStoreMonth.upsert({

@@ -163,6 +163,7 @@ model Store {
   payroll_lines            PayrollLine[]
   payroll_store_months     PayrollStoreMonth[]
   payroll_performance_docs PayrollPerformanceDoc[]
+  dealer_daily_reps        DealerDailyRep[]
 
   @@index([brand_id])
   @@index([deleted_at])
@@ -1411,4 +1412,34 @@ model PayrollPerformanceDoc {
 
   @@unique([period_id, store_id, kind])
   @@index([period_id])
+}
+
+/// Günlük SAP bayi gün sonu dosyasından satış temsilcisi bazında ciro.
+/// SAP "Net Ciro" = Σ Stok KDV Matrahı − Kartuş (fişteki payına göre) —
+/// Ağustos 2026 Girne ve Temmuz/Ağustos 2026 Güzelyurt bordro master'larıyla
+/// kuruşu kuruşuna doğrulandı. Ay sonu performans belgelerinin BAĞIMSIZ
+/// kontrolü: günler gün gün yüklenip kilitlendiği için sonradan değiştirilemez.
+model DealerDailyRep {
+  id              String   @id @default(uuid())
+  store_id        String
+  store           Store    @relation(fields: [store_id], references: [id])
+  report_date     DateTime @db.Date
+  rep_code        String
+  rep_name        String
+  // 4 hane: Kartuş payı kuruşun altına iner; ay toplamı kuruşu kuruşuna tutsun.
+  matrah          Decimal  @db.Decimal(16, 4)
+  net_inc_vat     Decimal  @db.Decimal(16, 4)
+  kartus          Decimal  @db.Decimal(16, 4)
+  net_ciro        Decimal  @db.Decimal(16, 4)
+  units           Decimal  @db.Decimal(12, 2)
+  line_count      Int
+  source          String // "upload" günlük yükleme · "archive" geçmiş dosya
+  /// Dosya SAP'nin kendi dışa aktarımı mı (true) yoksa başka bir programda
+  /// yeniden kaydedilmiş mi (false). null = üstveri okunamadı.
+  sap_original    Boolean?
+  daily_record_id String?
+  created_at      DateTime @default(now())
+
+  @@unique([store_id, report_date, rep_code])
+  @@index([store_id, report_date])
 }
