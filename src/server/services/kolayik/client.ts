@@ -133,11 +133,21 @@ export async function listLeaves(fromIso: string, toIso: string): Promise<KLeave
   // "status" ZORUNLU (canlıda HTTP 422: "The status field is required", 03.10.2026).
   // Onaylılar şart; bekleyenler ayrıca sorulur, o sorgu başarısız olursa atlanır.
   const out = new Map<string, KLeave>();
+  // include_inactive_employees: "true" metni reddedilir (HTTP 422 "must be true or
+  // false" — doğrulama 1/0 bekler); "1" de reddedilirse parametresiz denenir.
+  const call = async (status: string, inactive: string | undefined) =>
+    kfetch<KLeave[] | { items?: KLeave[] }>("/v2/leave/list", {
+      query: { status, startDate: dayStart(fromIso), endDate: dayEnd(toIso), limit: 100, include_inactive_employees: inactive },
+    });
   for (const status of ["approved", "waiting"] as const) {
     try {
-      const d = await kfetch<KLeave[] | { items?: KLeave[] }>("/v2/leave/list", {
-        query: { status, startDate: dayStart(fromIso), endDate: dayEnd(toIso), limit: 100, include_inactive_employees: "true" },
-      });
+      let d: KLeave[] | { items?: KLeave[] };
+      try {
+        d = await call(status, "1");
+      } catch (e) {
+        if (e instanceof KolayikError && e.status === 422) d = await call(status, undefined);
+        else throw e;
+      }
       for (const l of Array.isArray(d) ? d : (d.items ?? [])) out.set(l.id, { ...l, status: l.status ?? status });
     } catch (e) {
       if (status === "approved") throw e;

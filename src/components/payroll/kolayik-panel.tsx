@@ -82,8 +82,8 @@ export function KolayikPanel({
             </div>
           ))}
           {data.unmatched_persons.length ? (
-            <div className="text-xs text-amber-800">
-              Kolay İK&apos;da olup bordroda eşleşmeyen: {data.unmatched_persons.join(", ")} — personel kartına takma ad ekle.
+            <div className="text-xs text-muted-foreground">
+              Kolay İK&apos;da olup bordroda eşleşmeyen: {data.unmatched_persons.join(", ")} — bordroya girecekse personel kartına takma ad ekle.
             </div>
           ) : null}
           {data.unmatched_employees.length ? (
