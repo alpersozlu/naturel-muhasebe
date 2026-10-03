@@ -38,6 +38,7 @@ import {
 import { LineDialog } from "./line-dialog";
 import { BatchDialog, type BatchChoice } from "./batch-dialog";
 import { KpiDetailDialog, type KpiKind } from "./kpi-detail-dialog";
+import { ExtrasGrid } from "./extras-grid";
 
 type Key = { year: number; month: number };
 
@@ -74,6 +75,7 @@ export function PayrollPeriodPage() {
   const [openLineId, setOpenLineId] = useState<string | null>(null);
   const [batch, setBatch] = useState<BatchChoice | null>(null);
   const [kpiDetail, setKpiDetail] = useState<KpiKind | null>(null);
+  const [tab, setTab] = useState<"overview" | "extras">("overview");
 
   const invalidate = () => {
     void utils.payroll.periods.get.invalidate(key);
@@ -314,16 +316,41 @@ export function PayrollPeriodPage() {
           <Alerts data={data} onOpen={setOpenLineId} />
           <CashAdvanceSuggestions periodId={data.period.id} onDone={invalidate} />
 
-          {data.stores.map((s) => (
-            <StoreCard
-              key={s.store_id}
-              store={s}
-              periodId={data.period.id}
-              closed={isClosed}
-              onOpen={setOpenLineId}
-              onSaved={invalidate}
-            />
-          ))}
+          <div className="inline-flex rounded-xl border bg-card p-1 text-sm shadow-xs">
+            {(
+              [
+                ["overview", "Genel bakış"],
+                ["extras", "Prim ve mesai girişi (Ödeme 2)"],
+              ] as const
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setTab(k)}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 font-medium transition-colors",
+                  tab === k ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {tab === "overview" ? (
+            data.stores.map((s) => (
+              <StoreCard
+                key={s.store_id}
+                store={s}
+                periodId={data.period.id}
+                closed={isClosed}
+                onOpen={setOpenLineId}
+                onSaved={invalidate}
+              />
+            ))
+          ) : (
+            <ExtrasGrid data={data} closed={isClosed} onChanged={invalidate} onOpenLine={setOpenLineId} />
+          )}
 
           <Batches data={data} onChanged={invalidate} />
         </>

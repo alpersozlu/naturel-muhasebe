@@ -40,6 +40,7 @@ import {
 } from "@/server/services/payroll/talimat";
 import { periodLabel } from "@/server/services/payroll/rules";
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
+import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
 
 const employeeAudited = withAudit("PayrollEmployee");
 const periodAudited = withAudit("PayrollPeriod");
@@ -72,6 +73,38 @@ export const payrollRouter = router({
       orderBy: [{ brand: { name: "asc" } }, { name: "asc" }],
     });
     return rows.map((s) => ({ id: s.id, name: s.name, brand_name: s.brand.name }));
+  }),
+
+  /**
+   * Prim hesabında başvuru bilgisi: mağazanın o ayki kasa eksiği (Kasa
+   * Farkları ile aynı motor) ve faturasız masraf toplamı (Faturasız Peşin
+   * Ödeme girişleri). Kime kesileceğine sahibi karar verir — burası yalnız
+   * rakamı gösterir.
+   */
+  storeHints: adminProcedure.input(periodKeySchema).query(async ({ ctx, input }) => {
+    const from = new Date(Date.UTC(input.year, input.month - 1, 1));
+    const to = new Date(Date.UTC(input.year, input.month, 1));
+    const [cv, adv] = await Promise.all([
+      cashVarianceSummary(ctx.prisma, { year: input.year, month: input.month }),
+      ctx.prisma.cashAdvance.findMany({
+        where: { category: { not: "bonus" }, daily_record: { date: { gte: from, lt: to } } },
+        select: { amount_try: true, daily_record: { select: { store_id: true } } },
+      }),
+    ]);
+    const un = new Map<string, { total: number; count: number }>();
+    for (const a of adv) {
+      const o = un.get(a.daily_record.store_id) ?? { total: 0, count: 0 };
+      o.total += Number(a.amount_try);
+      o.count += 1;
+      un.set(a.daily_record.store_id, o);
+    }
+    return cv.by_store.map((s) => ({
+      store_id: s.store_id,
+      cash_deficit: Math.round(s.total_deficit * 100) / 100,
+      cash_surplus: Math.round(s.total_surplus * 100) / 100,
+      uninvoiced_total: Math.round((un.get(s.store_id)?.total ?? 0) * 100) / 100,
+      uninvoiced_count: un.get(s.store_id)?.count ?? 0,
+    }));
   }),
 
   // ── Personel ───────────────────────────────────────────────────────────────

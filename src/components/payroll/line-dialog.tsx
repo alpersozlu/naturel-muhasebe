@@ -155,7 +155,7 @@ export function LineDialog({
               <Field label="Baz maaş (NET)">
                 <MoneyInput value={form.base_salary} onChange={(v) => set("base_salary", v)} disabled={closed} />
               </Field>
-              <Field label={`Mesai saati (saatlik ${money(c.hourly_rate)} ₺)`}>
+              <Field label={`Mesai saati (saatlik ${money(c.hourly_rate)} ₺ = net baz ÷ 26 ÷ 8)`}>
                 <Input type="number" inputMode="decimal" step="0.5" min={0} value={form.overtime_hours} onChange={(e) => set("overtime_hours", e.target.value)} disabled={closed} />
               </Field>
               <Field label="Mesai notu (onaylı log, günler)" wide>
