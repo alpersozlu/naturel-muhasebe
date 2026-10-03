@@ -130,16 +130,26 @@ const dayEnd = (iso: string) => `${iso} 23:59:59`;
 
 /** İzin kayıtları — tarih aralığında (YYYY-MM-DD), tüm durumlar. */
 export async function listLeaves(fromIso: string, toIso: string): Promise<KLeave[]> {
-  const d = await kfetch<KLeave[] | { items?: KLeave[] }>("/v2/leave/list", {
-    query: { startDate: dayStart(fromIso), endDate: dayEnd(toIso), limit: 1000, include_inactive_employees: "true" },
-  });
-  return Array.isArray(d) ? d : (d.items ?? []);
+  // "status" ZORUNLU (canlıda HTTP 422: "The status field is required", 03.10.2026).
+  // Onaylılar şart; bekleyenler ayrıca sorulur, o sorgu başarısız olursa atlanır.
+  const out = new Map<string, KLeave>();
+  for (const status of ["approved", "waiting"] as const) {
+    try {
+      const d = await kfetch<KLeave[] | { items?: KLeave[] }>("/v2/leave/list", {
+        query: { status, startDate: dayStart(fromIso), endDate: dayEnd(toIso), limit: 100, include_inactive_employees: "true" },
+      });
+      for (const l of Array.isArray(d) ? d : (d.items ?? [])) out.set(l.id, { ...l, status: l.status ?? status });
+    } catch (e) {
+      if (status === "approved") throw e;
+    }
+  }
+  return Array.from(out.values());
 }
 
 /** Mesai kayıtları (type=overtime) — tarih aralığında, tüm durumlar, sayfalı. */
 export async function listOvertime(fromIso: string, toIso: string): Promise<KTimelog[]> {
   const out: KTimelog[] = [];
-  const limit = 200;
+  const limit = 100;
   for (let page = 1; page <= 10; page++) {
     const d = await kfetch<{ items?: KTimelog[]; totalCount?: number; searchCount?: number }>("/v2/timelog/list", {
       method: "POST",

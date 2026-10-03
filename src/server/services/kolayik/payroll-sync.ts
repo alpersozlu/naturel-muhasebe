@@ -14,6 +14,8 @@ export type KolayikMonth = {
   configured: boolean;
   ok: boolean;
   error: string | null;
+  /** Bölüm bazlı sorunlar — bağlantı var ama bir liste okunamadı */
+  warnings: string[];
   fetched_at: string;
   persons: number;
   unmatched_persons: string[];
@@ -63,6 +65,7 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
     configured: kolayikConfigured(),
     ok: false,
     error: null,
+    warnings: [],
     fetched_at: new Date().toISOString(),
     persons: 0,
     unmatched_persons: [],
@@ -77,7 +80,15 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
   const to = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
   try {
-    const [persons, overtime, leaves] = await Promise.all([listPersons("active"), listOvertime(from, to), listLeaves(from, to)]);
+    // Bir liste hata verse de diğerleri görünsün — her bölüm ayrı raporlanır.
+    const [pRes, oRes, lRes] = await Promise.allSettled([listPersons("active"), listOvertime(from, to), listLeaves(from, to)]);
+    if (pRes.status === "rejected") throw pRes.reason;
+    const persons = pRes.value;
+    const errText = (r: PromiseRejectedResult) => (r.reason instanceof Error ? r.reason.message : String(r.reason));
+    const overtime = oRes.status === "fulfilled" ? oRes.value : [];
+    const leaves = lRes.status === "fulfilled" ? lRes.value : [];
+    if (oRes.status === "rejected") base.warnings.push(`Mesai kayıtları okunamadı — ${errText(oRes)}`);
+    if (lRes.status === "rejected") base.warnings.push(`İzin kayıtları okunamadı — ${errText(lRes)}`);
     const employees: Emp[] = await prisma.payrollEmployee.findMany({
       where: { deleted_at: null },
       select: { id: true, full_name: true, aliases: true, bank_account_name: true, status: true },

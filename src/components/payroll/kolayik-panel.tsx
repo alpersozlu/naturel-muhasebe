@@ -76,6 +76,11 @@ export function KolayikPanel({
 
       {data.ok ? (
         <div className="mt-2 space-y-2">
+          {data.warnings.map((w) => (
+            <div key={w} className="text-xs text-rose-700">
+              {w}
+            </div>
+          ))}
           {data.unmatched_persons.length ? (
             <div className="text-xs text-amber-800">
               Kolay İK&apos;da olup bordroda eşleşmeyen: {data.unmatched_persons.join(", ")} — personel kartına takma ad ekle.
