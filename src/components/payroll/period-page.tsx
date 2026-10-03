@@ -213,7 +213,26 @@ export function PayrollPeriodPage() {
         ) : null}
       </div>
 
-      {view.isLoading && picked ? (
+      {periods.isError || view.isError ? (
+        // Sunucuya ulaşılamadığında "dönem açılmadı" DENMEZ: dönem yerinde durur,
+        // yalnız okunamamıştır (03.10.2026 kesintisinde Ekim "açılmadı" göründü).
+        <div className="rounded-2xl border border-dashed bg-card p-10 text-center space-y-3">
+          <AlertTriangle className="mx-auto h-8 w-8 text-rose-600" />
+          <div className="font-medium">Bordro verisi alınamadı</div>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            Sunucu yanıt vermedi. Dönemler ve kayıtlar yerinde duruyor; birazdan yeniden deneyin.
+          </p>
+          <Button
+            variant="outline"
+            onClick={() => {
+              void periods.refetch();
+              if (picked) void view.refetch();
+            }}
+          >
+            Yeniden dene
+          </Button>
+        </div>
+      ) : !picked || view.isLoading ? (
         <div className="text-sm text-muted-foreground">Yükleniyor…</div>
       ) : !data ? (
         <div className="rounded-2xl border border-dashed bg-card p-10 text-center space-y-3">
