@@ -13,6 +13,8 @@ import { computeLine, type LineInput } from "@/server/services/payroll/compute";
 import { ADDITION_CATEGORIES, DEDUCTION_CATEGORIES } from "@/server/services/payroll/rules";
 import { money, pct } from "./format";
 import { EntryDialog, type EntryKind } from "./entry-dialog";
+import { KolayikPanel } from "./kolayik-panel";
+import type { KolayikMonth } from "@/server/services/kolayik/payroll-sync";
 
 /**
  * Prim ve mesai girişi (Ödeme 2 çalışma alanı).
@@ -27,6 +29,7 @@ import { EntryDialog, type EntryKind } from "./entry-dialog";
 
 type Draft = {
   overtime_hours: string;
+  overtime_note: string;
   own_revenue_nd: number | undefined;
   own_revenue_denim: number | undefined;
   own_revenue: number | undefined;
@@ -41,6 +44,7 @@ type Draft = {
 function fromLine(l: ComputedLine): Draft {
   return {
     overtime_hours: l.overtime_hours ? String(l.overtime_hours) : "",
+    overtime_note: l.overtime_note ?? "",
     own_revenue_nd: l.own_revenue_nd ?? undefined,
     own_revenue_denim: l.own_revenue_denim ?? undefined,
     own_revenue: l.own_revenue ?? undefined,
@@ -95,6 +99,12 @@ export function ExtrasGrid({
   const [saving, setSaving] = useState(false);
   const hints = trpc.payroll.storeHints.useQuery({ year: data.period.year, month: data.period.month });
   const update = trpc.payroll.lines.update.useMutation();
+  // Kolay İK: ayın onaylı mesaileri (öneri) ve izinleri (bilgi). Anahtar yoksa panel görünmez.
+  const kolay = trpc.payroll.kolayik.month.useQuery(
+    { year: data.period.year, month: data.period.month },
+    { staleTime: 5 * 60_000, retry: false, refetchOnWindowFocus: false }
+  );
+  const otByLine = new Map((kolay.data?.overtime ?? []).filter((o) => o.line_id).map((o) => [o.line_id!, o]));
 
   const allLines = data.stores.flatMap((s) => s.lines);
   const draftOf = (l: ComputedLine) => drafts[l.id] ?? fromLine(l);
@@ -105,6 +115,7 @@ export function ExtrasGrid({
   const payload = (l: ComputedLine, d: Draft) => ({
     id: l.id,
     overtime_hours: numOf(d.overtime_hours),
+    overtime_note: d.overtime_note || null,
     own_revenue_nd: l.commission_profile === "mavi_asistan" ? (d.own_revenue_nd ?? null) : undefined,
     own_revenue_denim: l.commission_profile === "mavi_asistan" ? (d.own_revenue_denim ?? null) : undefined,
     own_revenue: l.commission_profile === "deri_asistan" ? (d.own_revenue ?? null) : undefined,
@@ -153,10 +164,13 @@ export function ExtrasGrid({
         </Button>
       </div>
 
+      <KolayikPanel data={kolay.data} loading={kolay.isFetching} queryError={kolay.error?.message ?? null} onRefresh={() => void kolay.refetch()} />
+
       {data.stores.map((s) => (
         <StoreExtras
           key={s.store_id}
           store={s}
+          overtimeOf={(id) => otByLine.get(id)}
           hint={hintOf(s.store_id)}
           closed={closed}
           saving={saving}
@@ -185,6 +199,7 @@ export function ExtrasGrid({
 
 function StoreExtras({
   store,
+  overtimeOf,
   hint,
   closed,
   saving,
@@ -196,6 +211,7 @@ function StoreExtras({
   onOpenLine,
 }: {
   store: StoreBlock;
+  overtimeOf: (lineId: string) => KolayikMonth["overtime"][number] | undefined;
   hint: { cash_deficit: number; cash_surplus: number; uninvoiced_total: number; uninvoiced_count: number } | undefined;
   closed: boolean;
   saving: boolean;
@@ -287,6 +303,26 @@ function StoreExtras({
                       disabled={closed}
                     />
                     <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">{c.overtime_amount ? `= ${money(c.overtime_amount)} ₺` : " "}</div>
+                    {(() => {
+                      const ot = overtimeOf(l.id);
+                      if (!ot || (ot.approved_hours <= 0 && ot.waiting_hours <= 0)) return null;
+                      const differs = Math.abs(ot.approved_hours - numOf(d.overtime_hours)) > 0.001;
+                      return (
+                        <div className="mt-0.5 text-[11px] text-sky-800" title={ot.note}>
+                          Kolay İK: {ot.approved_hours} s onaylı
+                          {ot.waiting_hours ? ` · ${ot.waiting_hours} s bekliyor` : ""}
+                          {differs && ot.approved_hours > 0 && !closed ? (
+                            <button
+                              type="button"
+                              className="ml-1 underline"
+                              onClick={() => patch(l, { overtime_hours: String(ot.approved_hours), overtime_note: ot.note })}
+                            >
+                              uygula
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-2 py-2.5">
                     {p === "mavi_asistan" ? (

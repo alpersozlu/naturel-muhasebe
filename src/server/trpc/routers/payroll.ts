@@ -41,6 +41,7 @@ import {
 import { periodLabel } from "@/server/services/payroll/rules";
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
 import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
+import { kolayikLeaveStatus, kolayikMonth } from "@/server/services/kolayik/payroll-sync";
 
 const employeeAudited = withAudit("PayrollEmployee");
 const periodAudited = withAudit("PayrollPeriod");
@@ -105,6 +106,14 @@ export const payrollRouter = router({
       uninvoiced_total: Math.round((un.get(s.store_id)?.total ?? 0) * 100) / 100,
       uninvoiced_count: un.get(s.store_id)?.count ?? 0,
     }));
+  }),
+
+  // ── Kolay İK (salt okunur) ────────────────────────────────────────────────
+  kolayik: router({
+    /** Ayın mesai ve izin kayıtları, bordro personeline eşlenmiş. */
+    month: adminProcedure.input(periodKeySchema).query(({ ctx, input }) => kolayikMonth(ctx.prisma, input.year, input.month)),
+    /** Bir personelin izin bakiyeleri (id = PayrollEmployee.id). */
+    leaveStatus: adminProcedure.input(idSchema).query(({ ctx, input }) => kolayikLeaveStatus(ctx.prisma, input.id)),
   }),
 
   // ── Personel ───────────────────────────────────────────────────────────────
