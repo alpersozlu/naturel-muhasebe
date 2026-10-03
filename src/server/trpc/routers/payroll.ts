@@ -17,6 +17,8 @@ import {
   lineUpdateSchema,
   loanCreateSchema,
   loanUpdateSchema,
+  performanceApplySchema,
+  performanceUploadSchema,
   periodIdSchema,
   periodKeySchema,
   storeMonthUpsertSchema,
@@ -42,6 +44,14 @@ import { periodLabel } from "@/server/services/payroll/rules";
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
 import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
 import { kolayikLeaveStatus, kolayikMonth } from "@/server/services/kolayik/payroll-sync";
+import {
+  buildPerformanceCheck,
+  expectedStoreCode,
+  parsePerformanceFile,
+  type PerfLineRef,
+  type PerfParsed,
+} from "@/server/services/payroll/performance";
+import { uploadBufferToStorage } from "@/server/services/storage";
 
 const employeeAudited = withAudit("PayrollEmployee");
 const periodAudited = withAudit("PayrollPeriod");
@@ -106,6 +116,168 @@ export const payrollRouter = router({
       uninvoiced_total: Math.round((un.get(s.store_id)?.total ?? 0) * 100) / 100,
       uninvoiced_count: un.get(s.store_id)?.count ?? 0,
     }));
+  }),
+
+  // ── Performans belgeleri (Mavi: BI PDF + KPI xlsx + IT POS xlsx) ──────────
+  performance: router({
+    /** Mağaza mağaza yüklenen belgeler ve çapraz kontrol tablosu. */
+    get: adminProcedure.input(periodIdSchema).query(async ({ ctx, input }) => {
+      const [docs, lines, stores] = await Promise.all([
+        ctx.prisma.payrollPerformanceDoc.findMany({ where: { period_id: input.period_id }, orderBy: { created_at: "asc" } }),
+        ctx.prisma.payrollLine.findMany({ where: { period_id: input.period_id }, include: { employee: true } }),
+        ctx.prisma.store.findMany({
+          where: { deleted_at: null, brand: { name: { contains: "mavi", mode: "insensitive" } } },
+          select: { id: true },
+        }),
+      ]);
+      return stores.map((s) => {
+        const sd = docs.filter((d) => d.store_id === s.id);
+        return {
+          store_id: s.id,
+          docs: sd.map((d) => ({
+            id: d.id,
+            kind: d.kind as PerfParsed["kind"],
+            file_name: d.file_name,
+            genuine: d.genuine,
+            created_at: d.created_at.toISOString(),
+            uploaded_by_name: d.uploaded_by_name,
+          })),
+          check: sd.length
+            ? buildPerformanceCheck(
+                sd.map((d) => d.parsed_json as unknown as PerfParsed),
+                lines.filter((l) => l.store_id === s.id).map(toPerfRef)
+              )
+            : null,
+        };
+      });
+    }),
+
+    /** Dosyayı oku (xlsx başlıktan, PDF sekmeli metinden), mağaza kodunu doğrula, sakla. */
+    upload: lineAudited.input(performanceUploadSchema).mutation(async ({ ctx, input }) => {
+      const buf = Buffer.from(input.file_base64, "base64");
+      const [store, period] = await Promise.all([
+        ctx.prisma.store.findUniqueOrThrow({ where: { id: input.store_id }, include: { brand: true } }),
+        ctx.prisma.payrollPeriod.findUniqueOrThrow({ where: { id: input.period_id } }),
+      ]);
+      if (period.status === "closed") throw new TRPCError({ code: "BAD_REQUEST", message: "Kapalı ay — önce dönemi yeniden aç." });
+      let res: Awaited<ReturnType<typeof parsePerformanceFile>>;
+      try {
+        res = await parsePerformanceFile(input.file_name, buf);
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Dosya okunamadı" });
+      }
+      const expected = expectedStoreCode(store.name, store.brand.name);
+      const code = "store_code" in res.parsed ? res.parsed.store_code : null;
+      if (expected && code && code !== expected) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Bu dosya ${code} kodlu mağazaya ait; ${store.name} (${expected}) bekleniyordu.`,
+        });
+      }
+      const mm = String(period.month).padStart(2, "0");
+      const path = `${store.id}/payroll/${period.year}-${mm}/${res.parsed.kind}-${res.hash.slice(0, 16)}.${res.ext}`;
+      let file_path: string | null = path;
+      try {
+        await uploadBufferToStorage({ path, buffer: buf, mimeType: res.mime });
+      } catch (e) {
+        // Aynı dosya yeniden yüklendiyse depoda zaten var; başka hata ise yol kaydedilmez.
+        if (!/exist|duplicate/i.test(e instanceof Error ? e.message : "")) file_path = null;
+      }
+      const data = {
+        file_name: input.file_name,
+        file_hash: res.hash,
+        file_path,
+        genuine: res.genuine,
+        meta_json: (res.meta ?? undefined) as Prisma.InputJsonValue | undefined,
+        parsed_json: res.parsed as unknown as Prisma.InputJsonValue,
+        uploaded_by: ctx.user.id,
+        uploaded_by_name: ctx.user.full_name ?? ctx.user.email,
+      };
+      const row = await ctx.prisma.payrollPerformanceDoc.upsert({
+        where: { period_id_store_id_kind: { period_id: period.id, store_id: store.id, kind: res.parsed.kind } },
+        create: { period_id: period.id, store_id: store.id, kind: res.parsed.kind, ...data },
+        update: { ...data, created_at: new Date() },
+      });
+      return { id: row.id, kind: res.parsed.kind, file_name: row.file_name, genuine: row.genuine };
+    }),
+
+    remove: lineAudited.input(idSchema).mutation(async ({ ctx, input }) => {
+      const d = await ctx.prisma.payrollPerformanceDoc.delete({ where: { id: input.id } });
+      return { id: d.id };
+    }),
+
+    /**
+     * Çapraz kontrolden geçen rakamları prim tablosuna yaz: mağaza cirosu,
+     * asistanların denim / denim dışı cirosu, top-seller. Hedeflere, ek prime
+     * ve kesintilere dokunmaz. Kırmızı hata varsa reddeder.
+     */
+    // ("apply" tRPC'de ayrılmış sözcük — yönlendirici adı olamaz)
+    applyToLines: lineAudited.input(performanceApplySchema).mutation(async ({ ctx, input }) => {
+      const period = await ctx.prisma.payrollPeriod.findUniqueOrThrow({ where: { id: input.period_id } });
+      if (period.status === "closed") throw new TRPCError({ code: "BAD_REQUEST", message: "Kapalı ay — önce dönemi yeniden aç." });
+      const [docs, lines] = await Promise.all([
+        ctx.prisma.payrollPerformanceDoc.findMany({ where: { period_id: input.period_id, store_id: input.store_id } }),
+        ctx.prisma.payrollLine.findMany({ where: { period_id: input.period_id, store_id: input.store_id }, include: { employee: true } }),
+      ]);
+      if (docs.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Bu mağaza için belge yüklenmedi." });
+      const check = buildPerformanceCheck(
+        docs.map((d) => d.parsed_json as unknown as PerfParsed),
+        lines.map(toPerfRef)
+      );
+      const hasError = check.flags.some((f) => f.level === "error") || check.rows.some((r) => r.flags.some((f) => f.level === "error"));
+      if (hasError) throw new TRPCError({ code: "BAD_REQUEST", message: "Belgeler birbirini tutmuyor — kırmızı farklar çözülmeden aktarılamaz." });
+      if (!check.ready && !input.force)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Eksik belge var (BI raporu ve KPI dosyası gerekli). Yine de aktarmak için onay verin." });
+
+      if (check.store_net != null) {
+        await ctx.prisma.payrollStoreMonth.upsert({
+          where: { period_id_store_id: { period_id: input.period_id, store_id: input.store_id } },
+          create: { period_id: input.period_id, store_id: input.store_id, revenue: check.store_net, revenue_source: "performance" },
+          update: { revenue: check.store_net, revenue_source: "performance" },
+        });
+      }
+      let updated = 0;
+      let unchanged = 0;
+      const stamp = new Date().toISOString().slice(0, 10).split("-").reverse().join(".");
+      const topRow = check.rows.find((r) => r.name === check.top_seller) ?? null;
+      for (const l of lines.filter((x) => x.commission_profile === "mavi_asistan")) {
+        const row = check.rows.find((r) => r.line_id === l.id);
+        const isTop = !!topRow && topRow.line_id === l.id;
+        if (!row || row.net_used == null) {
+          if (l.top_seller !== isTop) await ctx.prisma.payrollLine.update({ where: { id: l.id }, data: { top_seller: isTop } });
+          continue;
+        }
+        const curNd = l.own_revenue_nd != null ? Number(l.own_revenue_nd) : null;
+        const curD = l.own_revenue_denim != null ? Number(l.own_revenue_denim) : null;
+        const newD = row.denim_tl;
+        const newNd = newD != null ? Math.round((row.net_used - newD) * 100) / 100 : row.net_used;
+        // Elle girilmiş kuruşlu değer belgeyle 1 ₺ içinde aynıysa dokunma.
+        const same =
+          curNd != null &&
+          Math.abs(curNd + (curD ?? 0) - row.net_used) < 1 &&
+          (newD == null ? curD == null : curD != null && Math.abs(curD - newD) < 0.01);
+        if (same && l.top_seller === isTop) {
+          unchanged += 1;
+          continue;
+        }
+        await ctx.prisma.payrollLine.update({
+          where: { id: l.id },
+          data: {
+            ...(same ? {} : { own_revenue_nd: newNd, own_revenue_denim: newD }),
+            top_seller: isTop,
+            ...(same
+              ? {}
+              : {
+                  note: `${l.note ? `${l.note} · ` : ""}Performans belgelerinden aktarıldı (${stamp}): net ${row.net_used.toFixed(2)}${
+                    newD != null ? `, denim ${newD.toFixed(2)}` : ""
+                  }`,
+                }),
+          },
+        });
+        updated += 1;
+      }
+      return { id: input.store_id, updated, unchanged, store_net: check.store_net, top_seller: check.top_seller };
+    }),
   }),
 
   // ── Kolay İK (salt okunur) ────────────────────────────────────────────────
@@ -732,6 +904,28 @@ export const payrollRouter = router({
     }),
   }),
 });
+
+function toPerfRef(l: {
+  id: string;
+  employee_id: string;
+  commission_profile: string;
+  own_revenue_nd: Prisma.Decimal | null;
+  own_revenue_denim: Prisma.Decimal | null;
+  top_seller: boolean;
+  employee: { full_name: string; aliases: string[]; bank_account_name: string | null };
+}): PerfLineRef {
+  return {
+    line_id: l.id,
+    employee_id: l.employee_id,
+    full_name: l.employee.full_name,
+    aliases: l.employee.aliases,
+    bank_account_name: l.employee.bank_account_name,
+    commission_profile: l.commission_profile,
+    own_revenue_nd: l.own_revenue_nd != null ? Number(l.own_revenue_nd) : null,
+    own_revenue_denim: l.own_revenue_denim != null ? Number(l.own_revenue_denim) : null,
+    top_seller: l.top_seller,
+  };
+}
 
 async function buildBatchFile(
   channel: "garanti" | "ziraat" | "cash",

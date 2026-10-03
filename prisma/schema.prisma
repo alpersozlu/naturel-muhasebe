@@ -150,18 +150,19 @@ model Store {
   created_at DateTime  @default(now())
   deleted_at DateTime?
 
-  user_access          UserStoreAccess[]
-  daily_records        DailyRecord[]
-  budget_limits        BudgetLimit[]
-  merge_groups         DayMergeGroup[]
-  nebim_sale_lines     NebimSaleLine[]
-  outlet_stock_items   OutletStockItem[]
-  nebim_action_prices  NebimActionPrice[]
-  nebim_targets        NebimStoreTarget[]
-  nebim_voucher_txns   NebimVoucherTxn[]
-  payroll_employees    PayrollEmployee[]
-  payroll_lines        PayrollLine[]
-  payroll_store_months PayrollStoreMonth[]
+  user_access              UserStoreAccess[]
+  daily_records            DailyRecord[]
+  budget_limits            BudgetLimit[]
+  merge_groups             DayMergeGroup[]
+  nebim_sale_lines         NebimSaleLine[]
+  outlet_stock_items       OutletStockItem[]
+  nebim_action_prices      NebimActionPrice[]
+  nebim_targets            NebimStoreTarget[]
+  nebim_voucher_txns       NebimVoucherTxn[]
+  payroll_employees        PayrollEmployee[]
+  payroll_lines            PayrollLine[]
+  payroll_store_months     PayrollStoreMonth[]
+  payroll_performance_docs PayrollPerformanceDoc[]
 
   @@index([brand_id])
   @@index([deleted_at])
@@ -1242,10 +1243,11 @@ model PayrollPeriod {
   created_at DateTime            @default(now())
   updated_at DateTime            @updatedAt
 
-  lines        PayrollLine[]
-  store_months PayrollStoreMonth[]
-  entries      PayrollEntry[]
-  batches      PayrollBatch[]
+  lines            PayrollLine[]
+  store_months     PayrollStoreMonth[]
+  entries          PayrollEntry[]
+  batches          PayrollBatch[]
+  performance_docs PayrollPerformanceDoc[]
 
   @@unique([year, month])
 }
@@ -1385,4 +1387,28 @@ model PayrollLoan {
   repayments PayrollEntry[]
 
   @@index([employee_id])
+}
+
+/// Ay sonu performans belgeleri (Mavi): BI Çalışan Performans PDF, Personel
+/// KPI xlsx, IT POS Performans xlsx. Belirlenimci okunur (yapay zekâ yok),
+/// birbirleriyle çapraz kontrol edilir, onaylanınca prim tablosuna aktarılır.
+model PayrollPerformanceDoc {
+  id               String        @id @default(uuid())
+  period_id        String
+  period           PayrollPeriod @relation(fields: [period_id], references: [id])
+  store_id         String
+  store            Store         @relation(fields: [store_id], references: [id])
+  kind             String // "bi_pdf" | "kpi_xlsx" | "itpos_kpi" | "itpos_reps"
+  file_name        String
+  file_hash        String
+  file_path        String? // uploads kovasındaki yol
+  genuine          Boolean? // SAP dışa aktarım izi (xlsx): Application/lastModifiedBy "SAP UI5"
+  meta_json        Json?
+  parsed_json      Json
+  uploaded_by      String?
+  uploaded_by_name String?
+  created_at       DateTime      @default(now())
+
+  @@unique([period_id, store_id, kind])
+  @@index([period_id])
 }

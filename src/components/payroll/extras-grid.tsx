@@ -14,6 +14,7 @@ import { ADDITION_CATEGORIES, DEDUCTION_CATEGORIES } from "@/server/services/pay
 import { money, pct } from "./format";
 import { EntryDialog, type EntryKind } from "./entry-dialog";
 import { KolayikPanel } from "./kolayik-panel";
+import { PerformanceDocs } from "./performance-docs";
 import type { KolayikMonth } from "@/server/services/kolayik/payroll-sync";
 
 /**
@@ -103,6 +104,8 @@ export function ExtrasGrid({
   const [saving, setSaving] = useState(false);
   const update = trpc.payroll.lines.update.useMutation();
   // Kolay İK: ayın onaylı mesaileri (öneri) ve izinleri (bilgi). Anahtar yoksa panel görünmez.
+  // Ay sonu performans belgeleri (Mavi) — yükleme + çapraz kontrol + aktarım
+  const perf = trpc.payroll.performance.get.useQuery({ period_id: data.period.id });
   const kolay = trpc.payroll.kolayik.month.useQuery(
     { year: data.period.year, month: data.period.month },
     { staleTime: 5 * 60_000, retry: false, refetchOnWindowFocus: false }
@@ -173,6 +176,19 @@ export function ExtrasGrid({
           key={s.store_id}
           store={s}
           overtimeOf={(id) => otByLine.get(id)}
+          periodId={data.period.id}
+          perf={perf.data?.find((x) => x.store_id === s.store_id)}
+          onPerfChanged={() => void perf.refetch()}
+          onPerfApplied={() => {
+            // Aktarılan mağazanın kaydedilmemiş taslakları belgedeki rakamlarla çakışmasın
+            setDrafts((m) => {
+              const next = { ...m };
+              for (const l of s.lines) delete next[l.id];
+              return next;
+            });
+            void perf.refetch();
+            onChanged();
+          }}
           closed={closed}
           saving={saving}
           draftOf={draftOf}
@@ -201,6 +217,10 @@ export function ExtrasGrid({
 function StoreExtras({
   store,
   overtimeOf,
+  periodId,
+  perf,
+  onPerfChanged,
+  onPerfApplied,
   closed,
   saving,
   draftOf,
@@ -212,6 +232,10 @@ function StoreExtras({
 }: {
   store: StoreBlock;
   overtimeOf: (lineId: string) => KolayikMonth["overtime"][number] | undefined;
+  periodId: string;
+  perf: React.ComponentProps<typeof PerformanceDocs>["perf"];
+  onPerfChanged: () => void;
+  onPerfApplied: () => void;
   closed: boolean;
   saving: boolean;
   draftOf: (l: ComputedLine) => Draft;
@@ -242,6 +266,9 @@ function StoreExtras({
           <div className="text-sm font-semibold tabular-nums">{money(totalP2)} ₺</div>
         </div>
       </header>
+      {store.is_mavi ? (
+        <PerformanceDocs periodId={periodId} storeId={store.store_id} closed={closed} perf={perf} onChanged={onPerfChanged} onApplied={onPerfApplied} />
+      ) : null}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-[11px] uppercase tracking-wider text-muted-foreground">

@@ -12,7 +12,12 @@ export const OVERTIME_DIVISOR = 208;
 export const LEAVE_DAY_DIVISOR = 26;
 /** Her Mavi mağazasında ayın en çok satan TEK kişisine. */
 export const TOP_SELLER_PREMIUM = 3000;
-/** Parfüm primi — yalnız Mavi kasiyeri, adet başına. */
+/**
+ * Parfüm primi — yalnız Mavi kasiyeri, adet başına. KALDIRILDI (sahibi, 03.10.2026:
+ * "parfüm primi kalktığı için parfüm adedine gerek yok") — Eylül 2026'dan itibaren kimsede
+ * perfume_eligible işaretli değil, giriş alanı görünmez. Sabit, eski ayların (Ağustos 2026
+ * ve öncesi) bordrosu aynı hesaplansın diye duruyor.
+ */
 export const PERFUME_PREMIUM_PER_UNIT = 50;
 /** Giysi primi — Derimod personeli, adet başına. */
 export const GARMENT_PREMIUM_PER_UNIT = 200;

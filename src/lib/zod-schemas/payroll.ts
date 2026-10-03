@@ -188,5 +188,19 @@ export const cashAdvanceLinkSchema = z.object({
   cash_advance_id: z.string().uuid(),
 });
 
+export const performanceUploadSchema = z.object({
+  period_id: z.string().uuid(),
+  store_id: z.string().uuid(),
+  file_name: z.string().trim().min(1).max(200),
+  file_base64: z.string().min(10).max(20_000_000),
+});
+
+export const performanceApplySchema = z.object({
+  period_id: z.string().uuid(),
+  store_id: z.string().uuid(),
+  /** Uyarılar varken de aktar (kırmızı hata varsa yine reddedilir) */
+  force: z.boolean().default(false),
+});
+
 export const idSchema = z.object({ id: z.string().uuid() });
 export const periodIdSchema = z.object({ period_id: z.string().uuid() });
