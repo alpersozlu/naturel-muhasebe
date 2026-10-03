@@ -25,6 +25,10 @@ import type { KolayikMonth } from "@/server/services/kolayik/payroll-sync";
  * hesaplanır; kasa eksiği, fiyat farkı, faturasız masraf gibi kesintiler ve
  * eklemeler satırdan girilir. Hesap ekranda yazarken aynı motorla
  * (compute.ts) yapılır, "Kaydet" ile işlenir.
+ *
+ * Mağaza başlığındaki "bu ay kasa eksiği / faturasız masraf" rozetleri sahibinin
+ * isteğiyle KAPALI (03.10.2026: "şimdilik bu bilgileri ben manuel girerim");
+ * payroll.storeHints sorgusu duruyor, istenirse yeniden bağlanır.
  */
 
 type Draft = {
@@ -97,7 +101,6 @@ export function ExtrasGrid({
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [entry, setEntry] = useState<{ line: ComputedLine; kind: EntryKind } | null>(null);
   const [saving, setSaving] = useState(false);
-  const hints = trpc.payroll.storeHints.useQuery({ year: data.period.year, month: data.period.month });
   const update = trpc.payroll.lines.update.useMutation();
   // Kolay İK: ayın onaylı mesaileri (öneri) ve izinleri (bilgi). Anahtar yoksa panel görünmez.
   const kolay = trpc.payroll.kolayik.month.useQuery(
@@ -147,7 +150,6 @@ export function ExtrasGrid({
     }
   };
 
-  const hintOf = (storeId: string) => hints.data?.find((h) => h.store_id === storeId);
 
   return (
     <div className="space-y-5">
@@ -171,7 +173,6 @@ export function ExtrasGrid({
           key={s.store_id}
           store={s}
           overtimeOf={(id) => otByLine.get(id)}
-          hint={hintOf(s.store_id)}
           closed={closed}
           saving={saving}
           draftOf={draftOf}
@@ -200,7 +201,6 @@ export function ExtrasGrid({
 function StoreExtras({
   store,
   overtimeOf,
-  hint,
   closed,
   saving,
   draftOf,
@@ -212,7 +212,6 @@ function StoreExtras({
 }: {
   store: StoreBlock;
   overtimeOf: (lineId: string) => KolayikMonth["overtime"][number] | undefined;
-  hint: { cash_deficit: number; cash_surplus: number; uninvoiced_total: number; uninvoiced_count: number } | undefined;
   closed: boolean;
   saving: boolean;
   draftOf: (l: ComputedLine) => Draft;
@@ -238,20 +237,6 @@ function StoreExtras({
             {store.achievement != null ? ` · başarı ${pct(store.achievement)}` : ""} (Genel bakış sekmesinden girilir)
           </div>
         </div>
-        {hint && (hint.cash_deficit > 0.5 || hint.uninvoiced_total > 0.5) ? (
-          <div className="flex flex-wrap gap-2 text-xs">
-            {hint.cash_deficit > 0.5 ? (
-              <span className="rounded-full bg-rose-50 px-2 py-0.5 text-rose-800 ring-1 ring-rose-200/70" title="Kasa Farkları sayfasındaki bu ayın eksikleri — kime kesileceğine sen karar verirsin">
-                Bu ay kasa eksiği {money(hint.cash_deficit)} ₺
-              </span>
-            ) : null}
-            {hint.uninvoiced_total > 0.5 ? (
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800 ring-1 ring-amber-200/70" title="Mağazanın bu ay girdiği faturasız peşin ödemeler">
-                Faturasız masraf {money(hint.uninvoiced_total)} ₺ ({hint.uninvoiced_count} kayıt)
-              </span>
-            ) : null}
-          </div>
-        ) : null}
         <div className="ml-auto text-right text-xs">
           <div className="uppercase tracking-wider text-muted-foreground">Ödeme 2 toplamı</div>
           <div className="text-sm font-semibold tabular-nums">{money(totalP2)} ₺</div>
