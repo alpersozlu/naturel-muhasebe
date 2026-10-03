@@ -1,6 +1,5 @@
 import "server-only";
 import ExcelJS from "exceljs";
-import { PDFParse } from "pdf-parse";
 import { createHash } from "node:crypto";
 import { normalizeName } from "./nebim-revenue";
 import { isSapOriginal, xlsxOrigin, type XlsxOrigin } from "@/server/services/xlsx-origin";
@@ -250,6 +249,12 @@ const EMPTY_TOTAL: BiPdfParsed["total"] = {
 };
 
 async function parseBiPdf(buf: Buffer): Promise<BiPdfParsed> {
+  // Loaded ON DEMAND, never at module top level: pdf-parse pulls in pdf.js and
+  // an optional native canvas. Every tRPC call shares this module graph, so a
+  // load failure here took the WHOLE API down on Vercel (03.10.2026, 18:14 →
+  // 19:30: every request answered "500 <!DOCTYPE…" while the local production
+  // build worked). Imported lazily, the worst case is one unreadable PDF.
+  const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: new Uint8Array(buf) });
   let pages: Array<{ text: string }> = [];
   try {
