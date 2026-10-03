@@ -248,13 +248,111 @@ const EMPTY_TOTAL: BiPdfParsed["total"] = {
   kadin_denim_units: null,
 };
 
+/**
+ * pdf-parse → pdf.js, loaded ON DEMAND and never at module top level.
+ *
+ * OUTAGE 03.10.2026 (18:16 → 19:29): this file imported pdf-parse at the top.
+ * Every tRPC call shares this module graph, so when pdf.js could not load on
+ * Vercel the WHOLE API answered "500 <!DOCTYPE…" — while the local production
+ * build worked. Two things pdf.js expects under Node are simply not in a
+ * serverless bundle:
+ *
+ *  1. `DOMMatrix`. pdf.js runs `new DOMMatrix()` while its module loads and
+ *     borrows the class from the native "@napi-rs/canvas" package, which it
+ *     requires through a computed path the bundler cannot follow. Only page
+ *     RENDERING uses it; text extraction never does, so a stand-in class is
+ *     enough to let the module load.
+ *  2. The worker. pdf.js looks for "pdf.worker.mjs" as a sibling FILE at run
+ *     time. Importing it here by its literal name puts it in the bundle and
+ *     registers it on globalThis.pdfjsWorker, so no file lookup happens.
+ *     (pdfjs-dist is pinned in package.json to the version pdf-parse uses.)
+ *
+ * `appRouter.healthPdf` runs pdfSelfTest() — the same loader on a PDF built
+ * in memory — so a deploy can be checked from outside without signing in.
+ */
+class DOMMatrixStandIn {
+  a = 1;
+  b = 0;
+  c = 0;
+  d = 1;
+  e = 0;
+  f = 0;
+  is2D = true;
+  isIdentity = true;
+  scaleSelf() {
+    return this;
+  }
+  translateSelf() {
+    return this;
+  }
+  multiplySelf() {
+    return this;
+  }
+  preMultiplySelf() {
+    return this;
+  }
+  invertSelf() {
+    return this;
+  }
+  translate() {
+    return this;
+  }
+  scale() {
+    return this;
+  }
+}
+
+async function loadPdfParse() {
+  const g = globalThis as Record<string, unknown>;
+  if (typeof g.DOMMatrix === "undefined") g.DOMMatrix = DOMMatrixStandIn;
+  if (!g.pdfjsWorker) await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+  return (await import("pdf-parse")).PDFParse;
+}
+
+/** A one-page PDF with a single line of text — offsets computed, no file needed. */
+function tinyPdf(text: string): Uint8Array {
+  const stream = `BT /F1 18 Tf 20 100 Td (${text}) Tj ET`;
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let out = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  objects.forEach((o, i) => {
+    offsets.push(out.length);
+    out += `${i + 1} 0 obj\n${o}\nendobj\n`;
+  });
+  const xref = out.length;
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  out += offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("");
+  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return new Uint8Array(Buffer.from(out, "latin1"));
+}
+
+/** Can this server read a PDF at all? Never throws. */
+export async function pdfSelfTest(): Promise<{ ok: boolean; ms: number; error: string | null }> {
+  const t0 = Date.now();
+  try {
+    const PDFParse = await loadPdfParse();
+    const parser = new PDFParse({ data: tinyPdf("NATUREL PDF OK 1234") });
+    try {
+      const res = await parser.getText();
+      const text = (res.pages ?? []).map((p: { text: string }) => p.text).join(" ");
+      if (!text.includes("NATUREL PDF OK 1234")) return { ok: false, ms: Date.now() - t0, error: `metin okunamadı: "${text.slice(0, 60)}"` };
+    } finally {
+      await parser.destroy?.();
+    }
+    return { ok: true, ms: Date.now() - t0, error: null };
+  } catch (e) {
+    return { ok: false, ms: Date.now() - t0, error: (e instanceof Error ? e.message : String(e)).slice(0, 300) };
+  }
+}
+
 async function parseBiPdf(buf: Buffer): Promise<BiPdfParsed> {
-  // Loaded ON DEMAND, never at module top level: pdf-parse pulls in pdf.js and
-  // an optional native canvas. Every tRPC call shares this module graph, so a
-  // load failure here took the WHOLE API down on Vercel (03.10.2026, 18:14 →
-  // 19:30: every request answered "500 <!DOCTYPE…" while the local production
-  // build worked). Imported lazily, the worst case is one unreadable PDF.
-  const { PDFParse } = await import("pdf-parse");
+  const PDFParse = await loadPdfParse();
   const parser = new PDFParse({ data: new Uint8Array(buf) });
   let pages: Array<{ text: string }> = [];
   try {

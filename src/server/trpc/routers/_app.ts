@@ -19,6 +19,7 @@ import { mergeGroupRouter } from "./mergeGroup";
 import { nebimSalesRouter } from "./nebimSales";
 import { peopleCountRouter } from "./peopleCount";
 import { payrollRouter } from "./payroll";
+import { pdfSelfTest } from "@/server/services/payroll/performance";
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({
@@ -26,6 +27,12 @@ export const appRouter = router({
     phase: "8.7",
     timestamp: new Date().toISOString(),
   })),
+  /**
+   * Deploy smoke test for the one capability that breaks ONLY in the
+   * serverless bundle (pdf.js — see performance.ts). Reads a PDF built in
+   * memory; touches no data, needs no sign-in.
+   */
+  healthPdf: publicProcedure.query(() => pdfSelfTest()),
   brand: brandRouter,
   store: storeRouter,
   user: userRouter,

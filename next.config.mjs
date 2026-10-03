@@ -11,7 +11,9 @@ const nextConfig = {
     ],
   },
   experimental: {
-    serverComponentsExternalPackages: ["sharp", "pdf-parse"],
+    // pdf-parse / pdfjs-dist stay external: pdf.js is loaded on demand from
+    // node_modules (see services/payroll/performance.ts → loadPdfParse).
+    serverComponentsExternalPackages: ["sharp", "pdf-parse", "pdfjs-dist"],
   },
 };
 
