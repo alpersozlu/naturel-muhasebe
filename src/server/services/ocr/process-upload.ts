@@ -21,6 +21,7 @@ import { reconcileExtraRowsWithSap } from "./extra-rows";
 import {
   parseMaviSapBuffer,
   pickDay,
+  mergedDealerDay,
   dealerReportFingerprint,
   MAVI_STORE_CODE_MAP,
 } from "@/server/services/dealer-report/mavi-sap-parser";
@@ -162,7 +163,10 @@ async function failAsDuplicate(upload: Upload, dupUploadId: string, what: string
  *
  * cash_advance is form-based, no OCR.
  */
-export async function processUpload(uploadId: string): Promise<void> {
+export async function processUpload(
+  uploadId: string,
+  opts: { /** re-read only: do not hand the dealer file to the discount system again */ skipForward?: boolean } = {}
+): Promise<void> {
   const upload = await prisma.upload.findUnique({ where: { id: uploadId } });
   if (!upload) return;
   if (!SUPPORTED.has(upload.type)) return;
@@ -192,7 +196,7 @@ export async function processUpload(uploadId: string): Promise<void> {
     else if (upload.type === "bank_receipt") await runBankReceipt(upload, buffer);
     else if (upload.type === "expense") await runExpense(upload, buffer);
     else if (upload.type === "z_report") await runZReport(upload, buffer);
-    else if (upload.type === "dealer_daily_report") await runDealerDailyReport(upload, buffer);
+    else if (upload.type === "dealer_daily_report") await runDealerDailyReport(upload, buffer, opts);
   } catch (e) {
     const raw = e instanceof Error ? e.message : String(e);
     console.error("[OCR] failed", { uploadId, type: upload.type, error: raw });
@@ -500,7 +504,18 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     // OCR aralık okuduysa grupla karşılaştır (Derimod alt tarih aralığı)
     const pStart = parsed.period_start;
     const pEnd = parsed.period_end;
-    if (pStart && pEnd) {
+    if (dr.store.brand.name.toLowerCase().includes("mavi")) {
+      // Mavi (IT POS) özeti tek tarih basar — aralık yazmaz. Kasa
+      // kapatılamadığında basılan özet, açık kalan günün ya da kapanış
+      // gününün tarihini taşıyabilir; ikisi de birleşmenin içindedir.
+      const stamps = [parsed.summary_date, pStart, pEnd].filter((d): d is string => !!d);
+      const outside = stamps.find((d) => d < groupStartIso || d > groupEndIso);
+      if (outside) {
+        throw new Error(
+          `Özet tarihi (${fmtDateTr(outside)}) birleşme aralığının (${fmtDateTr(groupStartIso)} → ${fmtDateTr(groupEndIso)}) dışında. Bu günleri kapsayan özeti yükleyin.`
+        );
+      }
+    } else if (pStart && pEnd) {
       if (pStart !== groupStartIso || pEnd !== groupEndIso) {
         throw new Error(
           `Özetteki tarih aralığı (${fmtDateTr(pStart)} → ${fmtDateTr(pEnd)}) seçilen birleşme aralığıyla (${fmtDateTr(groupStartIso)} → ${fmtDateTr(groupEndIso)}) uyuşmuyor. Doğru aralığı kapsayan özeti yükleyin.`
@@ -1066,14 +1081,44 @@ async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {
   await markParsed(upload.id, raw, parsed);
 }
 
-async function runDealerDailyReport(upload: Upload, buffer: Buffer): Promise<void> {
+/**
+ * MERGED DAYS (Mavi "Kasa Birleşmesi" — the register could not be closed, the
+ * days close together under ONE store summary on the last day).
+ *
+ * The dealer report on the LAST day of the group is the SAP total of the whole
+ * group, because that is what the summary is compared with (reconciliation,
+ * lock gate, verification page, dashboard — all read the summary day's report).
+ * Stores export this file one day at a time (all 29 uploads up to 03.10.2026
+ * are single-day exports), but a range export works too, so the total is
+ * composed from whatever is on file:
+ *
+ *   last day's report = rows of THIS file for the last day
+ *                     + rows of THIS file for earlier group days that have no
+ *                       dealer file of their own
+ *                     + the stored report of every earlier group day that has
+ *                       its own file (each day counted exactly once)
+ *
+ * An earlier day's own file is read as that day alone, as always. Whenever
+ * one appears or disappears, the last day's file is read again (here, and in
+ * upload.delete / mergeGroup create+delete).
+ */
+async function runDealerDailyReport(upload: Upload, buffer: Buffer, opts: { skipForward?: boolean } = {}): Promise<void> {
   // Excel parser — OCR yok
   const report = parseMaviSapBuffer(buffer);
 
   // DailyRecord + mağaza bilgisi
   const dr = await prisma.dailyRecord.findUnique({
     where: { id: upload.daily_record_id },
-    include: { store: { include: { brand: true } } },
+    include: {
+      store: { include: { brand: true } },
+      merge_group: {
+        select: {
+          start_date: true,
+          end_date: true,
+          daily_records: { orderBy: { date: "asc" }, select: { id: true, date: true, dealer_daily_report: true } },
+        },
+      },
+    },
   });
   if (!dr) {
     throw new Error("DailyRecord bulunamadı");
@@ -1111,20 +1156,57 @@ async function runDealerDailyReport(upload: Upload, buffer: Buffer): Promise<voi
     );
   }
 
-  // 3) Seçili güne ait satırlar filtrele (1-gün modu)
-  const day = pickDay(report, dr.date);
-  if (!day) {
+  // 3) Seçili güne ait satırlar (dosyada o gün olmalı)
+  const dayIso = dr.date.toISOString().slice(0, 10);
+  const ownDay = pickDay(report, dr.date);
+  if (!ownDay) {
     const dateRange =
       report.source_date_min && report.source_date_max
         ? `${fmtDateTr(report.source_date_min.toISOString().slice(0, 10))} → ${fmtDateTr(
             report.source_date_max.toISOString().slice(0, 10)
           )}`
         : "(boş)";
-    throw new Error(
-      `Dosyada ${fmtDateTr(
-        dr.date.toISOString().slice(0, 10)
-      )} gününe ait satır yok. Dosya tarihleri: ${dateRange}.`
+    throw new Error(`Dosyada ${fmtDateTr(dayIso)} gününe ait satır yok. Dosya tarihleri: ${dateRange}.`);
+  }
+
+  // Birleşik günlerin SON günü: grubun tamamının SAP toplamı (yukarıdaki not).
+  const group = dr.merge_group;
+  const isGroupLast = !!group && dayIso === group.end_date.toISOString().slice(0, 10);
+  let day = ownDay;
+  let mergeNote: { file_days: string[]; from_own_reports: string[] } | null = null;
+  if (group && isGroupLast) {
+    const dn = (v: { toNumber: () => number } | null | undefined) => (v ? v.toNumber() : 0);
+    const merged = mergedDealerDay(
+      report,
+      dr.date,
+      group.daily_records
+        .filter((r) => r.id !== dr.id)
+        .map((r) => {
+          const o = r.dealer_daily_report;
+          return {
+            iso: r.date.toISOString().slice(0, 10),
+            own: o
+              ? {
+                  net_sales: dn(o.net_sales_try),
+                  loyalty: dn(o.loyalty_try),
+                  gift_card: dn(o.gift_card_try),
+                  cash: dn(o.cash_try),
+                  card: dn(o.card_try),
+                  wire: dn(o.wire_try),
+                  other: dn(o.other_try),
+                  refund_total: dn(o.refund_total_try),
+                  transaction_count: o.transaction_count,
+                  line_count: o.line_count,
+                  refund_count: o.refund_count ?? 0,
+                }
+              : null,
+          };
+        })
     );
+    if (merged) {
+      day = merged.day;
+      mergeNote = { file_days: merged.file_days, from_own_reports: merged.from_own_reports };
+    }
   }
 
   // 4) Fingerprint — replay guard
@@ -1179,7 +1261,20 @@ async function runDealerDailyReport(upload: Upload, buffer: Buffer): Promise<voi
     },
   });
 
-  await markParsed(upload.id, { totals: report.totals }, day);
+  await markParsed(upload.id, { totals: report.totals, ...(mergeNote ? { merged_days: mergeNote } : {}) }, day);
+
+  // An earlier day of a merged group got its own file: the last day's report
+  // (the group total) has to be composed again.
+  if (group && !isGroupLast) {
+    const last = group.daily_records[group.daily_records.length - 1];
+    const lastUpload = last
+      ? await prisma.upload.findFirst({
+          where: { daily_record_id: last.id, type: "dealer_daily_report", status: { in: ["parsed", "confirmed"] } },
+          select: { id: true },
+        })
+      : null;
+    if (lastUpload) await processUpload(lastUpload.id, { skipForward: true });
+  }
 
   // Per-salesperson revenue of the day — the independent check behind the
   // month-end premium documents (see dealer-report/daily-reps.ts). The other
@@ -1224,8 +1319,8 @@ async function runDealerDailyReport(upload: Upload, buffer: Buffer): Promise<voi
 
   // The same export feeds the discount-control system; hand it over now that
   // it is known to be this store's own, readable file. Its outcome is kept on
-  // the dealer report and never affects this upload.
-  await forwardDealerReport(upload.id, buffer);
+  // the dealer report and never affects this upload. (Not on a mere re-read.)
+  if (!opts.skipForward) await forwardDealerReport(upload.id, buffer);
 }
 
 /**

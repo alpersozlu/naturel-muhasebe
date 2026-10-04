@@ -59,35 +59,45 @@ export async function checkZApproval(
   prisma: PrismaClient,
   uploadId: string
 ): Promise<ZApprovalCheck | null> {
+  const dayInclude = {
+    store_summary: true,
+    manual_invoices: true,
+    pos_slips: { include: { upload: { select: { status: true } } } },
+    z_reports: { include: { upload: { select: { id: true, status: true } } } },
+  } as const;
   const z = await prisma.zReport.findUnique({
     where: { upload_id: uploadId },
-    include: {
-      daily_record: {
-        include: {
-          store_summary: true,
-          manual_invoices: true,
-          pos_slips: { include: { upload: { select: { status: true } } } },
-          z_reports: { include: { upload: { select: { id: true, status: true } } } },
-        },
-      },
-    },
+    include: { daily_record: { include: dayInclude } },
   });
   if (!z) return null;
 
+  // Birleşik günler (gün / kasa birleşmesi) TEK gün gibi değerlendirilir —
+  // doğrulama motoruyla aynı: grubun bütün Z'leri, el faturaları ve POS
+  // fişleri, son gündeki tek mağaza özetine karşı. Tek tek bakınca ilk günün
+  // Z'si "özet yok" diye hiç onaylanamıyordu.
+  const scope = z.daily_record.merge_group_id
+    ? await prisma.dailyRecord.findMany({
+        where: { merge_group_id: z.daily_record.merge_group_id },
+        orderBy: { date: "asc" },
+        include: dayInclude,
+      })
+    : [z.daily_record];
+  const scopeSummary = scope.find((r) => r.store_summary !== null)?.store_summary ?? null;
+
   // Günün bütün Z raporları (bu yükleme dahil; başarısız/bekleyen olanlar hariç).
-  const dayZs = z.daily_record.z_reports.filter(
-    (r) => r.upload.id === uploadId || r.upload.status === "parsed" || r.upload.status === "confirmed"
-  );
+  const dayZs = scope
+    .flatMap((r) => r.z_reports)
+    .filter((r) => r.upload.id === uploadId || r.upload.status === "parsed" || r.upload.status === "confirmed");
   const z_parts = dayZs.map((r) => ({ report_no: r.report_no, net: num(r.net_sales_try) }));
   const net_z = z_parts.reduce((s, p) => s + p.net, 0);
-  const invoicesSum = z.daily_record.manual_invoices.reduce(
-    (s, inv) => s + num(inv.amount_try),
-    0
-  );
+  const invoicesSum = scope
+    .flatMap((r) => r.manual_invoices)
+    .reduce((s, inv) => s + num(inv.amount_try), 0);
   const combined = net_z + invoicesSum;
 
   // KK eşiği: POS slipleri toplamı (parsed/confirmed olanlar). Z'den KK okunmaz.
-  const cc_total = z.daily_record.pos_slips
+  const cc_total = scope
+    .flatMap((r) => r.pos_slips)
     .filter((p) => p.upload.status === "parsed" || p.upload.status === "confirmed")
     .reduce((s, p) => s + num(p.net_amount_try), 0);
   // Taban = mağazanın SİSTEME YÜKLEDİĞİ POS fişlerinin toplamı (sahibi,
@@ -95,23 +105,17 @@ export async function checkZApproval(
   // yükledikleri POS'lara bak" — Mavi Lefkoşa 01.10: SAP kart 305.393,80,
   // fişler 292.094,00, Z 305.095 geçmeli). Özetteki kart satışı yalnız hiç
   // fiş yüklenmediyse taban olur; fişlerden yüksekse uyarı düşer.
-  const summary_card = z.daily_record.store_summary
-    ? num(z.daily_record.store_summary.credit_card_total_try)
-    : null;
+  const summary_card = scopeSummary ? num(scopeSummary.credit_card_total_try) : null;
   const hardFloorBase = cc_total > 0 ? cc_total : (summary_card ?? 0);
 
-  const cashSales = z.daily_record.store_summary
-    ? num(z.daily_record.store_summary.cash_sales_try)
-    : 0;
+  const cashSales = scopeSummary ? num(scopeSummary.cash_sales_try) : 0;
   const cashPresent = cashSales > 0.01;
   // KESİN sınır her zaman kart satışıdır. %5 payı yalnız BEKLENTİdir (uyarı).
   const cc_hard_floor = hardFloorBase > 0 ? hardFloorBase : null;
   const cc_floor =
     hardFloorBase > 0 ? (cashPresent ? hardFloorBase * 1.05 : hardFloorBase) : null;
 
-  const total_sales = z.daily_record.store_summary
-    ? num(z.daily_record.store_summary.sales_total_try)
-    : null;
+  const total_sales = scopeSummary ? num(scopeSummary.sales_total_try) : null;
 
   const reasons: string[] = [];
   const warnings: string[] = [];

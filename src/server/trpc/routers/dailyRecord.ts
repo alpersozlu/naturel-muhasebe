@@ -89,12 +89,23 @@ export const dailyRecordRouter = router({
           },
         },
       } as const;
-      const dr = await ctx.prisma.dailyRecord.findUnique({
+      let dr = await ctx.prisma.dailyRecord.findUnique({
         where: { id: input.id },
         include: lockInclude,
       });
       if (!dr) throw new TRPCError({ code: "NOT_FOUND" });
       await assertCanAccessStore(ctx.user, dr.store_id);
+      // A merged group is locked through the day that holds its summary (the
+      // last one). "Günü Kilitle" pressed on an earlier day of the group
+      // means the same thing — it used to answer "özet yüklenmeden
+      // onaylanamaz" although the group's summary was on file.
+      if (dr.merge_group_id && !dr.store_summary) {
+        const holder = await ctx.prisma.dailyRecord.findFirst({
+          where: { merge_group_id: dr.merge_group_id, store_summary: { isNot: null } },
+          include: lockInclude,
+        });
+        if (holder) dr = holder;
+      }
 
       if (dr.status === "locked") {
         throw new TRPCError({
@@ -211,8 +222,8 @@ export const dailyRecordRouter = router({
         }
       }
 
-      const result = await computeDay(ctx.prisma, input.id);
-      await persistVerification(ctx.prisma, input.id, result);
+      const result = await computeDay(ctx.prisma, dr.id);
+      await persistVerification(ctx.prisma, dr.id, result);
 
       // Z may never be below the day's card sales (store staff; the admin
       // keeps an override and is asked to confirm in the UI).
@@ -223,7 +234,7 @@ export const dailyRecordRouter = router({
 
       const now = new Date();
       const locked = await ctx.prisma.dailyRecord.update({
-        where: { id: input.id },
+        where: { id: dr.id },
         data: {
           status: "locked",
           approved_by: ctx.user.id,

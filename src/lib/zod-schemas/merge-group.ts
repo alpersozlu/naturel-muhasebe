@@ -45,3 +45,10 @@ export const mergeGroupForStoreDateSchema = z.object({
 });
 
 export const mergeGroupIdSchema = z.object({ id: z.string().uuid() });
+
+/** "Bu günü şu önceki günle birleştirirsem ne olur?" (Mavi Kasa Birleşmesi kartı) */
+export const mergeProbeSchema = z.object({
+  store_id: z.string().uuid(),
+  date: dateOnly,
+  prev_date: dateOnly,
+});

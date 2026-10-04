@@ -419,6 +419,139 @@ export function pickDay(report: ParsedDealerReport, targetDate: Date) {
   return report.days.find((d) => isoDate(d.date) === targetKey) ?? null;
 }
 
+/**
+ * Several days of one export as ONE figure — a merged register ("Kasa
+ * Birleşmesi": the register could not be closed, so the days are closed
+ * together under a single store summary). Every amount is the sum over the
+ * days in [start, end]; salespeople are merged by code; the date is `end`,
+ * the day the summary and this report sit on. Null when the export has no
+ * row in the range. Days without rows are simply absent (a register that was
+ * down all day has nothing dated that day).
+ */
+export function pickRange(report: ParsedDealerReport, start: Date, end: Date): ParsedDealerDay | null {
+  const a = isoDate(start);
+  const b = isoDate(end);
+  return pickDays(
+    report,
+    report.days.map((d) => isoDate(d.date)).filter((k) => k >= a && k <= b),
+    end
+  );
+}
+
+/** The given days (YYYY-MM-DD) of one export as one figure, dated `asOf`. */
+export function pickDays(report: ParsedDealerReport, isoDates: string[], asOf: Date): ParsedDealerDay | null {
+  const wanted = new Set(isoDates);
+  const b = isoDate(asOf);
+  const days = report.days.filter((d) => wanted.has(isoDate(d.date)));
+  if (days.length === 0) return null;
+  const sum = (f: (d: ParsedDealerDay) => number) => days.reduce((s, d) => s + f(d), 0);
+  const reps = new Map<string, ParsedDealerRep>();
+  for (const d of days) {
+    for (const p of d.reps) {
+      const cur = reps.get(p.code);
+      if (!cur) {
+        reps.set(p.code, { ...p });
+        continue;
+      }
+      cur.name = p.name; // days are in date order — the latest spelling wins
+      cur.matrah += p.matrah;
+      cur.net += p.net;
+      cur.kartus += p.kartus;
+      cur.net_ciro += p.net_ciro;
+      cur.units += p.units;
+      cur.lines += p.lines;
+      cur.denim = cur.denim == null || p.denim == null ? null : cur.denim + p.denim;
+      cur.denim_units = cur.denim_units == null || p.denim_units == null ? null : cur.denim_units + p.denim_units;
+    }
+  }
+  return {
+    date: new Date(`${b}T00:00:00.000Z`),
+    net_sales: round2(sum((d) => d.net_sales)),
+    loyalty: round2(sum((d) => d.loyalty)),
+    gift_card: round2(sum((d) => d.gift_card)),
+    cash: round2(sum((d) => d.cash)),
+    card: round2(sum((d) => d.card)),
+    wire: round2(sum((d) => d.wire)),
+    other: round2(sum((d) => d.other)),
+    refund_total: round2(sum((d) => d.refund_total)),
+    transaction_count: sum((d) => d.transaction_count),
+    line_count: sum((d) => d.line_count),
+    refund_count: sum((d) => d.refund_count),
+    inconsistent_receipts: sum((d) => d.inconsistent_receipts),
+    net_ex_vat: round2(sum((d) => d.net_ex_vat)),
+    reps: Array.from(reps.values())
+      .map((p) => ({
+        ...p,
+        matrah: round4(p.matrah),
+        net: round4(p.net),
+        kartus: round4(p.kartus),
+        net_ciro: round4(p.net_ciro),
+        units: round2(p.units),
+        denim: p.denim == null ? null : round4(p.denim),
+        denim_units: p.denim_units == null ? null : round2(p.denim_units),
+      }))
+      .sort((x, y) => y.net_ciro - x.net_ciro),
+  };
+}
+
+/** A dealer report already on file for one day (what DealerDailyReport stores). */
+export type StoredDealerTotals = {
+  net_sales: number;
+  loyalty: number;
+  gift_card: number;
+  cash: number;
+  card: number;
+  wire: number;
+  other: number;
+  refund_total: number;
+  transaction_count: number;
+  line_count: number;
+  refund_count: number;
+};
+
+/**
+ * The SAP total of a MERGED group of days, as stored on its last day.
+ *
+ * Stores export this file one day at a time, but a range export works too, so
+ * the total is composed from whatever is on file — each day exactly once:
+ *
+ *   rows of THIS file for the last day (required)
+ * + rows of THIS file for earlier days that have no dealer file of their own
+ * + the stored report of every earlier day that has its own file
+ *
+ * Null when the file has no row for the last day.
+ */
+export function mergedDealerDay(
+  report: ParsedDealerReport,
+  lastDay: Date,
+  earlier: Array<{ iso: string; own: StoredDealerTotals | null }>
+): { day: ParsedDealerDay; file_days: string[]; from_own_reports: string[] } | null {
+  const lastIso = isoDate(lastDay);
+  if (!report.days.some((d) => isoDate(d.date) === lastIso)) return null;
+  const uncovered = earlier.filter((e) => e.own === null).map((e) => e.iso);
+  const own = earlier.filter((e): e is { iso: string; own: StoredDealerTotals } => e.own !== null);
+  const filePart = pickDays(report, [...uncovered, lastIso], lastDay)!;
+  const plus = (pick: (t: StoredDealerTotals) => number) => own.reduce((s, e) => s + pick(e.own), 0);
+  return {
+    day: {
+      ...filePart,
+      net_sales: round2(filePart.net_sales + plus((t) => t.net_sales)),
+      loyalty: round2(filePart.loyalty + plus((t) => t.loyalty)),
+      gift_card: round2(filePart.gift_card + plus((t) => t.gift_card)),
+      cash: round2(filePart.cash + plus((t) => t.cash)),
+      card: round2(filePart.card + plus((t) => t.card)),
+      wire: round2(filePart.wire + plus((t) => t.wire)),
+      other: round2(filePart.other + plus((t) => t.other)),
+      refund_total: round2(filePart.refund_total + plus((t) => t.refund_total)),
+      transaction_count: filePart.transaction_count + plus((t) => t.transaction_count),
+      line_count: filePart.line_count + plus((t) => t.line_count),
+      refund_count: filePart.refund_count + plus((t) => t.refund_count),
+    },
+    file_days: report.days.map((d) => isoDate(d.date)).filter((k) => k === lastIso || uncovered.includes(k)),
+    from_own_reports: own.map((e) => e.iso),
+  };
+}
+
 /** Content fingerprint — replay guard. */
 export function dealerReportFingerprint(
   storeCode: string,

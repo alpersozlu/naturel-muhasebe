@@ -1,12 +1,38 @@
 import { TRPCError } from "@trpc/server";
+import type { PrismaClient } from "@prisma/client";
+import { waitUntil } from "@vercel/functions";
 import { router, protectedProcedure } from "../trpc";
 import {
   mergeGroupCreateSchema,
   mergeGroupForStoreDateSchema,
   mergeGroupIdSchema,
+  mergeProbeSchema,
 } from "@/lib/zod-schemas/merge-group";
 import { assertCanAccessStore, isAdmin } from "@/lib/auth/permissions";
 import { LOCK_ENFORCEMENT_FROM } from "@/server/services/daily-record";
+import { processUpload } from "@/server/services/ocr/process-upload";
+
+/**
+ * The SAP dealer report on the last day of a merged group is the total of the
+ * whole group (process-upload → runDealerDailyReport). A report that was read
+ * before the group existed — or is left behind when the group is dissolved —
+ * covers the wrong span, so it is read again from the stored file.
+ */
+async function rereadDealerReports(prisma: PrismaClient, dailyRecordIds: string[]): Promise<void> {
+  if (dailyRecordIds.length === 0) return;
+  const uploads = await prisma.upload.findMany({
+    where: {
+      daily_record_id: { in: dailyRecordIds },
+      type: "dealer_daily_report",
+      status: { in: ["parsed", "confirmed"] },
+    },
+    select: { id: true },
+  });
+  for (const u of uploads) {
+    await prisma.upload.update({ where: { id: u.id }, data: { status: "pending", error_message: null, uploaded_at: new Date() } });
+    waitUntil(processUpload(u.id, { skipForward: true }).catch((e) => console.error("[mergeGroup] dealer report re-read failed", e)));
+  }
+}
 
 function eachDateInclusive(startIso: string, endIso: string): Date[] {
   const start = new Date(`${startIso}T00:00:00.000Z`);
@@ -22,31 +48,64 @@ function eachDateInclusive(startIso: string, endIso: string): Date[] {
 
 export const mergeGroupRouter = router({
   /**
-   * Gün birleşmesi grubu oluştur (Derimod). Aralıktaki her gün için DailyRecord
+   * Bu gün önceki bir günle birleştirilecekse NE olur? (Mavi "Kasa
+   * Birleşmesi" kartı, onaydan önce gösterir.)
+   *
+   *   cumulative  önceki günün kendi mağaza özeti VAR → bu günün özeti
+   *               kümülatiftir, önceki özet düşülür (dailyRecord.setCumulativePrev).
+   *   group       önceki günün özeti YOK (kasa hiç kapatılamadı — örn.
+   *               elektrik kesintisi) → günler tek özetle BİRLİKTE kapanır
+   *               (mergeGroup.create).
+   */
+  probe: protectedProcedure
+    .input(mergeProbeSchema)
+    .query(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      if (input.prev_date >= input.date) {
+        return { mode: "group" as const, days: 0, prev_has_summary: false, blocker: "Birleşilen gün, bu günden ÖNCE olmalı." };
+      }
+      const dates = eachDateInclusive(input.prev_date, input.date);
+      const recs = await ctx.prisma.dailyRecord.findMany({
+        where: { store_id: input.store_id, date: { in: dates } },
+        select: { date: true, status: true, merge_group_id: true, store_summary: { select: { id: true } } },
+      });
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const tr = (s: string) => s.split("-").reverse().join(".");
+      const prev = recs.find((r) => iso(r.date) === input.prev_date);
+      if (prev?.store_summary) {
+        return { mode: "cumulative" as const, days: dates.length, prev_has_summary: true, blocker: null };
+      }
+      let blocker: string | null = null;
+      if (dates.length > 3) blocker = "En fazla 3 gün birleştirilebilir.";
+      for (const r of recs) {
+        if (blocker) break;
+        const d = iso(r.date);
+        if (r.status === "locked") blocker = `${tr(d)} kilitli — birleşmeye dahil edilemez.`;
+        else if (r.merge_group_id) blocker = `${tr(d)} zaten başka bir birleşmeye ait.`;
+        else if (r.store_summary && d !== input.date) blocker = `${tr(d)} gününde zaten bir mağaza özeti var; birleşmede özet yalnız son güne yüklenir.`;
+      }
+      return { mode: "group" as const, days: dates.length, prev_has_summary: false, blocker };
+    }),
+
+  /**
+   * Gün birleşmesi grubu oluştur. Aralıktaki her gün için DailyRecord
    * oluşturur/günceller, merge_group_id + merge_index (1-tabanlı) atar.
-   * Son gün mağaza özetini taşır.
+   * Son gün mağaza özetini (Mavi'de bayi gün sonu dosyasını da) taşır.
+   *
+   * Derimod: "Gün Birleşmesi" sihirbazı. Mavi: "Kasa Birleşmesi" kartı —
+   * önceki günün özeti yoksa (04.10.2026, Mavi Güzelyurt: 01.10 kapanıştan
+   * önce elektrik kesildi, kasa kapatılamadı; 02.10 özeti iki günü kapsıyor).
    */
   create: protectedProcedure
     .input(mergeGroupCreateSchema)
     .mutation(async ({ ctx, input }) => {
       await assertCanAccessStore(ctx.user, input.store_id);
 
-      // Sadece Derimod markası için (Mavi farklı sistem — sonraki aşama)
       const store = await ctx.prisma.store.findUnique({
         where: { id: input.store_id },
         include: { brand: true },
       });
       if (!store) throw new TRPCError({ code: "NOT_FOUND" });
-      const brandLower = store.brand.name
-        .toLocaleLowerCase("tr")
-        .replace(/ı/g, "i");
-      if (!brandLower.includes("derimod")) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "Gün birleşmesi şu an sadece Derimod mağazaları için aktif. Mavi sistemi farklı.",
-        });
-      }
 
       const dates = eachDateInclusive(input.start_date, input.end_date);
 
@@ -113,6 +172,14 @@ export const mergeGroupRouter = router({
         }
         return g;
       });
+
+      // A dealer report already on file for the last day was read as a single
+      // day; it now has to carry the whole group.
+      const last = await ctx.prisma.dailyRecord.findUnique({
+        where: { store_id_date: { store_id: input.store_id, date: endDate } },
+        select: { id: true },
+      });
+      if (last) await rereadDealerReports(ctx.prisma, [last.id]);
 
       return group;
     }),
@@ -211,6 +278,11 @@ export const mergeGroupRouter = router({
         });
         await tx.dayMergeGroup.delete({ where: { id: input.id } });
       });
+      // Back to single days: the last day's dealer report covered the group.
+      await rereadDealerReports(
+        ctx.prisma,
+        group.daily_records.map((d) => d.id)
+      );
       return { ok: true };
     }),
 });

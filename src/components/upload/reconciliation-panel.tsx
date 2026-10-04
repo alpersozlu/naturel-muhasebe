@@ -460,12 +460,18 @@ export function ReconciliationPanel({
                             confirmLabel: "Yine de kilitle",
                             destructive: true,
                           }
-                        : {
-                            title: "Gün kilitlensin mi?",
-                            description:
-                              "Kilitledikten sonra bu güne belge eklenemez, değiştirilemez ve silinemez. Kilidi yalnızca yönetici açabilir.",
-                            confirmLabel: "Günü kilitle",
-                          }
+                        : data.merge
+                          ? {
+                              title: "Birleşik günler kilitlensin mi?",
+                              description: `${fmtDateShort(data.merge.start_date)} → ${fmtDateShort(data.merge.end_date)} günlerinin hepsi birlikte kilitlenir. Kilitledikten sonra bu günlere belge eklenemez, değiştirilemez ve silinemez. Kilidi yalnızca yönetici açabilir.`,
+                              confirmLabel: "Günleri kilitle",
+                            }
+                          : {
+                              title: "Gün kilitlensin mi?",
+                              description:
+                                "Kilitledikten sonra bu güne belge eklenemez, değiştirilemez ve silinemez. Kilidi yalnızca yönetici açabilir.",
+                              confirmLabel: "Günü kilitle",
+                            }
                     )
                   ) {
                     lockDay.mutate({ id: data.daily_record_id! });

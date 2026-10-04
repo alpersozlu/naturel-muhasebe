@@ -66,7 +66,7 @@ export default function UploadPage() {
   // refuses the next day.
   const openMerge = trpc.mergeGroup.getOpenForStore.useQuery(
     { store_id: sel.storeId },
-    { enabled: isDerimod && !!sel.storeId }
+    { enabled: (isDerimod || isMavi) && !!sel.storeId }
   );
   const fmtTr = (d: string | Date) =>
     new Date(d).toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", timeZone: "UTC" });
@@ -126,6 +126,39 @@ export default function UploadPage() {
           >
             Birleşmeye devam et
           </button>
+        </div>
+      ) : null}
+
+      {/* Mavi: birlikte kapatılacak günler (Kasa Birleşmesi kartından) —
+          sihirbaz yok, her gün kendi sayfasında; buradan günler arası geçilir. */}
+      {isMavi && sel.storeId && openMerge.data ? (
+        <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-900">
+          <span className="min-w-0 flex-1 basis-80">
+            <span className="font-semibold">
+              {fmtTr(openMerge.data.start_date)} – {fmtTr(openMerge.data.end_date)} birlikte kapatılacak (kasa birleşmesi).
+            </span>{" "}
+            Her günün fişini, Z raporunu ve nakdini kendi gününe girin; mağaza özeti ve bayi gün sonu dosyası son güne (
+            {fmtTr(openMerge.data.end_date)}) yüklenir. Son günde &quot;Günü Kilitle&quot; günlerin hepsini birlikte kilitler.
+          </span>
+          <span className="flex flex-wrap gap-1.5">
+            {openMerge.data.daily_records.map((d, i) => {
+              const iso = new Date(d.date).toISOString().slice(0, 10);
+              const isLast = i === openMerge.data!.daily_records.length - 1;
+              return (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => setSel({ ...sel, date: iso })}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                    iso === sel.date ? "bg-orange-600 text-white" : "bg-white text-orange-800 ring-1 ring-orange-300 hover:bg-orange-100"
+                  }`}
+                >
+                  {fmtTr(d.date)}
+                  {isLast ? " · özet" : ""}
+                </button>
+              );
+            })}
+          </span>
         </div>
       ) : null}
 
@@ -197,9 +230,9 @@ export default function UploadPage() {
             date={sel.date}
           />
         ) : null}
-        {/* Kümülatif kasa birleşmesi — SADECE Mavi */}
+        {/* Kasa birleşmesi (kümülatif ya da birlikte kapanış) — SADECE Mavi */}
         {isMavi && sel.storeId ? (
-          <CumulativeMergeCard storeId={sel.storeId} date={sel.date} />
+          <CumulativeMergeCard storeId={sel.storeId} date={sel.date} onJump={(iso) => setSel({ ...sel, date: iso })} />
         ) : null}
       </div>
 

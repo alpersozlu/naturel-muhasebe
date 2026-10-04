@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
-import { looksLikeDenim, parseMaviSapBuffer } from "@/server/services/dealer-report/mavi-sap-parser";
+import { looksLikeDenim, mergedDealerDay, parseMaviSapBuffer, pickDay, pickRange } from "@/server/services/dealer-report/mavi-sap-parser";
 
 /**
  * Per-salesperson "Net Ciro" from the daily SAP export:
@@ -99,6 +99,70 @@ describe("bayi gün sonu — satış temsilcisi bazında Net Ciro", () => {
     expect(report.days[0]!.reps[0]!.net_ciro).toBe(1000);
     expect(report.days[1]!.reps[0]!.net_ciro).toBe(-600);
     expect(report.days[1]!.reps[0]!.units).toBe(0);
+  });
+
+  it("kasa birleşmesi: birleşik günler tek rakam olur (pickRange)", () => {
+    // 1 Ekim kasa kapatılamadı; 2 Ekim dosyası iki günü de taşıyor (+ aralık dışı 30 Eylül).
+    const day = (n: number) => new Date(Date.UTC(2026, 8, n)); // SERIAL_1_SEP = 1 Eylül → gün n
+    const buf = workbook([
+      ...receipt(30, "R0", [{ qty: 1, matrah: 5000, net: 5800, rep: ENES }], { cash: 5800 }),
+      ...receipt(31, "R1", [{ qty: 1, matrah: 1000, net: 1160, rep: MARAL }], { cash: 1160 }),
+      ...receipt(31, "R2", [{ qty: 1, matrah: 2000, net: 2320, rep: ENES }], { card: 2020, kartus: 300 }),
+      ...receipt(32, "R3", [{ qty: 2, matrah: 400, net: 464, rep: MARAL }], { card: 464 }),
+    ]);
+    const report = parseMaviSapBuffer(buf);
+    expect(report.days.map((d) => d.date.toISOString().slice(0, 10))).toEqual(["2026-09-30", "2026-10-01", "2026-10-02"]);
+
+    const both = pickRange(report, day(31), day(32))!;
+    expect(both.date.toISOString().slice(0, 10)).toBe("2026-10-02"); // özetin durduğu son gün
+    expect(both.net_sales).toBe(1160 + 2320 + 464);
+    expect(both.cash).toBe(1160);
+    expect(both.card).toBe(2020 + 464);
+    expect(both.loyalty).toBe(300);
+    expect(both.transaction_count).toBe(3);
+    // günlerin toplamına eşit
+    const d1 = pickDay(report, day(31))!;
+    const d2 = pickDay(report, day(32))!;
+    expect(both.net_sales).toBe(d1.net_sales + d2.net_sales);
+    // kişiler koduyla birleşir
+    expect(both.reps.find((r) => r.code === "94010020")!.net_ciro).toBe(1400);
+    expect(both.reps.find((r) => r.code === "94010020")!.units).toBe(3);
+    expect(both.reps.find((r) => r.code === "94010049")!.net_ciro).toBe(1700);
+
+    // kasa bütün gün kapalıysa o güne ait satır olmaz — olanlar toplanır
+    expect(pickRange(report, day(32), day(33))!.net_sales).toBe(464);
+    expect(pickRange(report, day(33), day(34))).toBeNull();
+  });
+
+  it("kasa birleşmesi: grubun SAP toplamı tek günlük ya da aralık dosyalarından, her gün bir kez", () => {
+    const day = (n: number) => new Date(Date.UTC(2026, 8, n));
+    const oct1 = receipt(31, "R1", [{ qty: 1, matrah: 1000, net: 1160, rep: MARAL }], { cash: 1160 });
+    const oct2 = receipt(32, "R3", [{ qty: 2, matrah: 400, net: 464, rep: MARAL }], { card: 464 });
+    const stored1 = { net_sales: 1160, loyalty: 0, gift_card: 0, cash: 1160, card: 0, wire: 0, other: 0, refund_total: 0, transaction_count: 1, line_count: 1, refund_count: 0 };
+
+    // (a) aralık dosyası son güne yüklendi, 1 Ekim'in kendi dosyası yok → ikisi de dosyadan
+    const range = parseMaviSapBuffer(workbook([...oct1, ...oct2]));
+    const a = mergedDealerDay(range, day(32), [{ iso: "2026-10-01", own: null }])!;
+    expect(a.day.net_sales).toBe(1624);
+    expect(a.file_days).toEqual(["2026-10-01", "2026-10-02"]);
+    expect(a.from_own_reports).toEqual([]);
+
+    // (b) mağazanın alışkın olduğu yol: her günün kendi tek günlük dosyası
+    const single = parseMaviSapBuffer(workbook([...oct2]));
+    const b = mergedDealerDay(single, day(32), [{ iso: "2026-10-01", own: stored1 }])!;
+    expect(b.day.net_sales).toBe(1624);
+    expect(b.day.cash).toBe(1160);
+    expect(b.day.card).toBe(464);
+    expect(b.day.transaction_count).toBe(2);
+    expect(b.from_own_reports).toEqual(["2026-10-01"]);
+
+    // (c) aralık dosyası + 1 Ekim'in kendi dosyası da var → 1 Ekim İKİ KEZ sayılmaz
+    const c = mergedDealerDay(range, day(32), [{ iso: "2026-10-01", own: stored1 }])!;
+    expect(c.day.net_sales).toBe(1624);
+    expect(c.file_days).toEqual(["2026-10-02"]);
+
+    // (d) son günün satırı dosyada yoksa kabul edilmez (yanlış günün dosyası)
+    expect(mergedDealerDay(parseMaviSapBuffer(workbook([...oct1])), day(32), [{ iso: "2026-10-01", own: null }])).toBeNull();
   });
 
   it("temsilci kolonları yoksa günün rakamları yine okunur, kişi listesi boş kalır", () => {

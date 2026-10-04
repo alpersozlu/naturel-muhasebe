@@ -358,6 +358,29 @@ export const uploadRouter = router({
         await ctx.prisma.dealerDailyRep
           .deleteMany({ where: { daily_record_id: upload.daily_record_id, source: "upload" } })
           .catch((e) => console.error("[upload.delete] dealer rep cleanup failed", e));
+        // Merged days: the last day's report is the group total and included
+        // this day's own file — compose it again without it.
+        if (upload.daily_record.merge_group_id) {
+          const last = await ctx.prisma.dailyRecord.findFirst({
+            where: { merge_group_id: upload.daily_record.merge_group_id },
+            orderBy: { date: "desc" },
+            select: { id: true },
+          });
+          const lastUpload =
+            last && last.id !== upload.daily_record_id
+              ? await ctx.prisma.upload.findFirst({
+                  where: { daily_record_id: last.id, type: "dealer_daily_report", status: { in: ["parsed", "confirmed"] } },
+                  select: { id: true },
+                })
+              : null;
+          if (lastUpload) {
+            waitUntil(
+              processUpload(lastUpload.id, { skipForward: true }).catch((e) =>
+                console.error("[upload.delete] merged dealer report re-read failed", e)
+              )
+            );
+          }
+        }
       }
       // Storage last: a failed object delete costs a stray file, a failed
       // row delete after the object is gone leaves a row that can never

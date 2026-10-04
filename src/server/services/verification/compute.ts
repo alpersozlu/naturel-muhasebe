@@ -442,10 +442,13 @@ export async function computeDay(
 
   // ── SAP Bayi Raporu satırları (varsa) ──
   // Ham SAP verisi mağaza özeti ile karşılaştırılır — manipülasyon tespiti.
-  // (Sadece tek-gün Mavi akışında; Derimod birleşmesinde SAP yoktur.)
-  const sapReport =
-    records.find((r) => r.dealer_daily_report !== null)?.dealer_daily_report ??
-    null;
+  // Birleşmede (Mavi kasa birleşmesi) SON günün raporu grubun TAMAMININ SAP
+  // toplamıdır (process-upload → runDealerDailyReport: son günün dosyası +
+  // önceki günlerin kendi dosyaları, her gün bir kez). Önceki günlerin kendi
+  // raporları burada ayrıca toplanmaz — çift sayım olurdu.
+  const sapReport = isMerge
+    ? (records[records.length - 1]?.dealer_daily_report ?? null)
+    : (records[0]?.dealer_daily_report ?? null);
   if (sapReport) {
     const sapNet = num(sapReport.net_sales_try);
     const sapLoyalty = num(sapReport.loyalty_try);

@@ -59,7 +59,10 @@ export async function assertPriorDaysLocked(
     where: { store_id_date: { store_id: storeId, date: new Date(`${date}T00:00:00.000Z`) } },
     select: { merge_group_id: true },
   });
-  const store = await prisma.store.findUnique({ where: { id: storeId }, select: { name: true } });
+  const store = await prisma.store.findUnique({
+    where: { id: storeId },
+    select: { name: true, brand: { select: { name: true } } },
+  });
   const storeCode = store ? storeCodeFromName(store.name) : null;
 
   const candidates = await prisma.dailyRecord.findMany({
@@ -110,6 +113,18 @@ export async function assertPriorDaysLocked(
   if (open.merge_group) {
     const a = fmt(open.merge_group.start_date);
     const b = fmt(open.merge_group.end_date);
+    // Mavi reaches a merge from the "Kasa Birleşmesi" card on the ordinary
+    // day page — there is no wizard tab to send the manager to.
+    if (store?.brand.name.toLowerCase().includes("mavi")) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message:
+          `${a} – ${b} günleri birlikte kapatılacak (kasa birleşmesi) ve henüz kilitlenmedi; ` +
+          `kapatılmayan gün varken yeni güne kayıt girilemez. Tarih alanından ${b} gününe gidin: ` +
+          `mağaza özetini ve bayi gün sonu dosyasını yükleyip sayfanın altındaki "Günü Kilitle" ` +
+          `düğmesine basın; günlerin hepsi birlikte kilitlenir.`,
+      });
+    }
     throw new TRPCError({
       code: "BAD_REQUEST",
       message:
