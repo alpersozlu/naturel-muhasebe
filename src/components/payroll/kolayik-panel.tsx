@@ -43,9 +43,11 @@ export function KolayikPanel({
   }
   if (!data.configured) return null;
 
+  const r1 = (v: number) => Math.round(v * 100) / 100;
   const otPeople = data.overtime.filter((o) => o.approved_hours > 0);
-  const otApproved = data.overtime.reduce((s, o) => s + o.approved_hours, 0);
-  const otWaiting = data.overtime.reduce((s, o) => s + o.waiting_hours, 0);
+  const otApproved = r1(data.overtime.reduce((s, o) => s + o.approved_hours, 0));
+  const otWaiting = r1(data.overtime.reduce((s, o) => s + o.waiting_hours, 0));
+  const creditDays = data.overtime.reduce((s, o) => s + o.credit_days, 0);
   const leaveDays = data.leaves.reduce((s, l) => s + l.days_approved, 0);
 
   return (
@@ -61,8 +63,8 @@ export function KolayikPanel({
         )}
         {data.ok ? (
           <span className="text-muted-foreground">
-            onaylı mesai {otApproved} saat ({otPeople.length} kişi){otWaiting ? ` · onay bekleyen ${otWaiting} saat` : ""} · onaylı izin {leaveDays} gün (
-            {data.leaves.length} kişi)
+            ödenecek mesai {otApproved} saat ({otPeople.length} kişi){creditDays ? ` · ${creditDays} hak günü (pazar / tatil 8 saati, ücrete girmez)` : ""}
+            {otWaiting ? ` · onay bekleyen ${otWaiting} saat` : ""} · onaylı izin {leaveDays} gün ({data.leaves.length} kişi)
           </span>
         ) : null}
         <div className="flex-1" />
@@ -101,11 +103,21 @@ export function KolayikPanel({
                 {data.overtime.map((o) => (
                   <li key={o.person_name}>
                     <span className="font-medium">{o.person_name}</span>
-                    {!o.employee_id ? <span className="text-amber-800"> (bordroda eşleşmedi)</span> : null} — onaylı {o.approved_hours} s
+                    {!o.employee_id ? <span className="text-amber-800"> (bordroda eşleşmedi)</span> : null} — ödenecek {o.approved_hours} s
+                    {o.credit_days ? `, ${o.credit_days} hak günü` : ""}
                     {o.waiting_hours ? `, bekleyen ${o.waiting_hours} s` : ""}
+                    {o.review ? <span className="text-amber-800"> · hafta içi 8+ saat kayıt var, bakılmalı</span> : null}
                     <span className="text-muted-foreground">
                       {" "}
-                      · {o.entries.map((e) => `${dmy(e.date)} ${e.hours}s ${STATUS_TR[e.status] ?? e.status}${e.description ? ` (${e.description})` : ""}`).join("; ")}
+                      ·{" "}
+                      {o.entries
+                        .map(
+                          (e) =>
+                            `${dmy(e.date)} ${e.hours}s${e.credit_day ? ` (8s hak günü${e.paid_hours > 0 ? ` + ${e.paid_hours}s ücret` : ""})` : ""} ${
+                              STATUS_TR[e.status] ?? e.status
+                            }${e.description ? ` (${e.description.replace(/\s+/g, " ")})` : ""}`
+                        )
+                        .join("; ")}
                     </span>
                   </li>
                 ))}

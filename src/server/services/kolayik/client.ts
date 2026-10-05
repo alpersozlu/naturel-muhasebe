@@ -110,6 +110,7 @@ export type KTimelog = {
   status: string;
   type: string;
   convertType?: string | null;
+  createdAt?: string | null;
 };
 export type KLeaveStatus = {
   id: string;
@@ -121,6 +122,8 @@ export type KLeaveStatus = {
   currentEarned?: number;
   currentUsed?: number;
   carriedOver?: number;
+  /** Yıl içinde elle eklenen gün (pazar / tatil çalışması karşılığı hak günleri) */
+  leaveBonus?: number;
   active?: boolean;
 };
 
@@ -141,49 +144,103 @@ export async function listPersons(status: "active" | "inactive" = "active"): Pro
 const dayStart = (iso: string) => `${iso} 00:00:00`;
 const dayEnd = (iso: string) => `${iso} 23:59:59`;
 
-/** İzin kayıtları — tarih aralığında (YYYY-MM-DD), tüm durumlar. */
+/** İşleri sırayı koruyarak, aynı anda en çok `n` tanesi çalışacak şekilde yürütür. */
+export async function pooled<T>(tasks: Array<() => Promise<T>>, n = 5): Promise<T[]> {
+  const out: T[] = new Array(tasks.length);
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= tasks.length) return;
+      out[i] = await tasks[i]!();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(n, tasks.length) }, worker));
+  return out;
+}
+
+/** [from, to] aralığını 7 günlük dilimlere böler (uçlar dahil). */
+function weeklyWindows(fromIso: string, toIso: string): Array<{ from: string; to: string }> {
+  const out: Array<{ from: string; to: string }> = [];
+  const end = new Date(`${toIso}T00:00:00.000Z`).getTime();
+  for (let t = new Date(`${fromIso}T00:00:00.000Z`).getTime(); t <= end; t += 7 * 86_400_000) {
+    const last = Math.min(t + 6 * 86_400_000, end);
+    out.push({ from: new Date(t).toISOString().slice(0, 10), to: new Date(last).toISOString().slice(0, 10) });
+  }
+  return out;
+}
+
+/**
+ * İzin kayıtları — tarih aralığında (YYYY-MM-DD), onaylı + bekleyen.
+ *
+ * Liste en çok 100 kayıt döner ve sayfalanmaz (ölçüldü 05.10.2026: yedi
+ * haftalık aralık tam 100 kayıtta kesildi, eski tarihliler yoktu). Bu yüzden
+ * aralık haftalık dilimlerle okunur; iki dilime taşan izin kimliğiyle tekilleşir.
+ */
 export async function listLeaves(fromIso: string, toIso: string): Promise<KLeave[]> {
   // "status" ZORUNLU (canlıda HTTP 422: "The status field is required", 03.10.2026).
-  // Onaylılar şart; bekleyenler ayrıca sorulur, o sorgu başarısız olursa atlanır.
-  const out = new Map<string, KLeave>();
   // include_inactive_employees: "true" metni reddedilir (HTTP 422 "must be true or
   // false" — doğrulama 1/0 bekler); "1" de reddedilirse parametresiz denenir.
-  const call = async (status: string, inactive: string | undefined) =>
+  const call = async (status: string, from: string, to: string, inactive: string | undefined) =>
     kfetch<KLeave[] | { items?: KLeave[] }>("/v2/leave/list", {
-      query: { status, startDate: dayStart(fromIso), endDate: dayEnd(toIso), limit: 100, include_inactive_employees: inactive },
+      query: { status, startDate: dayStart(from), endDate: dayEnd(to), limit: 100, include_inactive_employees: inactive },
     });
-  for (const status of ["approved", "waiting"] as const) {
-    try {
-      let d: KLeave[] | { items?: KLeave[] };
+  const out = new Map<string, KLeave>();
+  const tasks = weeklyWindows(fromIso, toIso).flatMap((w) =>
+    (["approved", "waiting"] as const).map((status) => async () => {
       try {
-        d = await call(status, "1");
+        let d: KLeave[] | { items?: KLeave[] };
+        try {
+          d = await call(status, w.from, w.to, "1");
+        } catch (e) {
+          if (e instanceof KolayikError && e.status === 422) d = await call(status, w.from, w.to, undefined);
+          else throw e;
+        }
+        return (Array.isArray(d) ? d : (d.items ?? [])).map((l) => ({ ...l, status: l.status ?? status }));
       } catch (e) {
-        if (e instanceof KolayikError && e.status === 422) d = await call(status, undefined);
-        else throw e;
+        // Onaylılar şart; bekleyenler okunamazsa atlanır.
+        if (status === "approved") throw e;
+        return [] as KLeave[];
       }
-      for (const l of Array.isArray(d) ? d : (d.items ?? [])) out.set(l.id, { ...l, status: l.status ?? status });
-    } catch (e) {
-      if (status === "approved") throw e;
-    }
-  }
+    })
+  );
+  for (const list of await pooled(tasks)) for (const l of list) out.set(l.id, l);
   return Array.from(out.values());
 }
 
-/** Mesai kayıtları (type=overtime) — tarih aralığında, tüm durumlar, sayfalı. */
+/**
+ * Mesai kayıtları (type=overtime) — tarih aralığında, tüm durumlar.
+ *
+ * Kolay İK "limit" ne gönderilirse gönderilsin sayfa başına 15 kayıt döner ve
+ * totalCount / searchCount o sayfadaki sayıyı verir (ölçüldü 05.10.2026:
+ * Eylül'ün 70+ kaydından yalnız ilk 15'i geliyordu — prim ekranındaki mesai
+ * önerisi 3.10–5.10 arasında bu yüzden EKSİKTİ). Boş sayfa gelene dek okunur;
+ * hız için aralık haftalık dilimlere bölünüp koşut okunur.
+ */
 export async function listOvertime(fromIso: string, toIso: string): Promise<KTimelog[]> {
-  const out: KTimelog[] = [];
-  const limit = 100;
-  for (let page = 1; page <= 10; page++) {
-    const d = await kfetch<{ items?: KTimelog[]; totalCount?: number; searchCount?: number }>("/v2/timelog/list", {
-      method: "POST",
-      query: { type: "overtime", startDate: dayStart(fromIso), endDate: dayEnd(toIso), limit, page, sortType: "startDate", sortOrder: "asc" },
-    });
-    const items = d.items ?? [];
-    out.push(...items);
-    const total = d.searchCount ?? d.totalCount ?? 0;
-    if (items.length < limit || out.length >= total) break;
-  }
-  return out;
+  const readWindow = async (from: string, to: string) => {
+    const seen = new Map<string, KTimelog>();
+    for (let page = 1; page <= 40; page++) {
+      const d = await kfetch<{ items?: KTimelog[] }>("/v2/timelog/list", {
+        method: "POST",
+        query: { type: "overtime", startDate: dayStart(from), endDate: dayEnd(to), limit: 100, page, sortType: "startDate", sortOrder: "asc" },
+      });
+      const items = d.items ?? [];
+      let fresh = 0;
+      for (const t of items) {
+        if (!seen.has(t.id)) {
+          seen.set(t.id, t);
+          fresh += 1;
+        }
+      }
+      if (items.length === 0 || fresh === 0) break; // bitti (ya da sayfa numarası yok sayılıyor)
+    }
+    return Array.from(seen.values());
+  };
+  const out = new Map<string, KTimelog>();
+  const lists = await pooled(weeklyWindows(fromIso, toIso).map((w) => () => readWindow(w.from, w.to)), 5);
+  for (const list of lists) for (const t of list) out.set(t.id, t);
+  return Array.from(out.values()).sort((x, y) => x.startDate.localeCompare(y.startDate));
 }
 
 /** Kişinin izin bakiyeleri (izin türü bazında). */

@@ -22,6 +22,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { money, nextMonthOf, pct } from "./format";
 import { EntryDialog, type EntryKind } from "./entry-dialog";
 import { KolayikPanel } from "./kolayik-panel";
+import { SundayAuditPanel } from "./sunday-audit";
 import { PerformanceDocs } from "./performance-docs";
 import type { KolayikMonth } from "@/server/services/kolayik/payroll-sync";
 
@@ -189,7 +190,8 @@ export function ExtrasGrid({
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card px-4 py-3 text-sm shadow-xs">
         <div className="text-muted-foreground">
-          Mesai saat ücreti = <b className="text-foreground">net baz ÷ 26 gün ÷ 8 saat</b>. Yazdıkça hesaplanır;{" "}
+          Mesai saat ücreti = <b className="text-foreground">net baz ÷ 26 gün ÷ 8 saat</b>. Pazar ve resmî tatilde girilen 8 saat hak günüdür, ücrete girmez;
+          yalnız üstü ödenir. Yazdıkça hesaplanır;{" "}
           <b className="text-foreground">Kaydet</b> deyince işlenir. Kasa eksiği, fiyat farkı ve faturasız masraf kesintileri satırdaki{" "}
           <b className="text-foreground">− Kesinti</b> ile girilir.
         </div>
@@ -201,6 +203,7 @@ export function ExtrasGrid({
       </div>
 
       <KolayikPanel data={kolay.data} loading={kolay.isFetching} queryError={kolay.error?.message ?? null} onRefresh={() => void kolay.refetch()} />
+      {kolay.data?.configured ? <SundayAuditPanel year={data.period.year} month={data.period.month} /> : null}
 
       {data.stores.map((s) => (
         <StoreExtras
@@ -360,13 +363,16 @@ function StoreExtras({
                     <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">{c.overtime_amount ? `= ${money(c.overtime_amount)} ₺` : " "}</div>
                     {(() => {
                       const ot = overtimeOf(l.id);
-                      if (!ot || (ot.approved_hours <= 0 && ot.waiting_hours <= 0)) return null;
+                      if (!ot || (ot.approved_hours <= 0 && ot.waiting_hours <= 0 && ot.credit_days <= 0)) return null;
                       const differs = Math.abs(ot.approved_hours - numOf(d.overtime_hours)) > 0.001;
+                      // Pazar / tatil 8 saati hak günüdür, ücrete girmez — öneri yalnız ödenecek saattir.
                       return (
-                        <div className="mt-0.5 text-[11px] text-sky-800" title={ot.note}>
-                          Kolay İK: {ot.approved_hours} s onaylı
+                        <div className="mt-0.5 text-[11px] text-sky-800" title={ot.note || undefined}>
+                          Kolay İK: {ot.approved_hours} s ödenecek
+                          {ot.credit_days ? ` · ${ot.credit_days} hak günü ayrı` : ""}
                           {ot.waiting_hours ? ` · ${ot.waiting_hours} s bekliyor` : ""}
-                          {differs && ot.approved_hours > 0 && !closed ? (
+                          {ot.review ? " · ⚠ hafta içi 8+ saat" : ""}
+                          {differs && (ot.approved_hours > 0 || numOf(d.overtime_hours) > 0) && !closed ? (
                             <button
                               type="button"
                               className="ml-1 underline"

@@ -1,7 +1,17 @@
 import "server-only";
 import type { PrismaClient } from "@prisma/client";
 import { normalizeName } from "@/server/services/payroll/nebim-revenue";
-import { KolayikError, kolayikConfigured, leaveStatus, listLeaves, listOvertime, listPersons, type KPerson } from "./client";
+import { KolayikError, kolayikConfigured, leaveStatus, listLeaves, listOvertime, listPersons, pooled, type KPerson } from "./client";
+import {
+  buildSundayAudit,
+  isHolidayNote,
+  splitOvertime,
+  type AuditLeave,
+  type AuditOvertime,
+  type OrphanRest,
+  type PersonAudit,
+  type SundayRow,
+} from "./sunday-audit";
 
 /**
  * Kolay İK → bordro: ayın onaylı mesai kayıtları ve izinleri, bordro
@@ -9,6 +19,14 @@ import { KolayikError, kolayikConfigured, leaveStatus, listLeaves, listOvertime,
  * kendiliğinden yazmaz — mesai saatleri prim ekranında ÖNERİ olarak görünür,
  * "Uygula" ile sahibi işler. (Kolay İK'da hak günü ile yıllık izin aynı
  * türde tutulduğu için izin eşleştirmesi insan onayından geçmelidir.)
+ *
+ * ÖDENECEK MESAİ ≠ GİRİLEN MESAİ (05.10.2026). Pazar (ve resmî tatil) çalışması
+ * Kolay İK'ya 8 saatlik mesai olarak girilir; bu 8 saat ÜCRET değil HAK
+ * GÜNÜDÜR (sahibi: "pazar çalışana 8 saat yani 1 gün izin veriyoruz"). Yalnız
+ * üstü ödenir: "Molasız pazar mesaisi" 600 dk = 1 hak günü + 2 saat ücret.
+ * Mert'in Ağustos bordrosu da böyleydi (Yaşar: iki pazar × "1 saat x 2" =
+ * 4 saat). approved_hours / waiting_hours ÖDENECEK saattir; girilen ham toplam
+ * raw_hours, hak günü sayısı credit_days alanındadır.
  */
 export type KolayikMonth = {
   configured: boolean;
@@ -24,11 +42,19 @@ export type KolayikMonth = {
     employee_id: string | null;
     line_id: string | null;
     person_name: string;
+    /** ÖDENECEK onaylı saat — pazar / tatil kayıtlarının 8 saatlik hak günü kısmı hariç */
     approved_hours: number;
+    /** onay bekleyen kayıtların ödenecek kısmı */
     waiting_hours: number;
     other_hours: number;
+    /** Kolay İK'ya girilen onaylı ham toplam (hak günleri dahil) */
+    raw_hours: number;
+    /** Onaylı pazar / tatil kayıtlarından doğan hak günü sayısı */
+    credit_days: number;
+    /** Hafta içi 8+ saatlik, tatil notu olmayan kayıt var — elle bakılmalı */
+    review: boolean;
     note: string;
-    entries: Array<{ date: string; hours: number; status: string; description: string | null }>;
+    entries: Array<{ date: string; hours: number; paid_hours: number; credit_day: boolean; status: string; description: string | null }>;
   }>;
   leaves: Array<{
     employee_id: string | null;
@@ -126,20 +152,34 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
           approved_hours: 0,
           waiting_hours: 0,
           other_hours: 0,
+          raw_hours: 0,
+          credit_days: 0,
+          review: false,
           note: "",
           entries: [],
         } satisfies KolayikMonth["overtime"][number]);
-      const hours = r2((t.usedMinute ?? 0) / 60);
-      if (t.status === "approved") row.approved_hours = r2(row.approved_hours + hours);
-      else if (t.status === "waiting") row.waiting_hours = r2(row.waiting_hours + hours);
+      const date = t.startDate.slice(0, 10);
+      const minutes = t.usedMinute ?? 0;
+      const hours = r2(minutes / 60);
+      const split = splitOvertime({ date, minutes, description: t.description ?? null });
+      const paid = r2(split.paid_minutes / 60);
+      if (t.status === "approved") {
+        row.approved_hours = r2(row.approved_hours + paid);
+        row.raw_hours = r2(row.raw_hours + hours);
+        if (split.credit_day) row.credit_days += 1;
+      } else if (t.status === "waiting") row.waiting_hours = r2(row.waiting_hours + paid);
       else row.other_hours = r2(row.other_hours + hours);
-      row.entries.push({ date: t.startDate.slice(0, 10), hours, status: t.status, description: t.description ?? null });
+      // Hafta içi 8+ saat ve tatil notu yok: hak günü mü, ücret mi — belli değil
+      if (t.status !== "rejected" && minutes >= 480 && !split.credit_day && !isHolidayNote(t.description)) row.review = true;
+      row.entries.push({ date, hours, paid_hours: paid, credit_day: split.credit_day, status: t.status, description: t.description ?? null });
       ot.set(t.personId, row);
     }
     for (const row of Array.from(ot.values())) {
-      const approved = row.entries.filter((e) => e.status === "approved");
-      row.note = approved.length
-        ? `Kolay İK onaylı mesai: ${approved.map((e) => `${dm(e.date)} ${e.hours}s`).join(", ")} = ${row.approved_hours} saat`
+      const paidOnes = row.entries.filter((e) => e.status === "approved" && e.paid_hours > 0);
+      row.note = paidOnes.length
+        ? `Kolay İK onaylı mesai: ${paidOnes.map((e) => `${dm(e.date)} ${e.paid_hours}s`).join(", ")} = ${row.approved_hours} saat${
+            row.credit_days ? ` (${row.credit_days} pazar/tatil × 8 saat hak günü olarak ayrı — ücrete girmez)` : ""
+          }`
         : "";
     }
     base.overtime = Array.from(ot.values()).sort((a, b) => a.person_name.localeCompare(b.person_name, "tr"));
@@ -201,5 +241,153 @@ export async function kolayikLeaveStatus(prisma: PrismaClient, employeeId: strin
     };
   } catch (e) {
     return { ok: false as const, error: e instanceof Error ? e.message : String(e), rows: [] };
+  }
+}
+
+// ── Pazar çalışması ↔ hak günü denetimi ─────────────────────────────────────
+
+export type SundayAuditView = {
+  configured: boolean;
+  ok: boolean;
+  error: string | null;
+  fetched_at: string;
+  year: number;
+  month: number;
+  /** Ayın pazarları (YYYY-MM-DD) */
+  sundays: string[];
+  today: string;
+  totals: { people: number; worked: number; with_8h: number; used: number; waiting: number; pending: number; unused: number };
+  rows: Array<{
+    person_id: string;
+    name: string;
+    store_name: string | null;
+    /** Bordrodaki durum — Kolay İK'da hâlâ "aktif" görünen ayrılmışlar için */
+    employee_status: "active" | "inactive" | "left" | null;
+    end_date: string | null;
+    sundays: SundayRow[];
+    orphan_rests: OrphanRest[];
+    issues: string[];
+    counts: PersonAudit["counts"];
+    /** Kolay İK "Yıllık İzin" bakiyesi: kalan = hak edilen + eklenen (hak günleri) − kullanılan */
+    balance: { earned: number; bonus: number; used: number; unused: number } | null;
+  }>;
+  /** Ay içinde hiç pazar çalışması görünmeyen aktif personel */
+  not_worked: string[];
+};
+
+/** Mağazaların bulunduğu yerde bugünün tarihi (UTC+3, yaz saati yok). */
+function storeToday(): string {
+  return new Date(Date.now() + 3 * 3_600_000).toISOString().slice(0, 10);
+}
+const shiftIso = (isoDay: string, days: number) => new Date(new Date(`${isoDay}T00:00:00.000Z`).getTime() + days * 86_400_000).toISOString().slice(0, 10);
+
+/**
+ * Ayın her pazarı için: kim çalıştı (8 saat mesai girdi mi), karşılığında
+ * izin kullandı mı, izin onaylandı mı (bakiyeden düştü mü). Kurallar ve
+ * eşleştirme: sunday-audit.ts. Yalnız okur.
+ *
+ * Pencere ayın 3 hafta öncesinden başlar (ay başındaki izinler önceki ayın
+ * pazarına ait olabilir — onlar bu ayın pazarını "kapatmasın") ve ay sonundan
+ * 2 hafta sonrasına, en çok bugüne kadar uzanır.
+ */
+export async function kolayikSundayAudit(prisma: PrismaClient, year: number, month: number): Promise<SundayAuditView> {
+  const today = storeToday();
+  const mm = String(month).padStart(2, "0");
+  const monthStart = `${year}-${mm}-01`;
+  const monthEnd = `${year}-${mm}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, "0")}`;
+  const base: SundayAuditView = {
+    configured: kolayikConfigured(),
+    ok: false,
+    error: null,
+    fetched_at: new Date().toISOString(),
+    year,
+    month,
+    sundays: [],
+    today,
+    totals: { people: 0, worked: 0, with_8h: 0, used: 0, waiting: 0, pending: 0, unused: 0 },
+    rows: [],
+    not_worked: [],
+  };
+  if (!base.configured) return { ...base, error: "Kolay İK anahtarı tanımlı değil (KOLAYIK_API_TOKEN)." };
+  if (monthStart > today) return { ...base, ok: true };
+
+  const from = shiftIso(monthStart, -21);
+  const to = shiftIso(monthEnd, 14); // ileri tarihli onaylı / bekleyen izinler de görünsün
+  try {
+    const [active, inactive, timelogs, leaveList, employees] = await Promise.all([
+      listPersons("active"),
+      listPersons("inactive").catch(() => [] as KPerson[]),
+      listOvertime(from, to < today ? to : today),
+      listLeaves(from, to),
+      prisma.payrollEmployee.findMany({
+        where: { deleted_at: null },
+        select: { id: true, full_name: true, aliases: true, bank_account_name: true, status: true, end_date: true, store: { select: { name: true } } },
+      }),
+    ]);
+    const nameOf = new Map([...inactive, ...active].map((p) => [p.id, personName(p)]));
+    const overtime: AuditOvertime[] = timelogs.map((t) => ({
+      id: t.id,
+      personId: t.personId,
+      date: t.startDate.slice(0, 10),
+      minutes: t.usedMinute ?? 0,
+      status: t.status,
+      description: t.description ?? null,
+      createdAt: (t.createdAt ?? t.startDate).slice(0, 10),
+    }));
+    const leaves: AuditLeave[] = leaveList
+      .filter((l) => l.person?.id)
+      .map((l) => ({
+        id: l.id,
+        personId: l.person!.id,
+        start: l.startDate.slice(0, 10),
+        end: l.endDate.slice(0, 10),
+        days: Number(l.usedDays ?? 0),
+        status: l.status,
+        type: l.type?.name ?? "",
+        comment: l.comment ?? null,
+      }));
+    // Aktifler + ay içinde pazar kaydı olan pasifler (ay ortasında ayrılanlar)
+    const ids = new Set(active.map((p) => p.id));
+    for (const o of overtime) if (o.date >= monthStart && o.date <= monthEnd && nameOf.has(o.personId)) ids.add(o.personId);
+    const audit = buildSundayAudit({ year, month, today, personIds: Array.from(ids), overtime, leaves });
+
+    const involved = audit.people.filter((p) => p.counts.worked > 0 || p.issues.length > 0);
+    const balances = await pooled(
+      involved.map((p) => () => leaveStatus(p.person_id).catch(() => [])),
+      5
+    );
+    const rows: SundayAuditView["rows"] = involved.map((p, i) => {
+      const name = nameOf.get(p.person_id) ?? "—";
+      const emp = matchEmployee({ name }, employees);
+      const bal = balances[i]!.find((b) => b.primary) ?? balances[i]!.find((b) => /y[ıi]ll[ıi]k/i.test(b.name ?? ""));
+      return {
+        person_id: p.person_id,
+        name,
+        store_name: emp ? (employees.find((e) => e.id === emp.id)?.store.name ?? null) : null,
+        employee_status: (emp?.status as "active" | "inactive" | "left" | undefined) ?? null,
+        end_date: emp ? (employees.find((e) => e.id === emp.id)?.end_date?.toISOString().slice(0, 10) ?? null) : null,
+        sundays: p.sundays,
+        orphan_rests: p.orphan_rests,
+        issues: p.issues,
+        counts: p.counts,
+        balance: bal
+          ? { earned: bal.currentEarned ?? 0, bonus: bal.leaveBonus ?? 0, used: bal.currentUsed ?? bal.used ?? 0, unused: bal.unused ?? 0 }
+          : null,
+      };
+    });
+    rows.sort((a, b) => (a.store_name ?? "~").localeCompare(b.store_name ?? "~", "tr") || a.name.localeCompare(b.name, "tr"));
+    return {
+      ...base,
+      ok: true,
+      sundays: audit.sundays,
+      totals: audit.totals,
+      rows,
+      not_worked: audit.people
+        .filter((p) => p.counts.worked === 0 && p.issues.length === 0)
+        .map((p) => nameOf.get(p.person_id) ?? "—")
+        .sort((a, b) => a.localeCompare(b, "tr")),
+    };
+  } catch (e) {
+    return { ...base, error: e instanceof KolayikError ? e.message : `Beklenmeyen hata: ${e instanceof Error ? e.message : String(e)}` };
   }
 }

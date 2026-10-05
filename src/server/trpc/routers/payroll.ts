@@ -44,7 +44,7 @@ import { periodLabel } from "@/server/services/payroll/rules";
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
 import { carryForwardCore } from "@/server/services/payroll/carry";
 import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
-import { kolayikLeaveStatus, kolayikMonth } from "@/server/services/kolayik/payroll-sync";
+import { kolayikLeaveStatus, kolayikMonth, kolayikSundayAudit } from "@/server/services/kolayik/payroll-sync";
 import {
   buildPerformanceCheck,
   expectedStoreCode,
@@ -359,6 +359,8 @@ export const payrollRouter = router({
     month: adminProcedure.input(periodKeySchema).query(({ ctx, input }) => kolayikMonth(ctx.prisma, input.year, input.month)),
     /** Bir personelin izin bakiyeleri (id = PayrollEmployee.id). */
     leaveStatus: adminProcedure.input(idSchema).query(({ ctx, input }) => kolayikLeaveStatus(ctx.prisma, input.id)),
+    /** Ayın pazarları: kim çalıştı, karşılığındaki hak gününü kullandı mı (kolayik/sunday-audit.ts). */
+    sundayAudit: adminProcedure.input(periodKeySchema).query(({ ctx, input }) => kolayikSundayAudit(ctx.prisma, input.year, input.month)),
   }),
 
   // ── Personel ───────────────────────────────────────────────────────────────
