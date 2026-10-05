@@ -33,6 +33,11 @@ import {
  * Bazıları 10 yerine yalnız ek saati yazar ("Pazar ek mesai" 2 saat) — o da
  * tamamen ücrettir. Ödenecek saatin pazar / tatile düşen kısmı
  * sunday_extra_hours alanında ayrıca verilir; kalanı diğer günlerin mesaisidir.
+ *
+ * PAZAR EK SAATİ KAYITTA İKİ KATIDIR (sahibi, 05.10.2026: "pazar x2 sayılır
+ * yasal olarak; 1 saat çalıştıysa 2 saat girdi hepsi"). Buradaki saatler
+ * yazıldığı gibi alınır ve saatlik ücretle (net baz ÷ 208) bir kez çarpılır —
+ * pazar için ikinci bir çarpan UYGULANMAZ, yoksa dört katı ödenir.
  */
 export type KolayikMonth = {
   configured: boolean;

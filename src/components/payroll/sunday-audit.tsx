@@ -167,7 +167,9 @@ export function SundayAuditPanel({ year, month }: { year: number; month: number 
             <div>
               Okuma: pazar günü girilen mesai kaydı çalışmayı, ardından alınan tek günlük izin karşılık gününü gösterir. Açıklamasında tarih ya da “pazar / haftalık”
               yazan izin en yakın önceki pazara bağlanır; açıklaması “yıllık izin” diyen gün karşılık sayılmaz. 8 saatin üstü (molasız çalışma) ücrettir, hak gününe
-              girmez. Pazar günü 8 saat yerine yalnız ek saatini yazan kişi de çalışmış sayılır; yazdığı saat ücrettir, kaydı 8 + ek saat olarak düzeltilmelidir.
+              girmez. Pazar ek saati Kolay İK&apos;ya iki katı yazılır (pazar yasal olarak iki kat sayılır: 1 saat fazla çalışan 2 saat yazar); burada yazılan
+              saat aynen ödenir, ayrıca çarpılmaz. Pazar günü 8 saat yerine yalnız ek saatini yazan kişi de çalışmış sayılır; yazdığı saat ücrettir, kaydı 8 + ek saat
+              olarak düzeltilmelidir.
             </div>
             <div>
               “Kolay İK kalan” yıllık izin bakiyesidir (hak edilen + eklenen hak günleri − kullanılan). Bir yıllık haktan fazlası birikmiş hak günü demektir. Kolay İK

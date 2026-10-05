@@ -13,6 +13,12 @@
  *       8 saate eklerler, bazen 10 saat yazarlar; Selbi onun yerine kaç saat
  *       ek mesai yaptıysa onu yazmış." → pazar ÇALIŞILMIŞ sayılır, girilen
  *       saatin tamamı ücrettir; kayıt 8 + ek saat olarak düzeltilmelidir.
+ *       PAZAR EK SAATİ İKİ KATI YAZILIR (sahibi, 05.10.2026): "1 saat
+ *       çalıştıysa pazar ekstra olarak onu sisteme 2 saat olarak girdi hepsi,
+ *       çünkü pazar x2 sayılır yasal olarak." Yani 10 saatlik kayıt = 8 saat
+ *       hak günü + 1 saat fiilî ek çalışma × 2; Derimod'da 11 saat = 8 +
+ *       1,5 × 2 ("1.5 x2 ek Pazar"). Çarpım kayıtta ZATEN VARDIR — sistem
+ *       yazılan saati aynen öder, AYRICA ÇARPMAZ. Hafta içi mesai çarpılmaz.
  *   • Karşılığında kullanılan gün → "Yıllık İzin" türünde tek günlük izin.
  *       Kolay İK'da hak günü için ayrı tür YOK; ayıran tek şey açıklama:
  *       "Pazar mesai izni", "Haftalık izin", "20.09.2026 pazar günü

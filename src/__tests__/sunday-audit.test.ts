@@ -56,6 +56,16 @@ describe("pazar çalışması ↔ hak günü", () => {
     expect(splitOvertime({ date: "2026-10-02", minutes: 480, description: null })).toEqual({ credit_day: false, paid_minutes: 480, rest_day: false });
   });
 
+  it("pazar ek saati kayıtta zaten iki katıdır: yazılan saat aynen ödenir, ayrıca çarpılmaz", () => {
+    // sahibi, 05.10.2026: "1 saat çalıştıysa pazar ekstra olarak onu sisteme 2 saat olarak girdi hepsi, çünkü pazar x2 sayılır yasal olarak"
+    // 1 saat fiilî ek çalışma → 10 saat yazılır → 2 saat ödenir (4 değil)
+    expect(splitOvertime({ date: "2026-09-06", minutes: 600, description: "Molasız pazar mesaisi" }).paid_minutes).toBe(120);
+    // 1,5 saat fiilî ek çalışma → 11 saat yazılır → 3 saat ödenir (6 değil)
+    expect(splitOvertime({ date: "2026-09-13", minutes: 660, description: "mola kullanılmadı pazar mesaisi" }).paid_minutes).toBe(180);
+    // yalnız ek saatini yazan: "1.5 x2" = 3 saat yazılmış, 3 saat ödenir
+    expect(splitOvertime({ date: "2026-09-13", minutes: 180, description: "1.5 x2 ek Pazar" }).paid_minutes).toBe(180);
+  });
+
   it("izin açıklamasından tür ve hangi pazarın karşılığı olduğu okunur", () => {
     const c = (comment: string, start = "2026-09-15", type = "Yıllık İzin") => classifyLeave({ start, comment, type });
     expect(c("Pazar mesai izni").cls).toBe("inlieu");
