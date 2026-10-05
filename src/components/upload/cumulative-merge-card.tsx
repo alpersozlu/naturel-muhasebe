@@ -42,6 +42,12 @@ const isoOf = (d: string | Date) => new Date(d).toISOString().slice(0, 10);
  *     fişi / Z'si / nakdi kendi gününe girilir; mağaza özeti ve bayi gün sonu
  *     dosyası son güne yüklenir ve bütün günleri kapsar; "Günü Kilitle"
  *     hepsini birlikte kilitler. (04.10.2026, Mavi Güzelyurt 01–02.10.)
+ *
+ * Birlikte kapanış İKİ YÖNDEN kurulur (05.10.2026): son günün sayfasından
+ * "Önceki günle birleşti", ya da özeti olmayacak İLK günün sayfasından "Bu
+ * günün özeti yok — ertesi günle kapanacak". İlk yalnız geriye doğruydu;
+ * sahibi 01.10 sayfasında "Eksik: Mağaza Özeti" görüp takıldı — o sayfada
+ * birleşmeyi kurmanın yolu yoktu.
  */
 export function CumulativeMergeCard({
   storeId,
@@ -57,7 +63,11 @@ export function CumulativeMergeCard({
   const utils = trpc.useUtils();
   const confirm = useConfirm();
   const [open, setOpen] = useState(false);
+  // "prev" = bu günün özeti önceki günü de kapsıyor / önceki günün özeti yok;
+  // "next" = bu günün özeti olmayacak, özet ertesi güne gelecek.
+  const [dir, setDir] = useState<"prev" | "next">("prev");
   const [prevDate, setPrevDate] = useState(() => shiftDayIso(date, -1));
+  const [nextDate, setNextDate] = useState(() => shiftDayIso(date, 1));
 
   const { data: existing, isLoading } = trpc.dailyRecord.getCumulativePrev.useQuery(
     { store_id: storeId, date },
@@ -66,6 +76,8 @@ export function CumulativeMergeCard({
   const group = trpc.mergeGroup.getForStoreDate.useQuery({ store_id: storeId, date }, { enabled: !disabled });
 
   useEffect(() => {
+    setDir("prev");
+    setNextDate(shiftDayIso(date, 1));
     if (existing?.prev_date) {
       setOpen(true);
       setPrevDate(existing.prev_date);
@@ -80,7 +92,12 @@ export function CumulativeMergeCard({
   const isGroup = !!group.data;
   const probe = trpc.mergeGroup.probe.useQuery(
     { store_id: storeId, date, prev_date: prevDate },
-    { enabled: !disabled && open && !isCumulative && !isGroup && !!prevDate && prevDate < date }
+    { enabled: !disabled && open && dir === "prev" && !isCumulative && !isGroup && !!prevDate && prevDate < date }
+  );
+  // İleriye doğru: bu günün özeti olmayacak, özet `nextDate` gününe gelecek.
+  const probeNext = trpc.mergeGroup.probe.useQuery(
+    { store_id: storeId, date: nextDate, prev_date: date },
+    { enabled: !disabled && open && dir === "next" && !isCumulative && !isGroup && !!nextDate && nextDate > date }
   );
 
   const refresh = () => {
@@ -107,8 +124,8 @@ export function CumulativeMergeCard({
     onError: (e) => toast.error(e.message),
   });
   const createGroup = trpc.mergeGroup.create.useMutation({
-    onSuccess: () => {
-      toast.success(`Günler birleştirildi — mağaza özeti ve bayi dosyası ${fmtDay(date)} gününe yüklenir`);
+    onSuccess: (_group, vars) => {
+      toast.success(`Günler birleştirildi — mağaza özeti ve bayi dosyası ${fmtDay(vars.end_date)} gününe yüklenir`);
       refresh();
     },
     onError: (e) => {
@@ -149,7 +166,7 @@ export function CumulativeMergeCard({
         <div className="text-xs text-muted-foreground mb-3">
           {disabled
             ? "Önce mağaza ve tarih seç"
-            : "Kasa kapatılamadıysa (elektrik kesintisi, sistem arızası) bu günü önceki günle birleştirin."}
+            : "Kasa kapatılamadıysa (elektrik kesintisi, sistem arızası) bu günü önceki ya da ertesi günle birlikte kapatın."}
         </div>
 
         {isGroup && groupEnd ? (
@@ -195,9 +212,91 @@ export function CumulativeMergeCard({
             </Button>
           </div>
         ) : !open && !isCumulative ? (
-          <Button variant="outline" size="sm" className="w-full" disabled={disabled} onClick={() => setOpen(true)}>
-            Kasa birleşmesi oldu
-          </Button>
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              disabled={disabled}
+              onClick={() => {
+                setDir("prev");
+                setOpen(true);
+              }}
+            >
+              Önceki günle birleşti
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full h-auto whitespace-normal py-2 leading-snug"
+              disabled={disabled}
+              onClick={() => {
+                setDir("next");
+                setOpen(true);
+              }}
+            >
+              Bu günün özeti yok — ertesi günle kapanacak
+            </Button>
+          </div>
+        ) : dir === "next" && !isCumulative ? (
+          // ── Bu günün özeti olmayacak: ertesi günle birlikte kapanış ──
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="next-date" className="text-xs">
+                Mağaza özeti hangi gün gelecek? (kapanış günü)
+              </Label>
+              <Input
+                id="next-date"
+                type="date"
+                value={nextDate}
+                min={shiftDayIso(date, 1)}
+                max={shiftDayIso(date, 2)}
+                onChange={(e) => setNextDate(e.target.value)}
+                disabled={disabled || busy}
+              />
+            </div>
+
+            {!nextDate || nextDate <= date ? (
+              <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-[11px] text-rose-800 leading-snug">
+                Kapanış günü bu günden SONRA olmalı.
+              </div>
+            ) : probeNext.isLoading ? (
+              <div className="text-[11px] text-muted-foreground leading-snug">Kontrol ediliyor…</div>
+            ) : probeNext.data?.blocker ? (
+              <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-[11px] text-rose-800 leading-snug">
+                {probeNext.data.blocker}
+              </div>
+            ) : probeNext.data?.mode === "cumulative" ? (
+              <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-[11px] text-rose-800 leading-snug">
+                {fmtDate(date)} gününün mağaza özeti sistemde var; bu gün özetsiz sayılamaz. Kasa ertesi gün de kapatılamadıysa birleşmeyi
+                ertesi günün sayfasından &quot;Önceki günle birleşti&quot; ile kurun.
+              </div>
+            ) : probeNext.data?.mode === "group" ? (
+              <div className="rounded-lg bg-orange-50/60 border border-orange-200 px-3 py-2 text-[11px] text-orange-900 leading-snug">
+                {fmtDate(date)} için mağaza özeti <span className="font-semibold">istenmez</span>.{" "}
+                <span className="font-semibold">{probeNext.data.days} gün birlikte kapatılır:</span> her günün fişi, Z raporu ve nakdi kendi
+                gününe girilir; mağaza özeti ve bayi gün sonu dosyası yalnız <span className="font-semibold">{fmtDay(nextDate)}</span> gününe
+                yüklenir ve günlerin hepsini kapsar.
+              </div>
+            ) : null}
+
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                className="flex-1"
+                disabled={
+                  disabled || busy || !nextDate || nextDate <= date || probeNext.isLoading || !probeNext.data || !!probeNext.data.blocker || probeNext.data.mode !== "group"
+                }
+                onClick={() => createGroup.mutate({ store_id: storeId, start_date: date, end_date: nextDate })}
+              >
+                {busy ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
+                Onayla
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
+                Vazgeç
+              </Button>
+            </div>
+          </div>
         ) : (
           <div className="space-y-3">
             <div>

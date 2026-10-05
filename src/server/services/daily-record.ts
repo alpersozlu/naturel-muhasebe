@@ -96,7 +96,11 @@ export async function assertPriorDaysLocked(
       ],
     },
     orderBy: { date: "asc" },
-    select: { date: true, merge_group: { select: { start_date: true, end_date: true } } },
+    select: {
+      date: true,
+      merge_group: { select: { start_date: true, end_date: true } },
+      store_summary: { select: { id: true } },
+    },
   });
   // A closed day (Derimod Mağusa Sundays) never needs locking.
   const open = candidates.find(
@@ -136,10 +140,32 @@ export async function assertPriorDaysLocked(
   }
   throw new TRPCError({
     code: "BAD_REQUEST",
-    message:
-      `Önce ${tr} gününü kilitlemelisin. Her gün, yüklemeler bitince ` +
-      `"Günü Kilitle" ile kapatılmak zorundadır — kapatılmayan gün varken ` +
-      `yeni güne kayıt girilemez. Tarih alanından ${tr} gününe gidip sayfanın ` +
-      `altındaki "Günü Kilitle" düğmesine basın.`,
+    message: priorDayLockMessage({
+      day: tr,
+      isMavi: !!store?.brand.name.toLowerCase().includes("mavi"),
+      hasSummary: !!open.store_summary,
+    }),
   });
+}
+
+/**
+ * "Önce şu günü kilitle" mesajı. Mavi'de açık günün mağaza özeti YOKSA o gün
+ * tek başına hiç kilitlenemeyebilir: kasa kapatılamadıysa özet ertesi güne
+ * gelir, ama ertesi güne de bu kapı yüzünden kayıt girilemez. Mağaza çıkışı
+ * bulamadan dört gün takıldı (Mavi Güzelyurt, 01–05.10.2026) — mesaj artık
+ * çıkışı söyler.
+ */
+export function priorDayLockMessage(a: { day: string; isMavi: boolean; hasSummary: boolean }): string {
+  const base =
+    `Önce ${a.day} gününü kilitlemelisin. Her gün, yüklemeler bitince ` +
+    `"Günü Kilitle" ile kapatılmak zorundadır — kapatılmayan gün varken ` +
+    `yeni güne kayıt girilemez. Tarih alanından ${a.day} gününe gidip sayfanın ` +
+    `altındaki "Günü Kilitle" düğmesine basın.`;
+  if (!a.isMavi || a.hasSummary) return base;
+  return (
+    base +
+    ` Kasa o gün kapatılamadıysa (mağaza özeti yoksa): ${a.day} sayfasındaki "Kasa Birleşmesi" ` +
+    `kartından "Bu günün özeti yok — ertesi günle kapanacak" deyin; günler tek özetle birlikte kapanır ` +
+    `ve ertesi güne kayıt girebilirsiniz.`
+  );
 }

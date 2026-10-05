@@ -19,10 +19,12 @@ import {
   RefreshCw,
   Pencil,
   Radio,
+  CalendarClock,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { incompleteNotice, summaryCheck, summaryWaivedHere } from "./merge-wording";
 import {
   Dialog,
   DialogContent,
@@ -223,7 +225,11 @@ export function ReconciliationPanel({
                 : "POS Fişi (en az 1)"
             }
           />
-          <CheckItem ok={data.has_summary} label="Mağaza Özeti" />
+          {(() => {
+            // Birleşik günlerde özet yalnız son güne yüklenir; önceki günlerde istenmez.
+            const sc = summaryCheck(data.merge, data.has_summary, fmtDateShort);
+            return <CheckItem ok={data.has_summary} label={sc.label} waived={sc.waived} />;
+          })()}
           <CheckItem
             ok={
               !data.requires_cash_proof ||
@@ -417,7 +423,15 @@ export function ReconciliationPanel({
 
           {/* Sağ: dikey status pill + ana aksiyon butonu */}
           <div className="flex flex-col gap-2 sm:w-60 shrink-0">
-            <StatusPill status={data.status} isLocked={isLocked} />
+            <StatusPill
+              status={data.status}
+              isLocked={isLocked}
+              note={
+                data.status === "incomplete" && summaryWaivedHere(data.merge, data.has_summary)
+                  ? `Özet ${fmtDateShort(data.merge!.end_date)} gününe yüklenecek`
+                  : undefined
+              }
+            />
             {canApprove && !isLocked && data.daily_record_id ? (
               <button
                 type="button"
@@ -625,9 +639,12 @@ function ApproveConfirmDialog({
 function StatusPill({
   status,
   isLocked,
+  note,
 }: {
   status: ReconData["status"];
   isLocked: boolean;
+  /** "Eksik Belge Var" yerine yazılacak sakin not (birleşik günün özetsiz günü). */
+  note?: string;
 }) {
   // Locked durumu rengi belirler — kilitli + match birleşik
   if (isLocked) {
@@ -670,6 +687,14 @@ function StatusPill({
       </div>
     );
   }
+  if (status === "incomplete" && note) {
+    return (
+      <div className="rounded-2xl bg-orange-50 text-orange-900 border border-orange-200 px-5 py-4 flex items-center gap-2.5">
+        <CalendarClock className="h-4 w-4 shrink-0" />
+        <span className="font-semibold text-sm leading-tight">{note}</span>
+      </div>
+    );
+  }
   if (status === "incomplete") {
     return (
       <div className="rounded-2xl bg-amber-100 text-amber-800 border border-amber-200 px-5 py-4 flex items-center gap-2.5">
@@ -704,21 +729,33 @@ function CheckItem({
   ok,
   label,
   optional,
+  waived,
 }: {
   ok: boolean;
   label: string;
   optional?: boolean;
+  /** Bu günde istenmiyor (birleşik günlerde özet son güne yüklenir) — eksik sayılmaz. */
+  waived?: boolean;
 }) {
-  const cls = optional
-    ? "bg-slate-50 text-slate-600"
-    : ok
-      ? "bg-emerald-50 text-emerald-800"
-      : "bg-muted/30 text-muted-foreground";
+  const cls = waived
+    ? "bg-orange-50 text-orange-900"
+    : optional
+      ? "bg-slate-50 text-slate-600"
+      : ok
+        ? "bg-emerald-50 text-emerald-800"
+        : "bg-muted/30 text-muted-foreground";
   return (
     <div
       className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${cls}`}
+      title={label}
     >
-      {ok ? <Check className="h-4 w-4 shrink-0" /> : <X className="h-4 w-4 shrink-0" />}
+      {waived ? (
+        <CalendarClock className="h-4 w-4 shrink-0" />
+      ) : ok ? (
+        <Check className="h-4 w-4 shrink-0" />
+      ) : (
+        <X className="h-4 w-4 shrink-0" />
+      )}
       <span className="truncate">{label}</span>
     </div>
   );
@@ -790,7 +827,6 @@ function StatusBanner({ data }: { data: ReconData }) {
   }
   if (data.status === "incomplete") {
     const missing: string[] = [];
-    if (!data.has_summary) missing.push("Mağaza Özeti");
     if (!data.has_z) missing.push("Z Raporu veya El Faturası");
     if (data.pos_count === 0) missing.push("POS Fişi");
     // Özette nakit varsa nakit kaynağı (sayım/dekont/hediye/masraf) zorunlu
@@ -803,16 +839,14 @@ function StatusBanner({ data }: { data: ReconData }) {
     ) {
       missing.push("Nakit Kaynağı (Sayım / Dekont / Hediye / Masraf)");
     }
+    // Mağaza özeti: birleşik günlerde yalnız son günde istenir (merge-wording.ts)
+    const notice = incompleteNotice({ merge: data.merge, has_summary: data.has_summary, missing, fmt: fmtDateShort });
     return (
       <Banner
-        tone="amber"
-        icon={<AlertTriangle className="h-4 w-4" />}
-        title="Eksik var"
-        message={
-          missing.length > 0
-            ? `Eksik: ${missing.join(", ")}. Bunlar yüklenince mutabakat hesaplanır.`
-            : "Mutabakat için zorunlu kalemler tamamlanmalı."
-        }
+        tone={notice.tone}
+        icon={notice.tone === "slate" ? <CalendarClock className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+        title={notice.title}
+        message={notice.message}
       />
     );
   }
