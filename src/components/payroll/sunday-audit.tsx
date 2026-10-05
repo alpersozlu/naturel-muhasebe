@@ -56,6 +56,13 @@ export function SundayAuditPanel({ year, month }: { year: number; month: number 
       {open && q.isLoading ? <div className="mt-2 text-muted-foreground">Kolay İK kayıtları okunuyor…</div> : null}
       {open && q.error ? <div className="mt-2 text-rose-700">Okunamadı: {q.error.message}</div> : null}
       {data && !data.ok ? <div className="mt-2 text-rose-700">{data.error}</div> : null}
+      {data?.ok
+        ? data.warnings.map((w) => (
+            <div key={w} className="mt-2 text-xs text-rose-700">
+              {w}
+            </div>
+          ))
+        : null}
 
       {data?.ok ? (
         <div className="mt-3 space-y-3">

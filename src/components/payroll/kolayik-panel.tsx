@@ -48,7 +48,7 @@ export function KolayikPanel({
   const otApproved = r1(data.overtime.reduce((s, o) => s + o.approved_hours, 0));
   const otWaiting = r1(data.overtime.reduce((s, o) => s + o.waiting_hours, 0));
   const creditDays = data.overtime.reduce((s, o) => s + o.credit_days, 0);
-  const leaveDays = data.leaves.reduce((s, l) => s + l.days_approved, 0);
+  const leaveDays = r1(data.leaves.reduce((s, l) => s + l.days_approved, 0));
 
   return (
     <section className="rounded-xl border bg-card px-4 py-3 text-sm shadow-xs">
@@ -141,7 +141,9 @@ export function KolayikPanel({
                       {l.entries
                         .map(
                           (e) =>
-                            `${e.type} ${dmy(e.start)}${e.end !== e.start ? `–${dmy(e.end)}` : ""} ${e.days}g ${STATUS_TR[e.status] ?? e.status}${
+                            `${e.type} ${dmy(e.start)}${e.end !== e.start ? `–${dmy(e.end)}` : ""} ${e.days}g${
+                              e.days_in_month !== e.days ? ` (bu ayda ${e.days_in_month}g)` : ""
+                            } ${STATUS_TR[e.status] ?? e.status}${
                               e.comment ? ` (${e.comment})` : ""
                             }`
                         )

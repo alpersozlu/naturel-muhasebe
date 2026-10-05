@@ -1,7 +1,7 @@
 import "server-only";
 import type { PrismaClient } from "@prisma/client";
 import { normalizeName } from "@/server/services/payroll/nebim-revenue";
-import { KolayikError, kolayikConfigured, leaveStatus, listLeaves, listOvertime, listPersons, pooled, type KPerson } from "./client";
+import { KolayikError, kolayikConfigured, leaveDaysWithin, leaveStatus, listLeaves, listOvertime, listPersons, pooled, type KPerson } from "./client";
 import {
   buildSundayAudit,
   isHolidayNote,
@@ -59,8 +59,20 @@ export type KolayikMonth = {
   leaves: Array<{
     employee_id: string | null;
     person_name: string;
+    /** Onaylı izinlerin BU AYA düşen gün sayısı (ay sınırını aşan izin kırpılır) */
     days_approved: number;
-    entries: Array<{ id: string; type: string; start: string; end: string; days: number; status: string; comment: string | null }>;
+    entries: Array<{
+      id: string;
+      type: string;
+      start: string;
+      end: string;
+      /** İznin tamamı (Kolay İK usedDays) */
+      days: number;
+      /** Bu aya düşen kısmı — önceki ayda başlayan / sonraki aya uzanan izinde `days`ten küçüktür */
+      days_in_month: number;
+      status: string;
+      comment: string | null;
+    }>;
   }>;
 };
 
@@ -84,6 +96,7 @@ export function matchEmployee(person: { name: string }, employees: Emp[]): Emp |
 
 const personName = (p: KPerson) => `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim();
 const r2 = (v: number) => Math.round(v * 100) / 100;
+
 const dm = (s: string) => `${s.slice(8, 10)}.${s.slice(5, 7)}`;
 
 export async function kolayikMonth(prisma: PrismaClient, year: number, month: number): Promise<KolayikMonth> {
@@ -192,13 +205,17 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
       const emp = pid !== "?" ? empFor(pid, name) : null;
       const row = lv.get(pid) ?? { employee_id: emp?.id ?? null, person_name: name, days_approved: 0, entries: [] };
       const days = Number(l.usedDays ?? 0);
-      if (l.status === "approved") row.days_approved = r2(row.days_approved + days);
+      const start = l.startDate.slice(0, 10);
+      const end = l.endDate.slice(0, 10);
+      const daysInMonth = leaveDaysWithin({ start, end, days }, from, to);
+      if (l.status === "approved") row.days_approved = r2(row.days_approved + daysInMonth);
       row.entries.push({
         id: l.id,
         type: l.type?.name ?? "—",
-        start: l.startDate.slice(0, 10),
-        end: l.endDate.slice(0, 10),
+        start,
+        end,
         days,
+        days_in_month: daysInMonth,
         status: l.status,
         comment: l.comment ?? null,
       });
@@ -250,6 +267,8 @@ export type SundayAuditView = {
   configured: boolean;
   ok: boolean;
   error: string | null;
+  /** Okuma tamamlandı ama bir bölümü eksik kaldı (ör. bakiye okunamadı) */
+  warnings: string[];
   fetched_at: string;
   year: number;
   month: number;
@@ -299,6 +318,7 @@ export async function kolayikSundayAudit(prisma: PrismaClient, year: number, mon
     configured: kolayikConfigured(),
     ok: false,
     error: null,
+    warnings: [],
     fetched_at: new Date().toISOString(),
     year,
     month,
@@ -313,12 +333,18 @@ export async function kolayikSundayAudit(prisma: PrismaClient, year: number, mon
 
   const from = shiftIso(monthStart, -21);
   const to = shiftIso(monthEnd, 14); // ileri tarihli onaylı / bekleyen izinler de görünsün
+  const warnings: string[] = [];
+  const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
   try {
     const [active, inactive, timelogs, leaveList, employees] = await Promise.all([
       listPersons("active"),
-      listPersons("inactive").catch(() => [] as KPerson[]),
+      listPersons("inactive").catch((e) => {
+        warnings.push(`Ayrılmış personel listesi okunamadı — ay içinde ayrılanların pazarları eksik olabilir (${why(e)})`);
+        return [] as KPerson[];
+      }),
       listOvertime(from, to < today ? to : today),
-      listLeaves(from, to),
+      // Pencere zaten ayın 3 hafta öncesinden başlar; daha geriden başlayan izin denetimi etkilemez.
+      listLeaves(from, to, { lookbackDays: 0 }),
       prisma.payrollEmployee.findMany({
         where: { deleted_at: null },
         select: { id: true, full_name: true, aliases: true, bank_account_name: true, status: true, end_date: true, store: { select: { name: true } } },
@@ -352,10 +378,17 @@ export async function kolayikSundayAudit(prisma: PrismaClient, year: number, mon
     const audit = buildSundayAudit({ year, month, today, personIds: Array.from(ids), overtime, leaves });
 
     const involved = audit.people.filter((p) => p.counts.worked > 0 || p.issues.length > 0);
+    let balanceFails = 0;
     const balances = await pooled(
-      involved.map((p) => () => leaveStatus(p.person_id).catch(() => [])),
+      involved.map((p) => () =>
+        leaveStatus(p.person_id).catch(() => {
+          balanceFails += 1;
+          return [];
+        })
+      ),
       5
     );
+    if (balanceFails) warnings.push(`${balanceFails} kişinin izin bakiyesi okunamadı — “Yenile” ile yeniden deneyin.`);
     const rows: SundayAuditView["rows"] = involved.map((p, i) => {
       const name = nameOf.get(p.person_id) ?? "—";
       const emp = matchEmployee({ name }, employees);
@@ -379,6 +412,7 @@ export async function kolayikSundayAudit(prisma: PrismaClient, year: number, mon
     return {
       ...base,
       ok: true,
+      warnings,
       sundays: audit.sundays,
       totals: audit.totals,
       rows,

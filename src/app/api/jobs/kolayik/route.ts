@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { KolayikError, kolayikRead, type KolayikCall } from "@/server/services/kolayik/client";
+import { KolayikError, kolayikRateInfo, kolayikRead, type KolayikCall } from "@/server/services/kolayik/client";
 
 /**
  * İMZALI, SALT OKUNUR Kolay İK denetim ucu.
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
   }
   const calls = Array.isArray(parsed.calls) ? parsed.calls.slice(0, MAX_CALLS) : [];
 
-  // Sıra korunur; aynı anda en çok 5 çağrı (Kolay İK'yı yormamak için).
+  // Sıra korunur. Eşzamanlılığı ve HTTP 429 beklemesini istemci (client.ts) yönetir.
   const results: Array<{ ok: true; data: unknown } | { ok: false; status: number | null; error: string }> = new Array(calls.length);
   let next = 0;
   const worker = async () => {
@@ -64,5 +64,6 @@ export async function POST(req: Request) {
     }
   };
   await Promise.all(Array.from({ length: Math.min(5, calls.length) }, worker));
-  return NextResponse.json({ results }, { headers: { "Cache-Control": "no-store" } });
+  // rate: Kolay İK'nın son yanıtındaki istek sınırı başlıkları (tanı için)
+  return NextResponse.json({ results, rate: kolayikRateInfo() }, { headers: { "Cache-Control": "no-store" } });
 }
