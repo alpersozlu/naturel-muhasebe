@@ -32,9 +32,22 @@ export class KolayikError extends Error {
   }
 }
 
+export type KolayikCall = { method?: "GET" | "POST"; query?: Record<string, string | number | undefined>; form?: Record<string, string> };
+
+/**
+ * Ham, SALT OKUNUR çağrı — yalnız liste / görüntüleme uçları (api/jobs/kolayik
+ * imzalı denetim ucu kullanır). Yazma ucu çağrılamaz: yol burada süzülür,
+ * anahtarın kapsamları da yalnız görüntülemedir.
+ */
+const READ_ONLY_PATH = /^\/v2\/(person|leave|timelog|transaction|unit)\/(list|view\/[\w-]+|leave-status\/[\w-]+|show-unit-tree)$/;
+export async function kolayikRead<T = unknown>(path: string, opts: KolayikCall = {}): Promise<T> {
+  if (!READ_ONLY_PATH.test(path)) throw new KolayikError(`İzin verilmeyen Kolay İK yolu: ${path}`);
+  return kfetch<T>(path, opts);
+}
+
 async function kfetch<T>(
   path: string,
-  opts: { method?: "GET" | "POST"; query?: Record<string, string | number | undefined>; form?: Record<string, string> } = {}
+  opts: KolayikCall = {}
 ): Promise<T> {
   const token = process.env.KOLAYIK_API_TOKEN;
   if (!token) throw new KolayikError("KOLAYIK_API_TOKEN tanımlı değil");
