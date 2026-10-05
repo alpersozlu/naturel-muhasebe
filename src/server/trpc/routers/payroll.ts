@@ -41,7 +41,7 @@ import {
   parseGarantiTalimat,
   talimatFileName,
 } from "@/server/services/payroll/talimat";
-import { batchChannelError, inBatchList, periodLabel } from "@/server/services/payroll/rules";
+import { batchChannelError, batchTitle, inBatchList, periodLabel } from "@/server/services/payroll/rules";
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
 import { carryForwardCore } from "@/server/services/payroll/carry";
 import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
@@ -845,7 +845,10 @@ export const payrollRouter = router({
       const wantsFile = input.channel === "garanti";
       const paidNow = input.mark_sent || !wantsFile;
       const file_name = wantsFile ? talimatFileName(input.pay_date, label) : null;
-      const title = input.title ?? `${periodLabel(period.year, period.month)} · ${label} · ${input.channel === "garanti" ? "Garanti" : input.channel === "cash" ? "Nakit" : "Ziraat"} · ${input.pay_date}`;
+      const storeNames = Array.from(new Set(input.items.map((it) => byId.get(it.line_id)!.store.name)));
+      const title =
+        input.title ??
+        batchTitle({ period: periodLabel(period.year, period.month), kind: label, channel: input.channel, stores: storeNames, pay_date: input.pay_date });
 
       const batch = await ctx.prisma.$transaction(async (tx) => {
         const b = await tx.payrollBatch.create({

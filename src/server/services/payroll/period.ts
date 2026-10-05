@@ -214,6 +214,8 @@ export type PeriodView = {
     title: string;
     total: number;
     count: number;
+    /** Listedeki kişilerin mağazaları (nakit mağaza mağaza kaydedilir; tek mağazalıksa adı gösterilir) */
+    stores: string[];
     file_name: string | null;
     created_at: string;
     sent_at: string | null;
@@ -226,7 +228,10 @@ export async function loadPeriodView(prisma: PrismaClient, periodId: string): Pr
     where: { id: periodId },
     include: {
       store_months: true,
-      batches: { orderBy: { created_at: "desc" } },
+      batches: {
+        orderBy: { created_at: "desc" },
+        include: { entries: { select: { line: { select: { store: { select: { name: true } } } } } } },
+      },
       lines: { include: lineInclude },
     },
   });
@@ -329,6 +334,7 @@ export async function loadPeriodView(prisma: PrismaClient, periodId: string): Pr
       title: b.title,
       total: n0(b.total),
       count: b.count,
+      stores: Array.from(new Set(b.entries.map((e) => e.line.store.name))),
       file_name: b.file_name,
       created_at: b.created_at.toISOString(),
       sent_at: b.sent_at ? b.sent_at.toISOString() : null,

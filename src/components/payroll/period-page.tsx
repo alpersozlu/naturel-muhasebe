@@ -803,11 +803,12 @@ function Batches({ data, onChanged }: { data: PeriodView; onChanged: () => void 
                     : "bg-amber-50 text-amber-800 ring-amber-200/70"
               )}
             >
-              {BATCH_STATUS_LABEL[b.status]}
+              {b.status === "sent" && b.channel !== "garanti" ? "Ödendi" : BATCH_STATUS_LABEL[b.status]}
             </span>
             <span className="font-medium">{BATCH_KIND_LABEL[b.kind]}</span>
             <span className="text-muted-foreground">
               {CHANNEL_SHORT[b.channel]} · {dmy(b.pay_date)} · {b.count} kişi
+              {b.stores.length === 1 ? ` · ${b.stores[0]}` : ""}
             </span>
             <span className="tabular-nums font-medium">{money(b.total)} ₺</span>
             <span className="flex-1 truncate text-xs text-muted-foreground">{b.file_name}</span>

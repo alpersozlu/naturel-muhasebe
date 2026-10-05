@@ -218,6 +218,24 @@ export function inBatchList(kind: string, channel: string, payMethod: string): b
   return payMethod === channel;
 }
 
+/**
+ * MAĞAZA MAĞAZA NAKİT KAYDI (sahibi, 05.10.2026: "mağaza mağaza kaydedebilirsem
+ * daha rahat olur, mağazayı ödediğimde tıklayayım"). Ödeme 2 nakit penceresinde
+ * her mağaza kendi düğmesiyle AYRI bir liste olarak kaydedilir; tek mağazalık
+ * nakit listesinin başlığına mağazanın adı girer ki listeler birbirinden ayrılsın.
+ */
+export function batchTitle(a: {
+  period: string;
+  kind: string;
+  channel: "garanti" | "ziraat" | "cash";
+  stores: string[];
+  pay_date: string;
+}): string {
+  const channel = a.channel === "garanti" ? "Garanti" : a.channel === "cash" ? "Nakit" : "Ziraat";
+  const store = a.channel === "cash" && a.stores.length === 1 ? ` · ${a.stores[0]}` : "";
+  return `${a.period} · ${a.kind} · ${channel}${store} · ${a.pay_date}`;
+}
+
 export const CHANNEL_LABEL = {
   garanti: "Garanti talimatı",
   ziraat: "Ziraat",
