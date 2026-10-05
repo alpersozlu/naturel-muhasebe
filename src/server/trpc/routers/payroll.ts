@@ -236,6 +236,18 @@ export const payrollRouter = router({
         });
       }
       const mm = String(period.month).padStart(2, "0");
+      // Belge kendi dönemini yazıyorsa (KPI raporunun PDF hâli) ayın TAMAMINI kapsamalı.
+      if (res.parsed.kind === "kpi_xlsx" && res.parsed.date_from && res.parsed.date_to) {
+        const first = `${period.year}-${mm}-01`;
+        const last = `${period.year}-${mm}-${String(new Date(Date.UTC(period.year, period.month, 0)).getUTCDate()).padStart(2, "0")}`;
+        if (res.parsed.date_from !== first || res.parsed.date_to !== last) {
+          const tr = (d: string) => d.split("-").reverse().join(".");
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Bu KPI raporu ${tr(res.parsed.date_from)} – ${tr(res.parsed.date_to)} tarihlerini kapsıyor; bu ay için ${tr(first)} – ${tr(last)} bekleniyordu.`,
+          });
+        }
+      }
       const path = `${store.id}/payroll/${period.year}-${mm}/${res.parsed.kind}-${res.hash.slice(0, 16)}.${res.ext}`;
       let file_path: string | null = path;
       try {

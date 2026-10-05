@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, CalendarCheck, Check, FileUp, X } from "lucide-react";
 import type { inferRouterOutputs } from "@trpc/server";
@@ -16,11 +16,13 @@ type Kind = StorePerf["docs"][number]["kind"];
 
 const KIND_LABEL: Record<Kind, string> = {
   bi_pdf: "Çalışan Performans Raporu (PDF)",
-  kpi_xlsx: "Personel KPI Raporu (xlsx)",
+  kpi_xlsx: "Personel KPI Raporu",
   itpos_kpi: "IT POS Performans (xlsx)",
   itpos_reps: "IT POS kişi tablosu (xlsx)",
 };
-const REQUIRED: Kind[] = ["bi_pdf", "kpi_xlsx", "itpos_kpi"];
+
+/** Mağaza kutusuna bırakılan dosyaları yüklemek için (extras-grid sürükle-bırak). */
+export type PerformanceDocsHandle = { upload: (files: File[]) => void };
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -41,23 +43,28 @@ const dayNums = (days: string[]) => days.map((d) => String(Number(d.slice(8, 10)
  * Bağımsız kontrol: aynı kişi ciroları, ay boyunca her akşam yüklenen günlük
  * bayi gün sonu dosyalarından da hesaplanır ("Günlük dosyalar" sütunu). Eksik
  * günün dosyası da aynı düğmeyle eklenir.
+ *
+ * OTOMATİK HESAP (sahibi, 05.10.2026: "dosyaları ilgili mağazanın kenarından
+ * sürükleyip yükleyeyim, otomatik hesaplasın"). Dosyalar mağaza kutusuna
+ * bırakılır ya da düğmeyle seçilir; okuma bitince çapraz kontrol temizse
+ * rakamlar kendiliğinden prim tablosuna işlenir. Belgeler tutmuyorsa ya da
+ * eksik belge varsa işlenmez, nedenini söyler.
  */
-export function PerformanceDocs({
-  periodId,
-  storeId,
-  closed,
-  perf,
-  onChanged,
-  onApplied,
-}: {
-  periodId: string;
-  storeId: string;
-  closed: boolean;
-  perf: StorePerf | undefined;
-  onChanged: () => void;
-  onApplied: () => void;
-}) {
+export const PerformanceDocs = forwardRef<
+  PerformanceDocsHandle,
+  {
+    periodId: string;
+    storeId: string;
+    closed: boolean;
+    perf: StorePerf | undefined;
+    /** Bu mağazanın satırlarında kaydedilmemiş değişiklik var — otomatik aktarım taslakları ezmesin */
+    hasUnsaved?: boolean;
+    onChanged: () => void;
+    onApplied: () => void;
+  }
+>(function PerformanceDocs({ periodId, storeId, closed, perf, hasUnsaved = false, onChanged, onApplied }, ref) {
   const confirm = useConfirm();
+  const utils = trpc.useUtils();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const upload = trpc.payroll.performance.upload.useMutation();
@@ -68,20 +75,71 @@ export function PerformanceDocs({
   const apply = trpc.payroll.performance.applyToLines.useMutation({
     onSuccess: (r) => {
       toast.success(
-        `Prim tablosuna aktarıldı — ${r.updated} satır güncellendi${r.unchanged ? `, ${r.unchanged} satır zaten aynıydı` : ""}${
+        `Belgeler tuttu, prim tablosuna işlendi — ${r.updated} satır güncellendi${r.unchanged ? `, ${r.unchanged} satır zaten aynıydı` : ""}${
           r.top_seller ? ` · top-seller ${r.top_seller}` : ""
-        }`
+        }`,
+        { duration: 9000 }
       );
       onApplied();
     },
     onError: (e) => toast.error(e.message),
   });
 
-  const onFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    setBusy(true);
+  /** Yükleme bitince: çapraz kontrol temizse rakamları kendiliğinden prim tablosuna işle. */
+  const autoApply = async () => {
+    let fresh: StorePerf | undefined;
     try {
-      for (const f of Array.from(files)) {
+      fresh = (await utils.payroll.performance.get.fetch({ period_id: periodId }, { staleTime: 0 })).find((x) => x.store_id === storeId);
+    } catch {
+      return; // güncel kontrol okunamadı — elle "Prim tablosuna aktar" durur
+    }
+    const c = fresh?.check;
+    if (!c) return;
+    const bad = c.flags.some((f) => f.level === "error") || c.rows.some((r) => r.flags.some((f) => f.level === "error"));
+    if (bad) {
+      toast.error("Belgeler birbirini tutmuyor — otomatik hesaplanmadı. Kırmızı satırlar aşağıdaki çapraz kontrolde.", { duration: 12000 });
+      return;
+    }
+    if (!c.ready) {
+      const need: string[] = [];
+      if (!c.docs.includes("kpi_xlsx")) need.push("Personel KPI Raporu (denim ayrımı için)");
+      if (!c.docs.includes("bi_pdf") && !c.daily?.complete) {
+        need.push(
+          c.daily && c.daily.days_missing.length
+            ? `Çalışan Performans Raporu (PDF) ya da eksik ${c.daily.days_missing.length} günün bayi gün sonu dosyası`
+            : "Çalışan Performans Raporu (PDF)"
+        );
+      }
+      toast.info(`Okundu. Otomatik hesap için eksik: ${need.join(" · ") || "belge"}`, { duration: 12000 });
+      return;
+    }
+    if (hasUnsaved) {
+      toast.warning("Belgeler tuttu, ama bu mağazada kaydedilmemiş değişiklik var. Önce kaydedin, sonra “Prim tablosuna aktar”a basın.", { duration: 12000 });
+      return;
+    }
+    apply.mutate({ period_id: periodId, store_id: storeId, force: false });
+  };
+
+  const onFiles = async (list: File[] | FileList | null) => {
+    const files = list ? Array.from(list) : [];
+    if (files.length === 0 || closed) return;
+    if (busy) {
+      toast.info("Önceki dosyalar okunuyor — bitince yeniden bırakın");
+      return;
+    }
+    setBusy(true);
+    let read = 0;
+    try {
+      for (const f of files) {
+        if (!/\.(xlsx|pdf)$/i.test(f.name)) {
+          toast.error(`${f.name}: yalnız Excel (.xlsx) ve PDF dosyaları okunur`, { duration: 9000 });
+          continue;
+        }
+        // Sunucuya tek istekte en çok ~4 MB gider; dosya metne çevrilince üçte bir büyür.
+        if (f.size > 3_000_000) {
+          toast.error(`${f.name}: dosya çok büyük (${(f.size / 1_000_000).toFixed(1)} MB) — en çok 3 MB. Daha kısa tarih aralığıyla dışa aktarın.`, { duration: 12000 });
+          continue;
+        }
         try {
           const r = await upload.mutateAsync({ period_id: periodId, store_id: storeId, file_name: f.name, file_base64: await fileToBase64(f) });
           if (r.kind === "daily_archive") {
@@ -102,21 +160,27 @@ export function PerformanceDocs({
           } else {
             toast.success(`${KIND_LABEL[r.kind]} okundu — ${f.name}`);
           }
+          read += 1;
         } catch (e) {
           toast.error(`${f.name}: ${e instanceof Error ? e.message : "okunamadı"}`, { duration: 9000 });
         }
       }
       onChanged();
+      if (read > 0) await autoApply();
     } finally {
       setBusy(false);
       if (input.current) input.current.value = "";
     }
   };
 
+  useImperativeHandle(ref, () => ({ upload: (files: File[]) => void onFiles(files) }));
+
   const docs = perf?.docs ?? [];
   const check = perf?.check ?? null;
   const daily = check?.daily ?? null;
-  const missing = REQUIRED.filter((k) => !docs.some((d) => d.kind === k));
+  // Şart olanlar: KPI raporu (denim ayrımı) ve — günlük bayi dosyaları tam değilse — BI raporu.
+  const has = (k: Kind) => docs.some((d) => d.kind === k);
+  const missing: Kind[] = [...(has("kpi_xlsx") ? [] : (["kpi_xlsx"] as Kind[])), ...(has("bi_pdf") || daily?.complete ? [] : (["bi_pdf"] as Kind[]))];
   const hasError = !!check && (check.flags.some((f) => f.level === "error") || check.rows.some((r) => r.flags.some((f) => f.level === "error")));
 
   return (
@@ -164,6 +228,7 @@ export function PerformanceDocs({
         ) : null}
         <div className="flex-1" />
         <input ref={input} type="file" multiple accept=".xlsx,.pdf" className="hidden" onChange={(e) => void onFiles(e.target.files)} />
+        {!closed ? <span className="hidden text-[11px] text-muted-foreground sm:inline">dosyaları bu kutuya sürükleyip bırakın ya da</span> : null}
         <Button size="sm" variant="outline" onClick={() => input.current?.click()} disabled={busy || closed}>
           <FileUp className="h-3.5 w-3.5 mr-1.5" />
           {busy ? "Okunuyor…" : "Belge yükle"}
@@ -294,11 +359,11 @@ export function PerformanceDocs({
         </details>
       ) : (
         <div className="mt-1 text-xs text-muted-foreground">
-          SAP&apos;den alınan üç dosyayı birlikte seçip yükleyin: Çalışan Performans Raporu (PDF), Personel KPI Raporu (Excel) ve IT POS Performans (Excel). Sistem okur,
-          karşılaştırır; fark yoksa prim tablosuna tek tuşla aktarır. Ay boyunca yüklenen günlük bayi gün sonu dosyaları da ayrıca toplanır ve bu belgelerle
-          karşılaştırılır; eksik günün bayi dosyasını da buradan ekleyebilirsiniz.
+          SAP&apos;den alınan ay sonu dosyalarını bu mağaza kutusuna sürükleyip bırakın (ya da “Belge yükle” ile seçin): Personel KPI Raporu (Excel ya da PDF), IT POS
+          Performans (Excel) ve varsa Çalışan Performans Raporu (PDF). Sistem okur, karşılaştırır; fark yoksa kendiliğinden prim tablosuna işler. Ay boyunca
+          yüklenen günlük bayi gün sonu dosyaları da ayrıca toplanır ve bu belgelerle karşılaştırılır; eksik günün bayi dosyasını da buraya bırakabilirsiniz.
         </div>
       )}
     </div>
   );
-}
+});

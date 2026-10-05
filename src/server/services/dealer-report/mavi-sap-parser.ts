@@ -86,8 +86,38 @@ export type ParsedDealerRep = {
   /** Estimated denim share of net_ciro (see looksLikeDenim); null when the export has no product columns. */
   denim: number | null;
   denim_units: number | null;
+  /**
+   * What SAP's IT POS per-salesperson table shows ABOVE net_ciro for this
+   * person (see "TWO SAP FIGURES" below); null when the export has no
+   * "Sıra No" column, so the first-scanned line cannot be told.
+   */
+  itpos_extra: number | null;
 };
 
+/**
+ * TWO SAP FIGURES FOR THE SAME PERSON (measured 05.10.2026).
+ *
+ * A receipt can carry lines of several salespeople (Lefkoşa, September 2026:
+ * 152 of 2.696 receipts; 24 of them paid partly with Kartuş). SAP's two
+ * month-end sources treat such a receipt's Kartuş differently:
+ *
+ *   BI "Çalışan Performans Raporu"   every salesperson bears their share, by
+ *                                    line Net Tutar  → this is `net_ciro`; the
+ *                                    persons add up to the store's Net Ciro.
+ *   IT POS per-salesperson table     the share is taken ONLY from the person
+ *                                    who owns the line with "Sıra No" 1 (the
+ *                                    first item scanned); the other people's
+ *                                    shares are taken from NOBODY, so they
+ *                                    show higher and the persons add up to
+ *                                    MORE than the store.
+ *
+ * Proof: Lefkoşa September 2026 — five people, 24 shared receipts: IT POS =
+ * net_ciro + itpos_extra to within 0,01 ₺ each (people with no shared Kartuş
+ * receipt match net_ciro exactly). Girne 19.09.2026, one receipt, Kartuş
+ * 120,00: Maral (Sıra No 1) −82,50 in both sources; Emre −37,50 in BI only —
+ * IT POS showed him 1.227.594,53, BI 1.227.557, and 1.227.557,03 was the
+ * figure that agreed with the store total (taken for payroll on 03.10.2026).
+ */
 export type ParsedDealerDay = {
   date: Date; // UTC midnight of the document day
   net_sales: number; // Σ line Net Tutar (= Σ Toplam Tutar), refunds netted
@@ -207,6 +237,8 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
   const qtyCols = headerKeys.map((k, i) => (k === "miktar" ? i : -1)).filter((i) => i >= 0);
   const cQty = qtyCols.length ? qtyCols[qtyCols.length - 1]! : -1; // line quantity is the later "Miktar"
   const repsAvailable = cMatrah >= 0 && cRepName >= 0;
+  // Line sequence within the receipt: "Sıra No" (September 2026 export), "SiraNo" before.
+  const cSeq = [col("sıra no"), col("sirano"), col("sıra no.")].find((c) => c >= 0) ?? -1;
   const cMaterial = col("malzeme");
   const cProduct = col("adı"); // the product name; "Satış Temsilcisi Adı" is a different key
   const denimAvailable = cMaterial >= 0 && cProduct >= 0;
@@ -218,7 +250,7 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
     isRefund: boolean;
     head: unknown[] | null;
     first: unknown[];
-    items: Array<{ code: string; name: string; matrah: number; net: number; qty: number; denim: boolean }>;
+    items: Array<{ code: string; name: string; matrah: number; net: number; qty: number; denim: boolean; seq: number | null }>;
   };
   const receipts = new Map<string, Receipt>();
   const storeCodes = new Set<string>();
@@ -249,6 +281,7 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
         net: toNum(row[cNet]),
         qty: cQty >= 0 ? toNum(row[cQty]) : 0,
         denim: denimAvailable && looksLikeDenim(toStr(row[cMaterial]), toStr(row[cProduct])),
+        seq: cSeq >= 0 && row[cSeq] !== null && row[cSeq] !== "" ? toNum(row[cSeq]) : null,
       });
     }
     if (toStr(row[cType]).toLocaleLowerCase("tr").includes("iade")) r.isRefund = true;
@@ -303,6 +336,11 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
     // Per salesperson: the receipt's Kartuş is shared by each line's Net Tutar.
     if (r.items.length > 0) {
       const reps = repsByDay.get(r.dayKey)!;
+      // IT POS takes a shared receipt's Kartuş only from the owner of the first
+      // scanned line (see "TWO SAP FIGURES"); everyone else's share is "extra".
+      const shared = Math.abs(loyalty) > 0.005 && new Set(r.items.map((it) => it.code)).size > 1;
+      const seqKnown = r.items.every((it) => it.seq != null);
+      const firstOwner = shared && seqKnown ? r.items.reduce((a, b) => (b.seq! < a.seq! ? b : a)).code : null;
       for (const it of r.items) {
         const share = Math.abs(r.net) > 0.005 ? it.net / r.net : 1 / r.items.length;
         let p = reps.get(it.code);
@@ -318,12 +356,17 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
             lines: 0,
             denim: denimAvailable ? 0 : null,
             denim_units: denimAvailable ? 0 : null,
+            itpos_extra: 0,
           };
           reps.set(it.code, p);
         }
         p.matrah += it.matrah;
         p.net += it.net;
         p.kartus += loyalty * share;
+        if (shared) {
+          if (!seqKnown) p.itpos_extra = null;
+          else if (it.code !== firstOwner && p.itpos_extra != null) p.itpos_extra += loyalty * share;
+        }
         p.units += it.qty;
         p.lines += 1;
         if (it.denim) {
@@ -393,6 +436,7 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
           units: round2(p.units),
           denim: p.denim == null ? null : round4(p.denim),
           denim_units: p.denim_units == null ? null : round2(p.denim_units),
+          itpos_extra: p.itpos_extra == null ? null : round4(p.itpos_extra),
         }))
         .sort((a, b) => b.net_ciro - a.net_ciro),
     }));
@@ -462,6 +506,7 @@ export function pickDays(report: ParsedDealerReport, isoDates: string[], asOf: D
       cur.lines += p.lines;
       cur.denim = cur.denim == null || p.denim == null ? null : cur.denim + p.denim;
       cur.denim_units = cur.denim_units == null || p.denim_units == null ? null : cur.denim_units + p.denim_units;
+      cur.itpos_extra = cur.itpos_extra == null || p.itpos_extra == null ? null : cur.itpos_extra + p.itpos_extra;
     }
   }
   return {
@@ -489,6 +534,7 @@ export function pickDays(report: ParsedDealerReport, isoDates: string[], asOf: D
         units: round2(p.units),
         denim: p.denim == null ? null : round4(p.denim),
         denim_units: p.denim_units == null ? null : round2(p.denim_units),
+        itpos_extra: p.itpos_extra == null ? null : round4(p.itpos_extra),
       }))
       .sort((x, y) => y.net_ciro - x.net_ciro),
   };

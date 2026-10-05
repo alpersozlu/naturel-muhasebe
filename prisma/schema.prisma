@@ -1441,6 +1441,11 @@ model DealerDailyRep {
   /// kontrolü içindir, prim bu rakamla ödenmez. null = dosyada ürün kolonu yok.
   denim_est       Decimal? @db.Decimal(16, 4)
   denim_units_est Decimal? @db.Decimal(12, 2)
+  /// IT POS kişi tablosunun bu kişide net_ciro'nun ÜSTÜNDE gösterdiği tutar:
+  /// birden çok temsilcili fişte Kartuş payı yalnız ilk okutulan ürünün
+  /// (Sıra No 1) temsilcisinden düşülür, diğerlerinin payı düşülmez
+  /// (mavi-sap-parser.ts "TWO SAP FIGURES"). null = dosyada Sıra No yok / eski kayıt.
+  itpos_extra     Decimal? @db.Decimal(16, 4)
   line_count      Int
   source          String // "upload" günlük yükleme · "archive" geçmiş dosya
   /// Dosya SAP'nin kendi dışa aktarımı mı (true) yoksa başka bir programda

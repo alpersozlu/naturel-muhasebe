@@ -29,9 +29,9 @@ function receipt(day: number, ref: string, lines: Line[], pay: { cash?: number; 
     ];
   });
 }
-function workbook(rows: unknown[][]): Buffer {
+function workbook(rows: unknown[][], header: string[] = HEADER): Buffer {
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([HEADER, ...rows]), "SAPUI5 dışa aktarımı");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...rows]), "SAPUI5 dışa aktarımı");
   return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
 
@@ -173,5 +173,88 @@ describe("bayi gün sonu — satış temsilcisi bazında Net Ciro", () => {
     const report = parseMaviSapBuffer(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer);
     expect(report.days[0]!.net_sales).toBe(1160);
     expect(report.days[0]!.reps).toEqual([]);
+  });
+
+  /**
+   * SAP'nin iki ay sonu kaynağı ortak fişi farklı işler (05.10.2026'da ölçüldü):
+   * BI Kartuş'u herkese payı oranında yazar (= net_ciro); IT POS kişi tablosu
+   * yalnız "Sıra No" 1 olan satırın temsilcisinden düşer. itpos_extra, IT POS'un
+   * o kişide net_ciro'nun üstünde göstereceği tutardır.
+   */
+  const HEADER_SEQ = [...HEADER, "Sıra No"];
+  const withSeq = (rows: unknown[][], seqs: number[]) => rows.map((r, i) => [...r, seqs[i]!]);
+  const EMRE: [string, string] = ["94010050", "Emre Atılgan"];
+
+  it("ortak fişte IT POS, Kartuş payını yalnız ilk okutulan ürünün temsilcisinden düşer (Girne 19.09.2026)", () => {
+    const buf = workbook(
+      [
+        // dosyadaki satır sırası okutma sırası değildir: önce Emre'nin satırı (Sıra No 2), sonra Maral'ınki (Sıra No 1)
+        ...withSeq(
+          receipt(19, "R1", [
+            { qty: 1, matrah: 431.03, net: 499.99, rep: EMRE },
+            { qty: 1, matrah: 948.27, net: 1099.99, rep: MARAL },
+          ], { card: 1479.98, kartus: 120 }),
+          [2, 1]
+        ),
+        // tek temsilcili Kartuşlu fiş ve Kartuşsuz ortak fiş: fazlalık doğurmaz
+        ...withSeq(receipt(19, "R2", [{ qty: 1, matrah: 1000, net: 1160, rep: EMRE }], { card: 1060, kartus: 100 }), [1]),
+        ...withSeq(
+          receipt(19, "R3", [
+            { qty: 1, matrah: 500, net: 580, rep: MARAL },
+            { qty: 1, matrah: 500, net: 580, rep: EMRE },
+          ], { cash: 1160 }),
+          [1, 2]
+        ),
+      ],
+      HEADER_SEQ
+    );
+    const day = parseMaviSapBuffer(buf).days[0]!;
+    const maral = day.reps.find((r) => r.code === "94010020")!;
+    const emre = day.reps.find((r) => r.code === "94010050")!;
+    // pay oranlı (BI): Maral 82,50 · Emre 37,50 (+ kendi fişinden 100)
+    expect(maral.kartus).toBeCloseTo(82.5, 2);
+    expect(emre.kartus).toBeCloseTo(137.5, 2);
+    // IT POS: ilk ürün Maral'ın → onun payı düşülür, Emre'nin 37,50'si düşülmez
+    expect(maral.itpos_extra).toBe(0);
+    expect(emre.itpos_extra).toBeCloseTo(37.5, 2);
+    expect(emre.net_ciro + emre.itpos_extra!).toBeCloseTo(431.03 + 1000 + 500 - 100, 2);
+  });
+
+  it("Sıra No sütunu yoksa ortak Kartuşlu fişte düşülmeyen pay bilinmez (null); ortak fiş yoksa 0'dır", () => {
+    const shared = workbook([
+      ...receipt(1, "R1", [
+        { qty: 1, matrah: 2000, net: 2320, rep: MARAL },
+        { qty: 1, matrah: 1000, net: 1160, rep: ENES },
+      ], { card: 3180, kartus: 300 }),
+    ]);
+    expect(parseMaviSapBuffer(shared).days[0]!.reps.map((r) => r.itpos_extra)).toEqual([null, null]);
+    const alone = workbook([...receipt(1, "R1", [{ qty: 1, matrah: 2000, net: 2320, rep: MARAL }], { card: 2020, kartus: 300 })]);
+    expect(parseMaviSapBuffer(alone).days[0]!.reps[0]!.itpos_extra).toBe(0);
+  });
+
+  it("birleşik günlerde düşülmeyen pay da toplanır", () => {
+    const buf = workbook(
+      [
+        ...withSeq(
+          receipt(1, "R1", [
+            { qty: 1, matrah: 1000, net: 1160, rep: MARAL },
+            { qty: 1, matrah: 1000, net: 1160, rep: ENES },
+          ], { card: 2120, kartus: 200 }),
+          [1, 2]
+        ),
+        ...withSeq(
+          receipt(2, "R2", [
+            { qty: 1, matrah: 1000, net: 1160, rep: MARAL },
+            { qty: 3, matrah: 3000, net: 3480, rep: ENES },
+          ], { card: 4240, kartus: 400 }),
+          [1, 2]
+        ),
+      ],
+      HEADER_SEQ
+    );
+    const report = parseMaviSapBuffer(buf);
+    const both = pickRange(report, new Date(Date.UTC(2026, 8, 1)), new Date(Date.UTC(2026, 8, 2)))!;
+    expect(both.reps.find((r) => r.code === "94010049")!.itpos_extra).toBe(400); // 100 + 300
+    expect(both.reps.find((r) => r.code === "94010020")!.itpos_extra).toBe(0);
   });
 });

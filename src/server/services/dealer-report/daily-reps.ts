@@ -102,6 +102,7 @@ export async function saveReportReps(
           units: p.units,
           denim_est: p.denim,
           denim_units_est: p.denim_units,
+          itpos_extra: p.itpos_extra,
           line_count: p.lines,
           source: source!,
           sap_original: opts.sapOriginal,
@@ -138,6 +139,13 @@ export type DailyRepMonth = {
     /** Estimated denim revenue (product-name rule) — null when any of the person's days lacks it. */
     denim_est: number | null;
     denim_units_est: number | null;
+    /**
+     * How much HIGHER SAP's IT POS per-salesperson table shows this person
+     * than net_ciro (shared receipts paid partly with Kartuş — see
+     * mavi-sap-parser.ts "TWO SAP FIGURES"). null when any of the person's
+     * days lacks the information.
+     */
+    itpos_extra: number | null;
   }>;
 };
 
@@ -173,7 +181,19 @@ export async function loadMonthReps(
     const dayInfo = new Map<string, { source: string; original: boolean | null }>();
     const persons = new Map<
       string,
-      { code: string; name: string; net: number; kartus: number; units: number; days: Set<string>; denim: number; denimUnits: number; denimKnown: boolean }
+      {
+        code: string;
+        name: string;
+        net: number;
+        kartus: number;
+        units: number;
+        days: Set<string>;
+        denim: number;
+        denimUnits: number;
+        denimKnown: boolean;
+        extra: number;
+        extraKnown: boolean;
+      }
     >();
     let store = 0;
     for (const r of mine) {
@@ -181,7 +201,21 @@ export async function loadMonthReps(
       dayInfo.set(k, { source: r.source, original: r.sap_original });
       const p =
         persons.get(r.rep_code) ??
-        { code: r.rep_code, name: r.rep_name, net: 0, kartus: 0, units: 0, days: new Set<string>(), denim: 0, denimUnits: 0, denimKnown: true };
+        {
+          code: r.rep_code,
+          name: r.rep_name,
+          net: 0,
+          kartus: 0,
+          units: 0,
+          days: new Set<string>(),
+          denim: 0,
+          denimUnits: 0,
+          denimKnown: true,
+          extra: 0,
+          extraKnown: true,
+        };
+      if (r.itpos_extra == null) p.extraKnown = false;
+      else p.extra += Number(r.itpos_extra);
       if (r.denim_est == null) p.denimKnown = false;
       else {
         p.denim += Number(r.denim_est);
@@ -218,6 +252,7 @@ export async function loadMonthReps(
           days: p.days.size,
           denim_est: p.denimKnown ? r2(p.denim) : null,
           denim_units_est: p.denimKnown ? r2(p.denimUnits) : null,
+          itpos_extra: p.extraKnown ? r2(p.extra) : null,
         }))
         .sort((a, b) => b.net_ciro - a.net_ciro),
     });

@@ -13,7 +13,9 @@ import type { DailyRepMonth } from "@/server/services/dealer-report/daily-reps";
  *              (kişi Net TL, UPT, tekli işlem…) + "ÇALIŞAN KATEGORİ KPI"
  *              (kategori ADET; Erkek 8 sütun, Kadın 10 sütun, Toplam)
  *   kpi_xlsx   "Personel KPI Raporu" — kişi × kategori TL ve ADET
- *              (denim = Erkek-Denim + Kadın-Denim)
+ *              (denim = Erkek-Denim + Kadın-Denim). Excel olarak da, o Excel'in
+ *              PDF'e çevrilmiş hâli olarak da gelir (Lefkoşa, Eylül 2026) —
+ *              ikisi de aynı türdür (parseKpiPdfPages).
  *   itpos_kpi  IT POS "Performans" KPI dışa aktarımı — mağaza Net Ciro, UPT…
  *   itpos_reps IT POS satış temsilcisi tablosu — kişi Net ciro (kuruşlu)
  *
@@ -27,6 +29,20 @@ import type { DailyRepMonth } from "@/server/services/dealer-report/daily-reps";
  * Σ Stok KDV Matrahı − Kartuş payı. Eylül 2026 Girne'de dört asistan ve
  * mağaza toplamı ay sonu belgeleriyle kuruşu kuruşuna aynı çıktı. Günler tam
  * ve fark 250 ₺'yi aşıyorsa aktarım durur; günler eksikse yalnız uyarır.
+ *
+ * İKİ SAP RAKAMI (05.10.2026, Lefkoşa Eylül). Bir fişte birden çok satış
+ * temsilcisi varsa ve fişin bir kısmı Kartuş'la ödendiyse:
+ *   • BI raporu Kartuş'u herkese payı oranında yazar (= günlük dosyalardan
+ *     hesaplanan net_ciro; kişiler toplamı mağaza cirosunu tutar),
+ *   • IT POS kişi tablosu yalnız İLK OKUTULAN ürünün temsilcisinden düşer;
+ *     diğerlerinin payı kimseden düşülmez → o kişiler yüksek görünür, kişiler
+ *     toplamı mağaza cirosunu AŞAR.
+ * Günlük dosyalar her kişi için bu fazlayı da verir (itpos_extra), böylece
+ * IT POS belgesi kuruşu kuruşuna doğrulanır. Bordroya mağaza cirosuyla TUTAN
+ * rakam (pay oranlı) alınır — emsal: Girne Eylül 2026, Emre A.: IT POS
+ * 1.227.594,53 · BI 1.227.557 → 1.227.557,03 alındı (sahibiyle, 03.10.2026).
+ * Ayrıntı ve kanıt: dealer-report/mavi-sap-parser.ts "TWO SAP FIGURES".
+ *
  * Denim ayrımı günlük dosyadan kesin ÇIKMAZ (ürün grubu kolonu yok) — prim
  * KPI dosyasındaki denim tutarıyla ödenir. Ama ürün adından bir TAHMİN çıkar
  * (mavi-sap-parser.ts looksLikeDenim); KPI tutarı bu tahminden çok saparsa
@@ -79,7 +95,17 @@ export type KpiPerson = {
   category_tl_total: number;
   units_total: number;
 };
-export type KpiParsed = { kind: "kpi_xlsx"; store_code: string | null; store_label: string | null; persons: KpiPerson[] };
+export type KpiParsed = {
+  kind: "kpi_xlsx";
+  store_code: string | null;
+  store_label: string | null;
+  persons: KpiPerson[];
+  /** Belgenin kendi üstünde yazan tarih süzgeci (yalnız PDF'te okunur) — YYYY-MM-DD */
+  date_from?: string | null;
+  date_to?: string | null;
+  /** Kaynak biçimi; eski kayıtlarda yoktur (= xlsx) */
+  format?: "xlsx" | "pdf";
+};
 export type ItPosKpiParsed = {
   kind: "itpos_kpi";
   net_ciro: number | null;
@@ -351,16 +377,166 @@ export async function pdfSelfTest(): Promise<{ ok: boolean; ms: number; error: s
   }
 }
 
-async function parseBiPdf(buf: Buffer): Promise<BiPdfParsed> {
+async function pdfPages(buf: Buffer): Promise<Array<{ text: string }>> {
   const PDFParse = await loadPdfParse();
   const parser = new PDFParse({ data: new Uint8Array(buf) });
-  let pages: Array<{ text: string }> = [];
   try {
     const res = await parser.getText();
-    pages = (res.pages ?? []).map((p: { text: string }) => ({ text: p.text }));
+    return (res.pages ?? []).map((p: { text: string }) => ({ text: p.text }));
   } finally {
     await parser.destroy?.();
   }
+}
+
+// ── Personel KPI Raporu, PDF hâli ───────────────────────────────────────────
+
+// Sayı sütunu başlığı "<Grup>-<Kategori>(TL|ADET)" biçimindedir ("Erkek-Ceket Mont(TL)",
+// "Kadın-T-Shirt(ADET)"): tek kelime + tire ile başlamak ZORUNDA — yoksa soldaki
+// tanınmayan bir metin sütunu başlığın içine yutulur ve hizalama sessizce kayar.
+const KPI_LABEL =
+  /Para birimi|Satış temsilcisi|Mağaza adı|Mağaza|Mal Grubu Hiyerarşisi|Sezon|Tarih \(UTC\)|[A-Za-zÇĞİÖŞÜçğıöşü]+-[^()]*?\((?:TL|ADET)\)|[A-Za-zÇĞİÖŞÜçğıöşü]+(?: [A-Za-zÇĞİÖŞÜçğıöşü]+)?\((?:TL|ADET)\)/g;
+const KPI_METRIC = /\((TL|ADET)\)$/;
+const KPI_CURRENCY = /^(TRY|TL|USD|EUR|GBP)$/;
+const KPI_NUMBER = /^-?\d[\d.,]*$/;
+
+/**
+ * "Personel KPI Raporu" Excel'i PDF'e çevrilince geniş tablo SÜTUN SÜTUN
+ * sayfalara bölünür (Lefkoşa, Eylül 2026: 21 sayfa). Her sayfanın ilk satırı o
+ * sayfaya düşen sütun başlıklarıdır, altındaki satırlar hep aynı sırayla aynı
+ * kişilerdir:
+ *
+ *   s.1  Mağaza · Mağaza adı · Satış temsilcisi (kod)
+ *   s.2  Satış temsilcisi (ad) · Erkek-Denim(TL) · Para birimi · Erkek-Denim(ADET)
+ *   s.4  Erkek-Gömlek(TL) · Para birimi · Erkek-Gömlek(ADET) · Erkek-Non-Denim(TL)
+ *   s.5  Para birimi · Erkek-Non-Denim(ADET) · …            ← üçlü sayfaya bölünebilir
+ *   s.21 Teknik bilgiler · Tarih 01.09.2026 …30.09.2026     ← belgenin dönemi
+ *
+ * Hücreler boşlukla ayrılır; sayı sütunlarında boş hücre olmaz, bu yüzden her
+ * satırdaki değer sayısı sayfadaki sütun sayısına eşit olmalıdır — değilse
+ * (ya da tanınmayan bir başlık varsa) tahmin yürütülmez, hata verilir.
+ * Sayılar belgenin yerel ayarına göre "1,724.13" ya da "1.724,13" yazılır;
+ * hangisi olduğu TL sütunlarından anlaşılır. Yapay zekâ yok — saf metin.
+ */
+export function parseKpiPdfPages(pages: string[]): KpiParsed {
+  const columns = new Map<string, string[]>(); // başlık → satır satır ham değer
+  let names: string[] = [];
+  const codes: Array<string | null> = [];
+  let store_code: string | null = null;
+  let store_label: string | null = null;
+  let date_from: string | null = null;
+  let date_to: string | null = null;
+
+  pages.forEach((text, idx) => {
+    const lines = text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length === 0) return;
+    const pageNo = idx + 1;
+    // Belgenin dönemi: "Tarih 01.09.2026 03:00:00...30.09.2026 03:00:00"
+    for (const l of lines) {
+      const d = l.match(/^Tarih\s+(\d{2})\.(\d{2})\.(\d{4}).*?(\d{2})\.(\d{2})\.(\d{4})/);
+      if (d) {
+        date_from = `${d[3]}-${d[2]}-${d[1]}`;
+        date_to = `${d[6]}-${d[5]}-${d[4]}`;
+      }
+    }
+    const header = lines[0]!;
+    const labels: string[] = header.match(KPI_LABEL) ?? [];
+    const body = lines.slice(1);
+    const metrics = labels.filter((l) => KPI_METRIC.test(l));
+
+    // Kod sayfası: Mağaza · Mağaza adı · Satış temsilcisi (sayı sütunu yok)
+    if (metrics.length === 0) {
+      if (labels[0] === "Mağaza" && labels.includes("Satış temsilcisi") && codes.length === 0) {
+        for (const l of body) {
+          const m = l.match(/^(\d{4})\s+(.*?)(?:\s+(\d{6,10}))?$/);
+          if (!m) continue;
+          store_code = store_code ?? m[1]!;
+          store_label = store_label ?? m[2]!.trim();
+          codes.push(m[3] ?? null);
+        }
+      }
+      return;
+    }
+    if (header.replace(KPI_LABEL, "").trim() !== "") {
+      throw new Error(`KPI PDF'inin ${pageNo}. sayfasında tanınmayan sütun başlığı var: "${header.replace(KPI_LABEL, "").trim()}" — raporu Excel olarak yükleyin.`);
+    }
+    const hasName = labels[0] === "Satış temsilcisi";
+    const valueLabels = hasName ? labels.slice(1) : labels;
+    const pageNames: string[] = [];
+    for (const l of body) {
+      const tokens = l.split(/\s+/);
+      let cut = 0;
+      if (hasName) {
+        while (cut < tokens.length && !KPI_NUMBER.test(tokens[cut]!) && !KPI_CURRENCY.test(tokens[cut]!)) cut += 1;
+        pageNames.push(tokens.slice(0, cut).join(" "));
+      }
+      const values = tokens.slice(cut);
+      if (values.length !== valueLabels.length) {
+        throw new Error(
+          `KPI PDF'inin ${pageNo}. sayfasında bir satırdaki değer sayısı (${values.length}) sütun sayısını (${valueLabels.length}) tutmuyor — raporu Excel olarak yükleyin.`
+        );
+      }
+      valueLabels.forEach((label, i) => {
+        if (!KPI_METRIC.test(label)) return; // "Para birimi"
+        const col = columns.get(label) ?? [];
+        col.push(values[i]!);
+        columns.set(label, col);
+      });
+    }
+    if (hasName) names = names.concat(pageNames);
+  });
+
+  const eTl = columns.get("Erkek-Denim(TL)");
+  const kTl = columns.get("Kadın-Denim(TL)");
+  if (!eTl || !kTl) throw new Error("PDF'te Erkek-Denim(TL) / Kadın-Denim(TL) sütunları bulunamadı — bu bir Personel KPI Raporu mu?");
+  const n = names.length;
+  if (n === 0) throw new Error("KPI PDF'inde satış temsilcisi adları okunamadı — raporu Excel olarak yükleyin.");
+  for (const [label, col] of Array.from(columns.entries())) {
+    if (col.length !== n) throw new Error(`KPI PDF'inde "${label}" sütununda ${col.length} satır var, ${n} kişi bekleniyordu — raporu Excel olarak yükleyin.`);
+  }
+
+  // Sayı biçimi: TL sütunları hep iki ondalıklıdır → ayırıcı oradan anlaşılır.
+  const tlSample = Array.from(columns.entries())
+    .filter(([label]) => /\(TL\)$/.test(label))
+    .flatMap(([, col]) => col);
+  const dotDecimal = tlSample.filter((t) => /\.\d{2}$/.test(t)).length;
+  const commaDecimal = tlSample.filter((t) => /,\d{2}$/.test(t)).length;
+  if (dotDecimal > 0 && commaDecimal > 0) throw new Error("KPI PDF'inde sayı biçimi karışık (hem 1,234.56 hem 1.234,56) — raporu Excel olarak yükleyin.");
+  const english = dotDecimal >= commaDecimal;
+  const num = (t: string | undefined): number => {
+    if (!t) return 0;
+    const v = Number(english ? t.replace(/,/g, "") : t.replace(/\./g, "").replace(",", "."));
+    if (!Number.isFinite(v)) throw new Error(`KPI PDF'inde sayı okunamadı: "${t}"`);
+    return v;
+  };
+
+  const tlLabels = Array.from(columns.keys()).filter((l) => /\(TL\)$/.test(l) && !/toplam/i.test(l));
+  const unitLabels = Array.from(columns.keys()).filter((l) => /\(ADET\)$/.test(l) && !/toplam/i.test(l));
+  const eU = columns.get("Erkek-Denim(ADET)");
+  const kU = columns.get("Kadın-Denim(ADET)");
+  const useCodes = codes.length === n;
+  const persons: KpiPerson[] = [];
+  for (let i = 0; i < n; i++) {
+    const name = names[i]!.trim();
+    if (!name) continue;
+    persons.push({
+      code: useCodes ? codes[i]! : null,
+      name,
+      denim_tl_erkek: r2(num(eTl[i])),
+      denim_tl_kadin: r2(num(kTl[i])),
+      denim_units_erkek: num(eU?.[i]),
+      denim_units_kadin: num(kU?.[i]),
+      category_tl_total: r2(tlLabels.reduce((s, l) => s + num(columns.get(l)![i]), 0)),
+      units_total: unitLabels.reduce((s, l) => s + num(columns.get(l)![i]), 0),
+    });
+  }
+  if (persons.length === 0) throw new Error("KPI PDF'inde kişi satırı bulunamadı.");
+  return { kind: "kpi_xlsx", store_code, store_label, persons, date_from, date_to, format: "pdf" };
+}
+
+function parseBiPdf(pages: Array<{ text: string }>): BiPdfParsed {
   const persons = new Map<string, BiPerson>();
   const total: BiPdfParsed["total"] = { ...EMPTY_TOTAL };
   let category_layout_ok = true;
@@ -419,7 +595,9 @@ async function parseBiPdf(buf: Buffer): Promise<BiPdfParsed> {
       else applyCategory(target, cells);
     }
   }
-  if (persons.size === 0) throw new Error("PDF'te çalışan satırı bulunamadı — bu bir BI \"Çalışan Performans Raporu\" mu?");
+  if (persons.size === 0) {
+    throw new Error("PDF tanınmadı. Beklenen: BI \"Çalışan Performans Raporu\" ya da PDF'e çevrilmiş \"Personel KPI Raporu\" (Erkek-Denim(TL) sütunlu).");
+  }
   const codes = Array.from(persons.keys()).map((c) => c.slice(0, 4));
   const store_code = codes.sort((a, b) => codes.filter((x) => x === b).length - codes.filter((x) => x === a).length)[0] ?? null;
   return { kind: "bi_pdf", store_code, persons: Array.from(persons.values()), total, category_layout_ok };
@@ -432,7 +610,10 @@ export async function parsePerformanceFile(
   const isPdf = buf.subarray(0, 5).toString("latin1") === "%PDF-";
   const hash = sha256(buf);
   if (isPdf) {
-    return { parsed: await parseBiPdf(buf), meta: null, genuine: null, hash, mime: "application/pdf", ext: "pdf" };
+    const pages = await pdfPages(buf);
+    // Personel KPI Raporu'nun PDF hâli "Erkek-Denim(TL)" başlığını taşır; BI raporu taşımaz.
+    const parsed = pages.some((p) => p.text.includes("Erkek-Denim(TL)")) ? parseKpiPdfPages(pages.map((p) => p.text)) : parseBiPdf(pages);
+    return { parsed, meta: null, genuine: null, hash, mime: "application/pdf", ext: "pdf" };
   }
   const isZip = buf.subarray(0, 2).toString("latin1") === "PK";
   if (!isZip) throw new Error(`"${fileName}" Excel (.xlsx) veya PDF değil.`);
@@ -473,6 +654,13 @@ export type PerfPersonRow = {
   net_itpos: number | null;
   /** ay boyunca yüklenen günlük bayi dosyalarından yeniden hesaplanan Net Ciro */
   net_daily: number | null;
+  /**
+   * IT POS kişi tablosunun bu kişide net_daily'nin ÜSTÜNDE göstermesi beklenen
+   * tutar (ortak fişlerde düşülmeyen Kartuş payı). null = bilinmiyor.
+   */
+  itpos_extra: number | null;
+  /** satış temsilcisi kodu girilmemiş satışların toplandığı satır (kişi değil) */
+  uncoded: boolean;
   /** aktarımda kullanılacak toplam: IT POS (kuruşlu) → günlük dosyalar (tam ve BI ile aynıysa) → BI */
   net_used: number | null;
   net_used_source: "itpos" | "daily" | "bi" | null;
@@ -568,6 +756,8 @@ const DAILY_SAME_TL = 1;
  */
 const DENIM_EST_TOL_SHARE = 0.08;
 const DENIM_EST_TOL_TL = 10_000;
+/** Satış temsilcisi kodu girilmemiş satışların satır adı. */
+export const UNCODED_LABEL = "Temsilci kodu girilmemiş satış";
 
 export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], daily: DailyRepMonth | null = null): PerfCheck {
   const bi = docs.find((d): d is BiPdfParsed => d.kind === "bi_pdf");
@@ -587,6 +777,9 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
     itpos?: ItPosRepsParsed["persons"][number];
     daily?: number;
     dailyDenim?: number | null;
+    /** IT POS'un bu kişide düşmediği Kartuş payı; null = günlerden biri bilinmiyor */
+    dailyExtra?: number | null;
+    uncoded?: boolean;
   };
   const slots: Slot[] = [];
   const byCode = new Map<string, Slot>();
@@ -606,13 +799,29 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
     if (!byName.has(k)) byName.set(k, s);
     return s;
   };
+  // Satış temsilcisi kodu girilmemiş satışlar: günlük dosyada kod "—" gelir, KPI
+  // raporunda aynı ad kodsuz ikinci bir satır olarak görünür (Lefkoşa Eylül 2026:
+  // "Sonuc Baloglu" kodsuz 1.724,13). Bir kişinin cirosu değildir; kendi satırında durur.
+  let uncoded: Slot | null = null;
+  const uncodedSlot = () => {
+    if (!uncoded) {
+      uncoded = { name: UNCODED_LABEL, code: null, uncoded: true };
+      slots.push(uncoded);
+    }
+    return uncoded;
+  };
+  const kpiCodedNames = new Set((kpi?.persons ?? []).filter((p) => p.code).map((p) => normalizeName(p.name)));
   for (const p of bi?.persons ?? []) slot(p.name, p.code).bi = p;
-  for (const p of kpi?.persons ?? []) slot(p.name, p.code).kpi = p;
+  for (const p of kpi?.persons ?? []) {
+    const s = !p.code && kpiCodedNames.has(normalizeName(p.name)) ? uncodedSlot() : slot(p.name, p.code);
+    s.kpi = p;
+  }
   for (const p of itr?.persons ?? []) slot(p.name).itpos = p;
   for (const p of hasDaily ? daily!.persons : []) {
-    const s = slot(p.name, p.code);
+    const s = /^\d{6,10}$/.test(p.code) ? slot(p.name, p.code) : uncodedSlot();
     s.daily = r2((s.daily ?? 0) + p.net_ciro);
     s.dailyDenim = s.dailyDenim === null || p.denim_est == null ? null : r2((s.dailyDenim ?? 0) + p.denim_est);
+    s.dailyExtra = s.dailyExtra === null || p.itpos_extra == null ? null : r2((s.dailyExtra ?? 0) + p.itpos_extra);
   }
 
   const rows: PerfPersonRow[] = [];
@@ -625,10 +834,19 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
     const ref = net_itpos ?? net_bi; // ay sonu belgesindeki rakam
     // 1 ₺'ye kadar fark yuvarlamadır: BI tam liraya yuvarlar, Kartuş payı kuruşun altına iner.
     const refTol = DAILY_SAME_TL;
+    // IT POS'un bu kişide düşmediği Kartuş payı (ortak fişler). Günlük dosya yoksa bilinmez.
+    const itpos_extra = hasDaily ? (s.daily == null ? 0 : (s.dailyExtra ?? (s.dailyExtra === null ? null : 0))) : null;
+    // Günlük dosyalardan beklenen IT POS rakamı = pay oranlı ciro + düşülmeyen pay.
+    const itposExpected = net_daily != null && itpos_extra != null ? r2(net_daily + itpos_extra) : null;
+    const itposConfirmed = net_itpos != null && dailyComplete && itposExpected != null && Math.abs(net_itpos - itposExpected) <= refTol;
     let net_used: number | null;
     let net_used_source: PerfPersonRow["net_used_source"];
-    if (net_itpos != null) [net_used, net_used_source] = [net_itpos, "itpos"];
-    else if (net_bi != null) {
+    if (net_itpos != null) {
+      // IT POS belgesi günlük dosyalarla doğrulandıysa ve ortak fiş fazlası içeriyorsa,
+      // mağaza cirosuyla tutan pay oranlı rakam alınır (emsal: Emre A., 03.10.2026).
+      if (itposConfirmed && (itpos_extra ?? 0) > 0.005) [net_used, net_used_source] = [net_daily, "daily"];
+      else [net_used, net_used_source] = [net_itpos, "itpos"];
+    } else if (net_bi != null) {
       // Günlük dosyalar tam ve BI ile aynı liradaysa kuruşlu olan günlük rakam kullanılır.
       if (dailyComplete && net_daily != null && Math.abs(net_daily - net_bi) <= 1) [net_used, net_used_source] = [net_daily, "daily"];
       else [net_used, net_used_source] = [net_bi, "bi"];
@@ -637,21 +855,32 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
 
     const denim_tl = s.kpi ? r2(s.kpi.denim_tl_erkek + s.kpi.denim_tl_kadin) : null;
     const rf: Flag[] = [];
-    if (net_bi != null && net_itpos != null && Math.abs(net_bi - net_itpos) > 1) {
+    // IT POS ↔ BI: IT POS, ortak fişlerdeki Kartuş payını düşmediği kadar yüksek OLMALIDIR.
+    const itposOnBiBasis = net_itpos != null ? r2(net_itpos - (itpos_extra ?? 0)) : null;
+    if (net_bi != null && itposOnBiBasis != null && Math.abs(net_bi - itposOnBiBasis) > 1) {
+      const gap = r2(net_itpos! - net_bi);
       rf.push({
-        level: Math.abs(net_bi - net_itpos) > 250 ? "error" : "warn",
-        text: `Kişi cirosu iki kaynakta farklı: IT POS ${TRY.format(net_itpos)} · BI ${TRY.format(net_bi)} (fark ${TRY.format(net_itpos - net_bi)})`,
+        level: Math.abs(net_bi - itposOnBiBasis) > 250 ? "error" : "warn",
+        text:
+          `Kişi cirosu iki kaynakta farklı: IT POS ${TRY.format(net_itpos!)} · BI ${TRY.format(net_bi)} (fark ${TRY.format(gap)})` +
+          (itpos_extra == null && gap > 0 ? " — IT POS, ortak fişlerde Kartuş payını yalnız ilk okutulan ürünün temsilcisinden düşer; günlük bayi dosyaları olmadan bu pay ayrılamaz" : ""),
       });
     }
     // Bağımsız kontrol: gün gün yüklenen bayi dosyalarının toplamı ↔ ay sonu belgesi.
-    if (net_daily != null && ref != null && Math.abs(ref - net_daily) > refTol) {
-      const diff = r2(ref - net_daily);
+    // IT POS belgesi için beklenen rakam, düşülmeyen Kartuş payını da içerir.
+    const expected = net_itpos != null ? (itposExpected ?? net_daily) : net_daily;
+    if (expected != null && ref != null && Math.abs(ref - expected) > refTol) {
+      const diff = r2(ref - expected);
+      const basis =
+        net_itpos != null && (itpos_extra ?? 0) > 0.005
+          ? `Günlük dosyalar ${TRY.format(net_daily!)} + IT POS'un düşmediği Kartuş payı ${TRY.format(itpos_extra!)} = ${TRY.format(expected)}`
+          : `Günlük dosyalar ${TRY.format(expected)}`;
       if (dailyComplete) {
         rf.push({
           level: Math.abs(diff) > DAILY_ERROR_TL ? "error" : "warn",
-          text: `Günlük dosyalar ${TRY.format(net_daily)} · ay sonu belgesi ${TRY.format(ref)} (belge ${diff > 0 ? "+" : "−"}${TRY.format(Math.abs(diff))})`,
+          text: `${basis} · ay sonu belgesi ${TRY.format(ref)} (belge ${diff > 0 ? "+" : "−"}${TRY.format(Math.abs(diff))})`,
         });
-      } else if (net_daily > ref + refTol) {
+      } else if (net_daily != null && net_daily > ref + refTol) {
         rf.push({
           level: "warn",
           text: `Günlük dosyalar eksik olduğu halde (${TRY.format(net_daily)}) ay sonu belgesinden (${TRY.format(ref)}) yüksek`,
@@ -677,7 +906,11 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
     if (duKpi != null && duBi != null && duKpi !== duBi) {
       rf.push({ level: "error", text: `Denim adedi tutmuyor: KPI dosyası ${duKpi}, BI raporu ${duBi}` });
     }
-    if (s.kpi && net_used != null && s.kpi.category_tl_total > net_used + 1) {
+    // KPI raporunun TL sütunları IT POS tabanındadır: ortak fişte bu kişiden düşülmeyen Kartuş
+    // payını içerir (Lefkoşa Eylül 2026, kasiyer: KPI toplamı = IT POS rakamı = 15.930,56;
+    // pay oranlı ciro 15.814,29). Üst sınır bu yüzden IT POS tabanıyla karşılaştırılır.
+    const kpiCeiling = net_used == null ? null : (net_itpos ?? r2(net_used + (itpos_extra ?? 0)));
+    if (s.kpi && kpiCeiling != null && s.kpi.category_tl_total > kpiCeiling + 1) {
       rf.push({ level: "error", text: `KPI kategori toplamı (${TRY.format(s.kpi.category_tl_total)}) kişinin net cirosunu aşıyor` });
     } else if (s.kpi && net_used != null && net_used > 0 && (net_used - s.kpi.category_tl_total) / net_used > 0.1) {
       rf.push({
@@ -685,8 +918,16 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
         text: `KPI kategori toplamı net cironun %${(((net_used - s.kpi.category_tl_total) / net_used) * 100).toFixed(1)} altında (çocuk/sweatshirt için beklenenden fazla)`,
       });
     }
-    if (denim_tl != null && net_used != null && denim_tl > net_used + 1) rf.push({ level: "error", text: "Denim tutarı toplam cirodan büyük" });
-    if (!line && (net_used ?? net_daily ?? 0) > 1000) rf.push({ level: "warn", text: "Bordroda eşleşen personel yok — takma ad ekleyin" });
+    if (denim_tl != null && kpiCeiling != null && denim_tl > kpiCeiling + 1) rf.push({ level: "error", text: "Denim tutarı toplam cirodan büyük" });
+    if (s.uncoded) {
+      rf.push({ level: "info", text: "Satış temsilcisi kodu girilmemiş satış — mağaza cirosunda var, kimsenin kişisel cirosuna yazılmaz" });
+    } else if (!line && (net_used ?? net_daily ?? 0) > 1000) rf.push({ level: "warn", text: "Bordroda eşleşen personel yok — takma ad ekleyin" });
+    if (net_used_source === "daily" && net_itpos != null && (itpos_extra ?? 0) > 0.005) {
+      rf.push({
+        level: "info",
+        text: `IT POS tablosu ${TRY.format(net_itpos)} gösterir: ortak fişlerde ${TRY.format(itpos_extra!)} ₺ Kartuş payı bu kişiden düşülmemiş. Mağaza cirosuyla tutan ${TRY.format(net_used!)} alındı`,
+      });
+    }
     const line_total = line && line.own_revenue_nd != null ? r2(line.own_revenue_nd + (line.own_revenue_denim ?? 0)) : null;
     if (line && line.commission_profile === "mavi_asistan" && net_used != null) {
       if (line_total == null) rf.push({ level: "info", text: "Bordroya henüz işlenmedi" });
@@ -702,6 +943,8 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
       net_bi,
       net_itpos,
       net_daily,
+      itpos_extra,
+      uncoded: !!s.uncoded,
       net_used,
       net_used_source,
       line_total,
