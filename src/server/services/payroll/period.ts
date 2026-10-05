@@ -35,6 +35,7 @@ export function toEntryLike(e: LineWithRels["entries"][number]): EntryLike {
     reference: e.reference,
     voided_at: e.voided_at ? e.voided_at.toISOString() : null,
     batch: e.batch ? { id: e.batch.id, status: e.batch.status, title: e.batch.title } : null,
+    carry_id: e.carry_id,
   };
 }
 

@@ -1328,6 +1328,10 @@ model PayrollEntry {
   loan_id         String?
   loan            PayrollLoan?     @relation(fields: [loan_id], references: [id])
   cash_advance_id String?          @unique // DocuFlow kasa avansı (CashAdvance) bağlantısı
+  /// "Sonraki aya devret" çifti: bu ayı kapatan kayıt (addition / carry_forward)
+  /// ile sonraki aydaki kesinti (deduction / carry_over) aynı kimliği taşır;
+  /// biri iptal edilince diğeri de iptal edilir.
+  carry_id        String?
   created_by      String?
   created_by_name String?
   created_at      DateTime         @default(now())
@@ -1339,6 +1343,7 @@ model PayrollEntry {
   @@index([period_id])
   @@index([employee_id])
   @@index([batch_id])
+  @@index([carry_id])
 }
 
 /// Banka talimatı veya nakit listesi — tek seferde üretilen ödeme grubu.

@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { computeFromLine, lineInclude, num } from "@/server/services/payroll/period";
-import { PAY_METHOD_LABEL, periodLabel } from "@/server/services/payroll/rules";
+import { CARRY_FORWARD_CATEGORY, PAY_METHOD_LABEL, periodLabel } from "@/server/services/payroll/rules";
+import { nextPeriodKey } from "@/server/services/payroll/period";
 import { PrintButton } from "@/components/payroll/print-button";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +36,9 @@ export default async function PayslipPage({ params }: { params: { lineId: string
   const entries = c.entries.filter((e) => e.counted);
   const payments = entries.filter((e) => e.kind === "advance" || e.kind === "payment");
   const deductions = entries.filter((e) => e.kind === "deduction");
-  const additions = entries.filter((e) => e.kind === "addition");
+  // Sonraki aya devredilen tutar hak ediş değildir — primlerde değil özette gösterilir.
+  const additions = entries.filter((e) => e.kind === "addition" && e.category !== CARRY_FORWARD_CATEGORY);
+  const nk = nextPeriodKey(l.period.year, l.period.month);
   const premiumsTotal = c.perfume_amount + c.garment_amount + c.top_seller_amount + c.extra_premium;
   const closedMonth = l.period.status === "closed";
 
@@ -129,6 +132,12 @@ export default async function PayslipPage({ params }: { params: { lineId: string
         <Section title="5. ÖZET">
           <Row label="Brüt Hak Ediş (Maaş + Mesai + Komisyon + Primler − Kesintiler)" v={money(c.gross)} />
           <Row label="Toplam Ödenen (avanslar dahil)" v={money(c.paid_total)} />
+          {c.carried_forward_total > 0 ? (
+            <Row
+              label={`Sonraki aya devredilen (${periodLabel(nk.year, nk.month)} maaşından kesilecek)`}
+              v={money(c.carried_forward_total)}
+            />
+          ) : null}
           <Row label={`NET KALAN${closedMonth ? " (ay kapandı)" : ""}`} v={money(c.net_remaining)} bold big />
         </Section>
 

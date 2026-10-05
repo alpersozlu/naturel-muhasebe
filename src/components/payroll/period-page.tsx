@@ -380,6 +380,7 @@ export function PayrollPeriodPage() {
           line={openLine}
           store={openStore}
           periodStatus={data.period.status}
+          nextPeriodLabel={periodLabel(shift(data.period, 1).year, shift(data.period, 1).month)}
           onClose={() => setOpenLineId(null)}
           onChanged={invalidate}
         />

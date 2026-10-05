@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Minus, Plus, Save } from "lucide-react";
+import { CornerDownRight, Minus, Plus, Save } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,16 @@ import { Input } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/money-input";
 import type { ComputedLine, PeriodView, StoreBlock } from "@/server/services/payroll/period";
 import { computeLine, type LineInput } from "@/server/services/payroll/compute";
-import { ADDITION_CATEGORIES, DEDUCTION_CATEGORIES, isOvertimeOnlyPosition } from "@/server/services/payroll/rules";
-import { money, pct } from "./format";
+import {
+  ADDITION_CATEGORIES,
+  CARRY_FORWARD_CATEGORY,
+  CARRY_FORWARD_LABEL,
+  DEDUCTION_CATEGORIES,
+  isOvertimeOnlyPosition,
+  periodLabel,
+} from "@/server/services/payroll/rules";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { money, nextMonthOf, pct } from "./format";
 import { EntryDialog, type EntryKind } from "./entry-dialog";
 import { KolayikPanel } from "./kolayik-panel";
 import { PerformanceDocs } from "./performance-docs";
@@ -86,7 +94,7 @@ function toInput(l: ComputedLine, d: Draft): LineInput {
   };
 }
 
-const CAT_LABEL: Record<string, string> = { ...DEDUCTION_CATEGORIES, ...ADDITION_CATEGORIES };
+const CAT_LABEL: Record<string, string> = { ...DEDUCTION_CATEGORIES, ...ADDITION_CATEGORIES, [CARRY_FORWARD_CATEGORY]: CARRY_FORWARD_LABEL };
 
 export function ExtrasGrid({
   data,
@@ -103,6 +111,29 @@ export function ExtrasGrid({
   const [entry, setEntry] = useState<{ line: ComputedLine; kind: EntryKind } | null>(null);
   const [saving, setSaving] = useState(false);
   const update = trpc.payroll.lines.update.useMutation();
+  const confirm = useConfirm();
+  // Kesinti o ayın ekstrasını aşınca: eksi bakiye sonraki ayın maaşına taşınır.
+  const nextMonth = nextMonthOf(data.period.year, data.period.month);
+  const nextLabel = periodLabel(nextMonth.year, nextMonth.month);
+  const carry = trpc.payroll.entries.carryForward.useMutation({
+    onSuccess: (r) => {
+      toast.success(`${money(r.amount)} ₺ ${r.to_label} maaşına devredildi`);
+      onChanged();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const askCarry = async (l: ComputedLine) => {
+    const amount = -l.calc.net_remaining;
+    if (
+      await confirm({
+        title: `${money(amount)} ₺ ${nextLabel} maaşına devredilsin mi?`,
+        description: `${l.full_name}: bu ay kesilemeyen tutar ${nextLabel} maaşından düşülür ve bu ayın satırı kapanır. İki kayıt birbirine bağlıdır; biri iptal edilirse diğeri de iptal olur.`,
+        confirmLabel: "Devret",
+      })
+    ) {
+      carry.mutate({ id: l.id });
+    }
+  };
   // Kolay İK: ayın onaylı mesaileri (öneri) ve izinleri (bilgi). Anahtar yoksa panel görünmez.
   // Ay sonu performans belgeleri (Mavi) — yükleme + çapraz kontrol + aktarım
   const perf = trpc.payroll.performance.get.useQuery({ period_id: data.period.id });
@@ -197,6 +228,9 @@ export function ExtrasGrid({
           onSave={(l) => saveLines([l])}
           onEntry={(line, kind) => setEntry({ line, kind })}
           onOpenLine={onOpenLine}
+          onCarry={askCarry}
+          carrying={carry.isPending}
+          nextLabel={nextLabel}
         />
       ))}
 
@@ -229,6 +263,9 @@ function StoreExtras({
   onSave,
   onEntry,
   onOpenLine,
+  onCarry,
+  carrying,
+  nextLabel,
 }: {
   store: StoreBlock;
   overtimeOf: (lineId: string) => KolayikMonth["overtime"][number] | undefined;
@@ -244,6 +281,9 @@ function StoreExtras({
   onSave: (l: ComputedLine) => void;
   onEntry: (l: ComputedLine, kind: EntryKind) => void;
   onOpenLine: (id: string) => void;
+  onCarry: (l: ComputedLine) => void;
+  carrying: boolean;
+  nextLabel: string;
 }) {
   const lines = store.lines.filter((l) => l.employee_status !== "inactive");
   if (lines.length === 0) return null;
@@ -422,11 +462,23 @@ function StoreExtras({
                           title={e.note ?? ""}
                           className={cn(
                             "rounded px-1.5 py-0.5 text-[11px] ring-1",
-                            e.kind === "deduction" ? "bg-rose-50 text-rose-800 ring-rose-200/70" : "bg-sky-50 text-sky-800 ring-sky-200/70"
+                            e.category === CARRY_FORWARD_CATEGORY
+                              ? "bg-violet-50 text-violet-800 ring-violet-200/70"
+                              : e.kind === "deduction"
+                                ? "bg-rose-50 text-rose-800 ring-rose-200/70"
+                                : "bg-sky-50 text-sky-800 ring-sky-200/70"
                           )}
                         >
-                          {e.kind === "deduction" ? "−" : "+"}
-                          {money(e.amount)} {CAT_LABEL[e.category ?? ""] ?? ""}
+                          {e.category === CARRY_FORWARD_CATEGORY ? (
+                            <>
+                              {money(e.amount)} → {nextLabel} maaşına devredildi
+                            </>
+                          ) : (
+                            <>
+                              {e.kind === "deduction" ? "−" : "+"}
+                              {money(e.amount)} {CAT_LABEL[e.category ?? ""] ?? ""}
+                            </>
+                          )}
                         </button>
                       ))}
                     </div>
@@ -448,8 +500,28 @@ function StoreExtras({
                     <div className="text-[11px] text-muted-foreground">
                       ekstra {money(c.extras_total)}
                       {c.deductions_total ? ` · kesinti −${money(c.deductions_total)}` : ""}
+                      {c.carried_forward_total ? ` · devredilen ${money(c.carried_forward_total)}` : ""}
                     </div>
-                    {c.net_remaining < -0.5 ? <div className="text-[10px] text-rose-700">kesinti ekstrayı aşıyor: {money(-c.net_remaining)}</div> : null}
+                    {c.net_remaining < -0.5 ? (
+                      <>
+                        <div className="text-[10px] text-rose-700">
+                          {c.deductions_total > 0.005 ? "bu ay kesilemeyen" : "fazla ödenen"}: {money(-c.net_remaining)}
+                        </div>
+                        {!closed ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-1 h-7 px-2 text-xs"
+                            onClick={() => onCarry(l)}
+                            disabled={carrying || dirty}
+                            title={dirty ? "Önce satırı kaydedin" : `Eksi tutarı ${nextLabel} maaşından düş`}
+                          >
+                            <CornerDownRight className="h-3 w-3 mr-1" />
+                            Sonraki aya devret
+                          </Button>
+                        ) : null}
+                      </>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     {dirty ? (

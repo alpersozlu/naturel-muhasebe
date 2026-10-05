@@ -27,7 +27,7 @@ const depo = (over: Partial<LineInput> = {}): LineInput => ({
   ...over,
 });
 const STORE = { revenue: 4_000_000, target: 4_000_000 };
-const entry = (kind: "payment" | "deduction", amount: number, category: string) => ({
+const entry = (kind: "payment" | "deduction" | "addition", amount: number, category: string) => ({
   id: `${kind}-${amount}`,
   kind,
   amount,
@@ -67,5 +67,39 @@ describe("depo personeli — yalnız mesai eklenir, kesinti düşülür", () => 
     expect(c.payment2_due).toBe(0);
     expect(c.net_remaining).toBe(-1365.38);
     expect(c.flags.some((f) => f.code === "overpaid")).toBe(true);
+  });
+
+  it("sonraki aya devret: bu ay kapanır, devredilen tutar hak edişe ve primlere girmez", () => {
+    const e = [
+      entry("payment", 68000.31, "payment1"),
+      entry("deduction", 3000, "price_difference"),
+      entry("addition", 1365.38, "carry_forward"),
+    ];
+    const c = computeLine(depo({ overtime_hours: 5 }), STORE, e as never);
+    expect(c.net_remaining).toBe(0);
+    expect(c.carried_forward_total).toBe(1365.38);
+    expect(c.additions_total).toBe(0); // ek hak ediş değil
+    expect(c.extras_total).toBe(1634.62); // yalnız mesai
+    expect(c.gross).toBe(66634.93); // 68.000,31 + 1.634,62 − 3.000,00
+    expect(c.payment1_due).toBe(0);
+    expect(c.payment2_due).toBe(0);
+    expect(c.flags.some((f) => f.code === "overpaid" || f.code === "carry_excess")).toBe(false);
+  });
+
+  it("sonraki ay: devir o ayın maaşından (Ödeme 1) düşer", () => {
+    const c = computeLine(depo(), STORE, [entry("deduction", 1365.38, "carry_over")] as never);
+    expect(c.payment1_due).toBe(66634.93);
+    expect(c.payment2_due).toBe(0);
+  });
+
+  it("devirden sonra bu aya mesai eklenirse uyarır (devir gereğinden fazla kaldı)", () => {
+    const e = [
+      entry("payment", 68000.31, "payment1"),
+      entry("deduction", 3000, "price_difference"),
+      entry("addition", 1365.38, "carry_forward"),
+    ];
+    const c = computeLine(depo({ overtime_hours: 8 }), STORE, e as never); // 8 saat = 2.615,40 → 980,78 alacak
+    expect(c.net_remaining).toBe(980.78);
+    expect(c.flags.some((f) => f.code === "carry_excess" && f.level === "warn")).toBe(true);
   });
 });

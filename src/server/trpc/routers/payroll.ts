@@ -42,6 +42,7 @@ import {
 } from "@/server/services/payroll/talimat";
 import { periodLabel } from "@/server/services/payroll/rules";
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
+import { carryForwardCore } from "@/server/services/payroll/carry";
 import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
 import { kolayikLeaveStatus, kolayikMonth } from "@/server/services/kolayik/payroll-sync";
 import {
@@ -633,13 +634,47 @@ export const payrollRouter = router({
       });
     }),
 
-    /** Silinmez — iptal edilir; satırda üstü çizili kalır. */
-    void: entryAudited.input(entryVoidSchema).mutation(({ ctx, input }) =>
-      ctx.prisma.payrollEntry.update({
-        where: { id: input.id },
-        data: { voided_at: new Date(), void_note: input.note, voided_by: ctx.user.id },
-      })
-    ),
+    /**
+     * Silinmez — iptal edilir; satırda üstü çizili kalır. Bir devir kaydı
+     * (carry_id) iptal edilirse diğer aydaki karşılığı da iptal edilir: yarım
+     * kalan bir devir ya parayı iki kez keser ya da hiç kesmez.
+     */
+    void: entryAudited.input(entryVoidSchema).mutation(async ({ ctx, input }) => {
+      const entry = await ctx.prisma.payrollEntry.findUniqueOrThrow({ where: { id: input.id } });
+      const voided = { voided_at: new Date(), void_note: input.note, voided_by: ctx.user.id };
+      if (!entry.carry_id) {
+        return ctx.prisma.payrollEntry.update({ where: { id: input.id }, data: voided });
+      }
+      const pair = await ctx.prisma.payrollEntry.findMany({
+        where: { carry_id: entry.carry_id, voided_at: null },
+        include: { period: true },
+      });
+      const shut = pair.find((e) => e.period.status === "closed");
+      if (shut) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Bu bir devir kaydı; diğer yarısı kapalı bir ayda (${periodLabel(shut.period.year, shut.period.month)}). Önce o ayı yeniden açın.`,
+        });
+      }
+      await ctx.prisma.payrollEntry.updateMany({ where: { carry_id: entry.carry_id, voided_at: null }, data: voided });
+      return { id: entry.id, carry_id: entry.carry_id, voided: pair.length };
+    }),
+
+    /**
+     * Eksideki Net Kalan'ı sonraki ayın maaşına devret (services/payroll/carry.ts).
+     * Sonraki dönem yoksa açılır — Ödeme 1'in "bir ay önceden ödenen" kişi için
+     * yaptığı gibi.
+     */
+    carryForward: entryAudited.input(idSchema).mutation(async ({ ctx, input }) => {
+      const line = await ctx.prisma.payrollLine.findUniqueOrThrow({ where: { id: input.id }, include: { period: true } });
+      const nk = nextPeriodKey(line.period.year, line.period.month);
+      const exists = await ctx.prisma.payrollPeriod.findUnique({ where: { year_month: { year: nk.year, month: nk.month } } });
+      if (!exists) await ensurePeriod(ctx.prisma, nk.year, nk.month);
+      return ctx.prisma.$transaction(
+        (tx) => carryForwardCore(tx, input.id, { id: ctx.user.id, name: ctx.user.full_name ?? ctx.user.email }),
+        { timeout: 20_000 }
+      );
+    }),
   }),
 
   // ── Talimat / nakit listesi ───────────────────────────────────────────────

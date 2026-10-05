@@ -6,13 +6,15 @@
  *   Komisyon = profile göre (rules.ts tabloları; ÖZEL kabul edilen başarı varsa o dilim)
  *   Brüt Hak Ediş = Baz + OT + Komisyon + Parfüm + Giysi + Top-Seller + Ek Prim + Ek hak edişler − Kesintiler
  *   Toplam Ödenen = Avanslar + Ödemeler (iptal edilmemiş; talimat grubu "sent" ise)
- *   Net Kalan = Brüt Hak Ediş − Toplam Ödenen
+ *   Net Kalan = Brüt Hak Ediş + Sonraki aya devredilen − Toplam Ödenen
+ *     (devir: bu ay kesilemeyen tutar sonraki ayın maaşından düşer — rules.ts)
  *
  * Tutarlar NET'tir. Ara hesaplar yuvarlanmaz, çıktılar 2 haneye yuvarlanır
  * (Excel'deki görünümle aynı).
  */
 import {
   ADVANCE_WARN_SHARE,
+  CARRY_FORWARD_CATEGORY,
   DERI_ASISTAN_TABLE,
   DERI_MUDUR_TABLE,
   GARMENT_PREMIUM_PER_UNIT,
@@ -41,6 +43,8 @@ export type EntryLike = {
   reference: string | null;
   voided_at: Date | string | null;
   batch: { id: string; status: BatchStatus; title: string } | null;
+  /** "Sonraki aya devret" çiftinin ortak kimliği (rules.ts CARRY_FORWARD_CATEGORY) */
+  carry_id?: string | null;
 };
 
 export type LineInput = {
@@ -77,6 +81,7 @@ export type Flag = {
     | "advance_high"
     | "near_zero"
     | "overpaid"
+    | "carry_excess"
     | "missing_target"
     | "no_revenue"
     | "special"
@@ -119,6 +124,8 @@ export type LineCalc = {
   extra_premium: number;
   additions_total: number;
   deductions_total: number;
+  /** Bu ay kesilemeyip sonraki ayın maaşına devredilen tutar (hak ediş değildir) */
+  carried_forward_total: number;
   gross: number;
   advances_total: number;
   payments_total: number;
@@ -286,7 +293,12 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
   });
   const sum = (kind: EntryKind) =>
     annotated.filter((e) => e.kind === kind && e.counted).reduce((s, e) => s + e.amount, 0);
-  const additions = sum("addition");
+  // Sonraki aya devredilen tutar "addition" olarak saklanır ama hak ediş
+  // değildir: brüte ve primlere girmez, yalnız bu ayın bakiyesini kapatır.
+  const carried = annotated
+    .filter((e) => e.kind === "addition" && e.category === CARRY_FORWARD_CATEGORY && e.counted)
+    .reduce((s, e) => s + e.amount, 0);
+  const additions = sum("addition") - carried;
   const deductions = sum("deduction");
   const advances = sum("advance");
   const payments = sum("payment");
@@ -294,7 +306,7 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
   const gross =
     line.base_salary + overtime + commission.final + perfume + garment + topSeller + extra + additions - deductions;
   const paid = advances + payments;
-  const net = gross - paid;
+  const net = gross + carried - paid;
 
   const p1raw = line.base_salary + additions - deductions - paid;
   const payment1 = Math.max(0, Math.min(p1raw, net));
@@ -328,7 +340,17 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
       });
   }
   if (net < -0.5)
-    flags.push({ code: "overpaid", level: "error", text: `Fazla ödeme: ${fmtTRY(-net)} — hak edişten fazla ödendi.` });
+    flags.push({
+      code: "overpaid",
+      level: "error",
+      text: `Fazla ödeme: ${fmtTRY(-net)} — hak edişten fazla ödendi. Sonraki ayın maaşından düşmek için "Sonraki aya devret".`,
+    });
+  if (carried > 0.005 && net > 0.5)
+    flags.push({
+      code: "carry_excess",
+      level: "warn",
+      text: `Sonraki aya ${fmtTRY(carried)} devredildi ama bu ay artık ${fmtTRY(net)} alacaklı — devri iptal edip yeniden devredin ya da farkı Ödeme 2 ile ödeyin.`,
+    });
   if (line.commission_profile !== "none") {
     if (commission.basis > 0 && !commission.target)
       flags.push({ code: "missing_target", level: "warn", text: "Ciro var ama hedef girilmedi — komisyon hesaplanamıyor." });
@@ -363,6 +385,7 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
     extra_premium: round2(extra),
     additions_total: round2(additions),
     deductions_total: round2(deductions),
+    carried_forward_total: round2(carried),
     gross: round2(gross),
     advances_total: round2(advances),
     payments_total: round2(payments),

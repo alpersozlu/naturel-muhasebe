@@ -172,6 +172,21 @@ export const ADDITION_CATEGORIES = {
 } as const;
 export type AdditionCategory = keyof typeof ADDITION_CATEGORIES;
 
+/**
+ * SONRAKİ AYA DEVİR (sahibi, 05.10.2026: "ertesi aya devret ekleyebilirsin").
+ *
+ * Maaş ödendikten sonra girilen bir kesinti o ayın ekstrasını (mesai, prim)
+ * aşarsa — depocuda sık olur: prim yok, yalnız mesai var — aşan kısım o ay
+ * kesilemez: Net Kalan eksiye düşer ve ay kapanmaz. "Sonraki aya devret" iki
+ * BAĞLI kayıt yazar (PayrollEntry.carry_id ortak):
+ *   bu ay      addition / carry_forward  → bakiyeyi sıfırlar, hak ediş DEĞİLDİR
+ *   sonraki ay deduction / carry_over    → o ayın maaşından düşer
+ * Biri iptal edilince diğeri de iptal edilir. Elle seçilecek bir kategori
+ * değildir; yalnız bu işlem oluşturur.
+ */
+export const CARRY_FORWARD_CATEGORY = "carry_forward";
+export const CARRY_FORWARD_LABEL = "Sonraki aya devredildi";
+
 export const PAYMENT_CATEGORIES = {
   payment1: "Ödeme 1 — baz maaş",
   payment2: "Ödeme 2 — mesai + komisyon + prim",

@@ -44,6 +44,11 @@ export const KIND_LABEL: Record<"advance" | "payment" | "deduction" | "addition"
   addition: "Ek hak ediş",
 };
 
+/** "Eylül 2026" ayının ardından gelen ay — "Sonraki aya devret" metinleri için. */
+export function nextMonthOf(year: number, month: number): { year: number; month: number } {
+  return month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
+}
+
 export const KIND_TONE: Record<"advance" | "payment" | "deduction" | "addition", string> = {
   advance: "bg-amber-50 text-amber-800 ring-amber-200/70",
   payment: "bg-emerald-50 text-emerald-800 ring-emerald-200/70",

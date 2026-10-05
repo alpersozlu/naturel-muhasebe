@@ -13,7 +13,22 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import type { ComputedLine, StoreBlock } from "@/server/services/payroll/period";
 import { PAY_METHOD_LABEL, PROFILE_LABEL } from "@/server/services/payroll/rules";
 import { KIND_LABEL, KIND_TONE, dmy, money, pct, rate } from "./format";
+import {
+  ADDITION_CATEGORIES,
+  CARRY_FORWARD_CATEGORY,
+  CARRY_FORWARD_LABEL,
+  DEDUCTION_CATEGORIES,
+  PAYMENT_CATEGORIES,
+} from "@/server/services/payroll/rules";
+
+const CATEGORY_LABEL: Record<string, string> = {
+  ...DEDUCTION_CATEGORIES,
+  ...ADDITION_CATEGORIES,
+  ...PAYMENT_CATEGORIES,
+  [CARRY_FORWARD_CATEGORY]: CARRY_FORWARD_LABEL,
+};
 import { EntryDialog, type EntryKind } from "./entry-dialog";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 type Form = {
   base_salary: number | undefined;
@@ -59,12 +74,15 @@ export function LineDialog({
   line,
   store,
   periodStatus,
+  nextPeriodLabel,
   onClose,
   onChanged,
 }: {
   line: ComputedLine;
   store: StoreBlock;
   periodStatus: "open" | "closed";
+  /** "Ekim 2026" — "Sonraki aya devret" onayında gösterilir */
+  nextPeriodLabel?: string;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -84,6 +102,14 @@ export function LineDialog({
   const update = trpc.payroll.lines.update.useMutation({
     onSuccess: () => {
       toast.success("Kaydedildi");
+      onChanged();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const confirm = useConfirm();
+  const carry = trpc.payroll.entries.carryForward.useMutation({
+    onSuccess: (r) => {
+      toast.success(`${money(r.amount)} ₺ ${r.to_label} maaşına devredildi`);
       onChanged();
     },
     onError: (e) => toast.error(e.message),
@@ -273,9 +299,35 @@ export function LineDialog({
                   <Row label="Brüt hak ediş" v={c.gross} bold />
                   <Row label="Avanslar" v={-c.advances_total} tone="text-amber-800" />
                   <Row label="Ödemeler" v={-c.payments_total} />
+                  {c.carried_forward_total ? <Row label="Sonraki aya devredilen" v={c.carried_forward_total} tone="text-violet-700" /> : null}
                   <Row label="NET KALAN" v={c.net_remaining} bold tone={Math.abs(c.net_remaining) <= 0.5 ? "text-emerald-700" : "text-amber-800"} />
                 </tbody>
               </table>
+              {c.net_remaining < -0.5 && !closed ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-rose-50 px-2 py-1.5 text-xs text-rose-800">
+                  <span>Bu ay kesilemeyen {money(-c.net_remaining)} ₺ var; ay bu satır sıfırlanmadan kapanmaz.</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs"
+                    disabled={carry.isPending}
+                    onClick={async () => {
+                      const to = nextPeriodLabel ?? "sonraki ayın";
+                      if (
+                        await confirm({
+                          title: `${money(-c.net_remaining)} ₺ ${to} maaşına devredilsin mi?`,
+                          description: `Bu ay kesilemeyen tutar ${to} maaşından düşülür ve bu ayın satırı kapanır. İki kayıt birbirine bağlıdır; biri iptal edilirse diğeri de iptal olur.`,
+                          confirmLabel: "Devret",
+                        })
+                      ) {
+                        carry.mutate({ id: line.id });
+                      }
+                    }}
+                  >
+                    Sonraki aya devret
+                  </Button>
+                </div>
+              ) : null}
               {p !== "none" ? (
                 <div className="mt-2 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground space-y-0.5">
                   {c.commission.explanation.map((t, i) => (
@@ -307,11 +359,18 @@ export function LineDialog({
                   {c.entries.map((e) => (
                     <li key={e.id} className={cn("py-2 space-y-1", !e.counted && "opacity-60")}>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium ring-1", KIND_TONE[e.kind])}>{KIND_LABEL[e.kind]}</span>
+                        <span
+                          className={cn(
+                            "rounded px-1.5 py-0.5 text-[11px] font-medium ring-1",
+                            e.category === CARRY_FORWARD_CATEGORY ? "bg-violet-50 text-violet-800 ring-violet-200/70" : KIND_TONE[e.kind]
+                          )}
+                        >
+                          {e.category === CARRY_FORWARD_CATEGORY ? "Devir" : KIND_LABEL[e.kind]}
+                        </span>
                         <span className="tabular-nums text-muted-foreground">{dmy(String(e.entry_date))}</span>
                         <span className={cn("tabular-nums font-medium", !e.counted && "line-through")}>{money(e.amount)} ₺</span>
                         {e.channel ? <span className="text-xs text-muted-foreground">{e.channel}</span> : null}
-                        {e.category ? <span className="text-xs text-muted-foreground">{e.category}</span> : null}
+                        {e.category ? <span className="text-xs text-muted-foreground">{CATEGORY_LABEL[e.category] ?? e.category}</span> : null}
                         {e.counted_note ? <span className="text-xs text-rose-700">{e.counted_note}</span> : null}
                         {!closed && !e.voided_at ? (
                           <button type="button" className="ml-auto text-xs text-muted-foreground hover:text-rose-700" onClick={() => setVoidId(e.id)}>
@@ -321,6 +380,11 @@ export function LineDialog({
                       </div>
                       {e.note || e.reference ? (
                         <div className="text-xs text-muted-foreground">{[e.note, e.reference].filter(Boolean).join(" · ")}</div>
+                      ) : null}
+                      {voidId === e.id && e.carry_id ? (
+                        <div className="text-xs text-violet-800">
+                          Bu bir devir kaydı: iptal edilince diğer aydaki karşılığı da iptal edilir.
+                        </div>
                       ) : null}
                       {voidId === e.id ? (
                         <div className="flex items-center gap-2">
