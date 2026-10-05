@@ -61,6 +61,21 @@ describe("BI kategori sayfası — konumla okuma", () => {
     expect(g.total).toMatchObject({ units_total: 1030, erkek_denim_units: 300, kadin_denim_units: 212, cocuk_denim_units: 15 });
   });
 
+  it("KPI raporunda olmayan adetler de okunur: erkek + kadın sweatshirt ve çocuk reyonu toplamı", () => {
+    // Güzelyurt müdürü, Eylül 2026: 60 adet − 2 sweatshirt − 2 çocuk = 56 (KPI raporundaki adet)
+    const S = { eSw: 890, kSw: 1675 };
+    const g = parseBiCategoryGrid([
+      ...header(true),
+      it_("Sweatshirt", S.eSw, 642), it_("Sweatshirt", S.kSw, 642),
+      label("94000021 - Elif Örnek", 578),
+      num(30, C.eAks, 578), num(1, C.eDen, 578), num(1, S.eSw, 578), num(32, C.eTop, 578),
+      num(21, C.kAks, 578), num(4, C.kDen, 578), num(1, S.kSw, 578), num(26, C.kTop, 578),
+      num(2, C.cPen, 578), num(2, C.cTop, 578), num(60, C.grand, 578),
+    ]);
+    expect(g.ok).toBe(true);
+    expect(g.rows.get("94000021")).toMatchObject({ units_total: 60, sweatshirt_units: 2, cocuk_units: 2, erkek_denim_units: 1, kadin_denim_units: 4 });
+  });
+
   it("çocuk reyonu olmayan mağazada (Girne düzeni) çocuk denimi 0'dır", () => {
     const g = parseBiCategoryGrid([
       ...header(false),
@@ -69,7 +84,7 @@ describe("BI kategori sayfası — konumla okuma", () => {
       num(108, C.kAks, 578), num(88, C.kDen, 578), num(12, C.kEtek, 578), num(208, C.kTop, 578), num(586, C.grand, 578),
     ]);
     expect(g.ok).toBe(true);
-    expect(g.rows.get("94010050")).toMatchObject({ units_total: 586, erkek_denim_units: 150, kadin_denim_units: 88, cocuk_denim_units: 0 });
+    expect(g.rows.get("94010050")).toMatchObject({ units_total: 586, erkek_denim_units: 150, kadin_denim_units: 88, cocuk_denim_units: 0, sweatshirt_units: 0, cocuk_units: 0 });
   });
 
   it("reyon toplamı kalemlerini tutmayan satırın denim adedi yazılmaz", () => {

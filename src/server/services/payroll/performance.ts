@@ -79,6 +79,13 @@ export type BiPerson = {
   kadin_denim_units: number | null;
   /** Çocuk reyonu denim adedi (kategori sayfası; reyon yoksa 0). Eski kayıtlarda alan yoktur. */
   cocuk_denim_units?: number | null;
+  /**
+   * KPI raporunda HİÇ YER ALMAYAN adetler (kategori sayfasından): erkek + kadın
+   * sweatshirt ve çocuk reyonunun tamamı. Kural (Eylül 2026, üç mağaza, 19 kişi,
+   * istisnasız): KPI adedi = BI adedi − sweatshirt − çocuk reyonu.
+   */
+  sweatshirt_units?: number | null;
+  cocuk_units?: number | null;
 };
 export type BiPdfParsed = {
   kind: "bi_pdf";
@@ -569,7 +576,16 @@ export function parseKpiPdfPages(pages: string[]): KpiParsed {
   return { kind: "kpi_xlsx", store_code, store_label, persons, date_from, date_to, format: "pdf" };
 }
 
-type BiCategoryRow = { units_total: number | null; erkek_denim_units: number; kadin_denim_units: number; cocuk_denim_units: number };
+type BiCategoryRow = {
+  units_total: number | null;
+  erkek_denim_units: number;
+  kadin_denim_units: number;
+  cocuk_denim_units: number;
+  /** erkek + kadın sweatshirt */
+  sweatshirt_units: number;
+  /** çocuk reyonu toplamı (reyon yoksa 0) */
+  cocuk_units: number;
+};
 
 /**
  * BI "ÇALIŞAN KATEGORİ KPI" sayfası — KONUMLA okunur.
@@ -650,10 +666,18 @@ export function parseBiCategoryGrid(items: PdfItem[]): { rows: Map<string, BiCat
       sum += tot ?? 0;
     }
     if (clean && grandValue !== sum) clean = false;
-    const denim = (sIdx: number) => (sIdx < 0 ? 0 : (values.get(cols.find((c) => c.section === sIdx && c.label === "Denim")!) ?? 0));
+    const cell = (sIdx: number, label: string) => (sIdx < 0 ? 0 : (values.get(cols.find((c) => c.section === sIdx && c.label === label)!) ?? 0));
+    const denim = (sIdx: number) => cell(sIdx, "Denim");
     const row: BiCategoryRow = clean
-      ? { units_total: grandValue, erkek_denim_units: denim(iE), kadin_denim_units: denim(iK), cocuk_denim_units: denim(iC) }
-      : { units_total: grandValue, erkek_denim_units: NaN, kadin_denim_units: NaN, cocuk_denim_units: NaN };
+      ? {
+          units_total: grandValue,
+          erkek_denim_units: denim(iE),
+          kadin_denim_units: denim(iK),
+          cocuk_denim_units: denim(iC),
+          sweatshirt_units: cell(iE, "Sweatshirt") + cell(iK, "Sweatshirt"),
+          cocuk_units: cell(iC, "Toplam"),
+        }
+      : { units_total: grandValue, erkek_denim_units: NaN, kadin_denim_units: NaN, cocuk_denim_units: NaN, sweatshirt_units: NaN, cocuk_units: NaN };
     if (!clean) ok = false;
     if (isTotal) total = row;
     else rows.set(m![1]!, { ...row, name: m![2]!.trim() });
@@ -720,6 +744,8 @@ export function mergeBiPdf(prev: BiPdfParsed, next: BiPdfParsed): BiPdfParsed {
       erkek_denim_units: cat?.erkek_denim_units ?? null,
       kadin_denim_units: cat?.kadin_denim_units ?? null,
       cocuk_denim_units: cat?.cocuk_denim_units ?? null,
+      sweatshirt_units: cat?.sweatshirt_units ?? null,
+      cocuk_units: cat?.cocuk_units ?? null,
     };
   };
   const codes = Array.from(new Set([...next.persons, ...prev.persons].map((x) => x.code)));
@@ -805,6 +831,8 @@ function parseBiPdf(pages: PdfPage[]): BiPdfParsed {
         t.erkek_denim_units = r.erkek_denim_units;
         t.kadin_denim_units = r.kadin_denim_units;
         t.cocuk_denim_units = r.cocuk_denim_units;
+        t.sweatshirt_units = r.sweatshirt_units;
+        t.cocuk_units = r.cocuk_units;
       };
       for (const [code, r] of Array.from(grid.rows.entries())) put(person(code, r.name), r);
       if (grid.total) put(total, grid.total);
@@ -985,6 +1013,13 @@ const DAILY_SAME_TL = 1;
  */
 const DENIM_EST_TOL_SHARE = 0.08;
 const DENIM_EST_TOL_TL = 10_000;
+/**
+ * BI kategori sayfası yokken: KPI'da görünmeyen ciro (sweatshirt + çocuk reyonu) hem bu orandan
+ * hem bu tutardan büyükse uyarılır. Eylül 2026'da pay %2–9 arasındaydı (büyük satıcılar);
+ * tek tük satış yapan müdür / kasiyerde 4 ürün %13,7 etti — bu yüzden tutar eşiği de var.
+ */
+const KPI_GAP_SHARE = 0.15;
+const KPI_GAP_TL = 10_000;
 /** Satış temsilcisi kodu girilmemiş satışların satır adı. */
 export const UNCODED_LABEL = "Temsilci kodu girilmemiş satış";
 
@@ -1151,11 +1186,28 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
     const kpiCeiling = net_used == null ? null : (net_itpos ?? r2(net_used + (itpos_extra ?? 0)));
     if (s.kpi && kpiCeiling != null && s.kpi.category_tl_total > kpiCeiling + 1) {
       rf.push({ level: "error", text: `KPI kategori toplamı (${TRY.format(s.kpi.category_tl_total)}) kişinin net cirosunu aşıyor` });
-    } else if (s.kpi && net_used != null && net_used > 0 && (net_used - s.kpi.category_tl_total) / net_used > 0.1) {
-      rf.push({
-        level: "warn",
-        text: `KPI kategori toplamı net cironun %${(((net_used - s.kpi.category_tl_total) / net_used) * 100).toFixed(1)} altında (çocuk/sweatshirt için beklenenden fazla)`,
-      });
+    } else if (s.kpi && s.bi?.units_total != null && s.bi.sweatshirt_units != null && s.bi.cocuk_units != null) {
+      // KPI raporu sweatshirt'leri ve çocuk reyonunu İÇERMEZ; kişinin net cirosu ile KPI kategori
+      // toplamı arasındaki fark o ürünlerin tutarıdır. Kesin kontrol adetle yapılır:
+      //   KPI adedi = BI adedi − sweatshirt − çocuk reyonu   (Eylül 2026: üç mağaza, 19 kişi, istisnasız)
+      const expected = s.bi.units_total - s.bi.sweatshirt_units - s.bi.cocuk_units;
+      if (s.kpi.units_total !== expected) {
+        rf.push({
+          level: "warn",
+          text: `KPI raporundaki adet (${s.kpi.units_total}) BI raporuyla tutmuyor: BI ${s.bi.units_total} − sweatshirt ${s.bi.sweatshirt_units} − çocuk reyonu ${s.bi.cocuk_units} = ${expected} olmalıydı — iki rapor aynı tarih aralığı için mi alındı?`,
+        });
+      }
+    } else if (s.kpi && net_used != null && net_used > 0) {
+      // BI kategori sayfası yokken adet karşılaştırılamaz; yalnız kaba bir akla yatkınlık bakışı:
+      // KPI'da görünmeyen pay (sweatshirt + çocuk) çok büyükse haber ver. Küçük satıcıda birkaç
+      // ürün yüzdeyi oynatır, bu yüzden tutar eşiği de aranır.
+      const gap = r2(net_used - s.kpi.category_tl_total);
+      if (gap / net_used > KPI_GAP_SHARE && gap > KPI_GAP_TL) {
+        rf.push({
+          level: "warn",
+          text: `KPI raporunda görünmeyen ciro ${TRY.format(gap)} ₺ (%${((gap / net_used) * 100).toFixed(1)}) — KPI raporu sweatshirt ve çocuk reyonunu içermez, ama bu pay olağandan yüksek. BI raporunun kategori sayfası yüklenince adetle kesinleşir`,
+        });
+      }
     }
     if (denim_tl != null && kpiCeiling != null && denim_tl > kpiCeiling + 1) rf.push({ level: "error", text: "Denim tutarı toplam cirodan büyük" });
     if (s.uncoded) {

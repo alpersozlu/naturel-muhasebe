@@ -302,3 +302,46 @@ describe("performans çapraz kontrolü — BI raporu, çocuk reyonu ve mağaza t
   });
 });
 
+/**
+ * KPI raporu sweatshirt'leri ve çocuk reyonunu içermez. Kişinin net cirosu ile
+ * KPI kategori toplamı arasındaki fark bu yüzden olağandır; kesin kontrol adetle
+ * yapılır. Gerçek rakamlar: Mavi Güzelyurt müdürü, Eylül 2026 (ekranda "%13,7
+ * altında" uyarısı çıkmış, sahibi "hata mı oldu?" diye sormuştu).
+ */
+describe("performans çapraz kontrolü — KPI'da olmayan sweatshirt ve çocuk reyonu", () => {
+  const L = [line("5", "Mihriban Abakan", "mavi_mudur")];
+  const K = (units: number): KpiParsed => ({
+    kind: "kpi_xlsx", store_code: "9403", store_label: null,
+    persons: [{ code: "94000021", name: "Mihriban Abakan", denim_tl_erkek: 0.01, denim_tl_kadin: 624.18, denim_units_erkek: 1, denim_units_kadin: 4, category_tl_total: 11066.96, units_total: units }],
+  });
+  const B = (extra: Partial<BiPdfParsed["persons"][number]>): BiPdfParsed => ({
+    kind: "bi_pdf", store_code: "9403", category_layout_ok: true,
+    persons: [{ code: "94000021", name: "Mihriban Abakan", ...NONE, net_tl: 12817, denim_units: 5, units_total: 60, erkek_denim_units: 1, kadin_denim_units: 4, cocuk_denim_units: 0, ...extra }],
+    total: { ...NONE, net_tl: 12817 },
+  });
+  const D = () => daily([["94000021", "Mihriban Abakan", 12816.99]]);
+  const flagsOf = (c: ReturnType<typeof buildPerformanceCheck>) => c.rows[0]!.flags.filter((f) => f.level !== "info");
+
+  it("adetler tutuyorsa (KPI = BI − sweatshirt − çocuk) fark ne kadar büyük olursa olsun uyarı yok", () => {
+    const c = buildPerformanceCheck([B({ sweatshirt_units: 2, cocuk_units: 2 }), K(56)], L, D());
+    expect(flagsOf(c)).toEqual([]); // KPI toplamı net cironun %13,7 altında — olağan
+    expect(c.ready).toBe(true);
+  });
+
+  it("adetler tutmuyorsa neyin tutmadığını söyler", () => {
+    const c = buildPerformanceCheck([B({ sweatshirt_units: 2, cocuk_units: 2 }), K(50)], L, D());
+    expect(flagsOf(c)).toHaveLength(1);
+    expect(flagsOf(c)[0]!.level).toBe("warn");
+    expect(flagsOf(c)[0]!.text).toContain("KPI raporundaki adet (50) BI raporuyla tutmuyor: BI 60 − sweatshirt 2 − çocuk reyonu 2 = 56");
+  });
+
+  it("BI kategori sayfası yokken küçük satıcıda yüzde tek başına uyarı doğurmaz; büyük tutarda doğurur", () => {
+    // kategori sayfası yok: sweatshirt / çocuk adedi bilinmiyor
+    expect(flagsOf(buildPerformanceCheck([B({ units_total: null }), K(56)], L, D()))).toEqual([]);
+    const big: KpiParsed = { kind: "kpi_xlsx", store_code: "9403", store_label: null, persons: [{ code: "94030017", name: "Betül Tursun", denim_tl_erkek: 100000, denim_tl_kadin: 100000, denim_units_erkek: 70, denim_units_kadin: 90, category_tl_total: 700000, units_total: 800 }] };
+    const c = buildPerformanceCheck([big], [line("6", "Betül Tursun")], daily([["94030017", "Betül Tursun", 902926.52]]));
+    const w = c.rows[0]!.flags.find((f) => f.level === "warn")!;
+    expect(w.text).toContain("KPI raporunda görünmeyen ciro 202.926,52 ₺ (%22.5)");
+  });
+});
+

@@ -285,6 +285,10 @@ export const PerformanceDocs = forwardRef<
               UPT: IT POS {check.upt_itpos ?? "—"} · BI {check.upt_bi ?? "—"} · Tekli işlem: IT POS {pct(check.single_pct_itpos)} · BI {pct(check.single_pct_bi)} · Kadın denim{" "}
               {check.kadin_denim_units_store ?? "—"} adet · Denim toplam {check.denim_units_store ?? "—"} adet
             </div>
+            <div className="text-xs text-muted-foreground">
+              Personel KPI Raporu sweatshirt&apos;leri ve çocuk reyonunu içermez; bu yüzden kişinin KPI toplamı net cirosundan düşüktür ve aradaki tutar denim dışına
+              yazılır. BI raporunun kategori sayfası yüklüyse adetler birebir karşılaştırılır (KPI adedi = BI adedi − sweatshirt − çocuk reyonu).
+            </div>
             {daily && daily.days_present > 0 ? (
               <div className="text-xs text-muted-foreground">
                 Günlük dosyalar: ay boyunca yüklenen bayi gün sonu dosyalarından yeniden hesaplanan Net Ciro (KDV hariç tutar − Kartuş). {daily.days_present}/
@@ -296,19 +300,19 @@ export const PerformanceDocs = forwardRef<
                 <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
                   <tr className="border-b">
                     <th className="py-1 text-left font-medium">Kişi</th>
-                    <th className="py-1 text-right font-medium">Günlük dosyalar</th>
-                    <th className="py-1 text-right font-medium">Net ciro (BI)</th>
-                    <th className="py-1 text-right font-medium">Net ciro (IT POS)</th>
-                    <th className="py-1 text-right font-medium">Bordroda</th>
-                    <th className="py-1 text-right font-medium">Denim (KPI)</th>
-                    <th className="py-1 text-right font-medium" title="Günlük bayi dosyalarındaki ürün adlarından tahmin — yalnız karşılaştırma için">
+                    <th className="px-2 py-1 text-right font-medium">Günlük dosyalar</th>
+                    <th className="px-2 py-1 text-right font-medium">Net ciro (BI)</th>
+                    <th className="px-2 py-1 text-right font-medium">Net ciro (IT POS)</th>
+                    <th className="px-2 py-1 text-right font-medium">Bordroda</th>
+                    <th className="px-2 py-1 text-right font-medium">Denim (KPI)</th>
+                    <th className="px-2 py-1 text-right font-medium" title="Günlük bayi dosyalarındaki ürün adlarından tahmin — yalnız karşılaştırma için">
                       Denim ≈ günlük
                     </th>
-                    <th className="py-1 text-right font-medium">Denim dışı</th>
-                    <th className="py-1 text-right font-medium">Denim adet KPI / BI</th>
-                    <th className="py-1 text-right font-medium">Kadın denim</th>
-                    <th className="py-1 text-right font-medium">UPT</th>
-                    <th className="py-1 text-right font-medium">Tekli</th>
+                    <th className="px-2 py-1 text-right font-medium">Denim dışı</th>
+                    <th className="px-2 py-1 text-right font-medium">Denim adet KPI / BI</th>
+                    <th className="px-2 py-1 text-right font-medium">Kadın denim</th>
+                    <th className="px-2 py-1 text-right font-medium">UPT</th>
+                    <th className="px-2 py-1 text-right font-medium">Tekli</th>
                     <th className="py-1 pl-2 text-left font-medium">Durum</th>
                   </tr>
                 </thead>
@@ -328,24 +332,24 @@ export const PerformanceDocs = forwardRef<
                         </td>
                         <td
                           className={cn(
-                            "py-1 text-right tabular-nums",
+                            "px-2 py-1 text-right tabular-nums",
                             dailyFlag ? (dailyFlag.level === "error" ? "font-medium text-rose-700" : "text-amber-800") : dailySame ? "text-emerald-700" : ""
                           )}
                         >
                           {money(r.net_daily)}
                         </td>
-                        <td className="py-1 text-right tabular-nums">{money(r.net_bi)}</td>
-                        <td className="py-1 text-right tabular-nums">{money(r.net_itpos)}</td>
-                        <td className="py-1 text-right tabular-nums text-muted-foreground">{money(r.line_total)}</td>
-                        <td className="py-1 text-right tabular-nums">{money(r.denim_tl)}</td>
-                        <td className="py-1 text-right tabular-nums text-muted-foreground">{money(r.denim_daily_est)}</td>
-                        <td className="py-1 text-right tabular-nums">{money(r.nd_tl)}</td>
-                        <td className="py-1 text-right tabular-nums">
+                        <td className="px-2 py-1 text-right tabular-nums">{money(r.net_bi)}</td>
+                        <td className="px-2 py-1 text-right tabular-nums">{money(r.net_itpos)}</td>
+                        <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">{money(r.line_total)}</td>
+                        <td className="px-2 py-1 text-right tabular-nums">{money(r.denim_tl)}</td>
+                        <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">{money(r.denim_daily_est)}</td>
+                        <td className="px-2 py-1 text-right tabular-nums">{money(r.nd_tl)}</td>
+                        <td className="px-2 py-1 text-right tabular-nums">
                           {r.denim_units_kpi ?? "—"} / {r.denim_units_bi ?? "—"}
                         </td>
-                        <td className="py-1 text-right tabular-nums">{r.kadin_denim_units ?? "—"}</td>
-                        <td className="py-1 text-right tabular-nums">{r.upt ?? "—"}</td>
-                        <td className="py-1 text-right tabular-nums">{pct(r.single_pct)}</td>
+                        <td className="px-2 py-1 text-right tabular-nums">{r.kadin_denim_units ?? "—"}</td>
+                        <td className="px-2 py-1 text-right tabular-nums">{r.upt ?? "—"}</td>
+                        <td className="px-2 py-1 text-right tabular-nums">{pct(r.single_pct)}</td>
                         <td className={cn("py-1 pl-2", err ? "text-rose-700" : warn ? "text-amber-800" : info ? "text-muted-foreground" : "text-emerald-700")}>
                           {err ? err.text : warn ? warn.text : info ? info.text : r.net_used != null ? "tutuyor" : "—"}
                         </td>
