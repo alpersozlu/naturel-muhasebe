@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/money-input";
 import type { ComputedLine, PeriodView, StoreBlock } from "@/server/services/payroll/period";
 import { computeLine, type LineInput } from "@/server/services/payroll/compute";
-import { ADDITION_CATEGORIES, DEDUCTION_CATEGORIES } from "@/server/services/payroll/rules";
+import { ADDITION_CATEGORIES, DEDUCTION_CATEGORIES, isOvertimeOnlyPosition } from "@/server/services/payroll/rules";
 import { money, pct } from "./format";
 import { EntryDialog, type EntryKind } from "./entry-dialog";
 import { KolayikPanel } from "./kolayik-panel";
@@ -291,6 +291,9 @@ function StoreExtras({
               const dirty = isDirty(l);
               const adjustments = c.entries.filter((e) => (e.kind === "deduction" || e.kind === "addition") && e.counted);
               const isStoreBased = p === "mavi_mudur" || p === "mavi_vice" || p === "deri_mudur";
+              // Depo: prim yok — Ödeme 2 = mesai − kesintiler (rules.ts). Eskiden
+              // girilmiş bir ek prim varsa görünür kalır ki silinebilsin.
+              const overtimeOnly = isOvertimeOnlyPosition(l.position) && !d.extra_premium;
               return (
                 <tr key={l.id} className={cn("border-b last:border-0 align-top", dirty && "bg-amber-50/40")}>
                   <td className="px-4 py-2.5">
@@ -394,12 +397,20 @@ function StoreExtras({
                         </label>
                       ) : null}
                     </div>
-                    <div className="mt-1 flex items-center gap-1.5">
-                      <MoneyInput value={d.extra_premium} onChange={(v) => patch(l, { extra_premium: v })} placeholder="ek prim" className="h-8 w-28 text-right" disabled={closed} />
-                      {d.extra_premium ? (
-                        <Input value={d.extra_premium_note} onChange={(e) => patch(l, { extra_premium_note: e.target.value })} placeholder="açıklama" className="h-8 w-40" disabled={closed} />
-                      ) : null}
-                    </div>
+                    {overtimeOnly ? (
+                      <div className="text-[11px] leading-snug text-muted-foreground">
+                        prim yok
+                        <br />
+                        yalnız mesai eklenir, kesinti düşülür
+                      </div>
+                    ) : (
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <MoneyInput value={d.extra_premium} onChange={(v) => patch(l, { extra_premium: v })} placeholder="ek prim" className="h-8 w-28 text-right" disabled={closed} />
+                        {d.extra_premium ? (
+                          <Input value={d.extra_premium_note} onChange={(e) => patch(l, { extra_premium_note: e.target.value })} placeholder="açıklama" className="h-8 w-40" disabled={closed} />
+                        ) : null}
+                      </div>
+                    )}
                   </td>
                   <td className="px-2 py-2.5">
                     <div className="flex flex-wrap gap-1">

@@ -23,6 +23,7 @@ import {
   POSITIONS,
   PROFILE_LABEL,
   PROFILE_SHORT,
+  isOvertimeOnlyPosition,
 } from "@/server/services/payroll/rules";
 import { STATUS_LABEL, dmy, money, todayIso } from "./format";
 
@@ -404,7 +405,17 @@ function EmployeeDialog({ employee, onClose, onSaved }: { employee: Emp | null; 
             </Select>
           </F>
           <F label="Pozisyon">
-            <Input list="payroll-positions" value={f.position} onChange={(e) => set("position", e.target.value)} />
+            <Input
+              list="payroll-positions"
+              value={f.position}
+              onChange={(e) => {
+                const position = e.target.value;
+                // Depo: prim / komisyon yok — yalnız mesai eklenir, kesinti düşülür (rules.ts).
+                if (isOvertimeOnlyPosition(position) && !isOvertimeOnlyPosition(f.position)) {
+                  setF((p) => ({ ...p, position, commission_profile: "none", perfume_eligible: false, garment_eligible: false }));
+                } else set("position", position);
+              }}
+            />
             <datalist id="payroll-positions">
               {POSITIONS.map((p) => (
                 <option key={p} value={p} />
@@ -424,6 +435,12 @@ function EmployeeDialog({ employee, onClose, onSaved }: { employee: Emp | null; 
                 ))}
               </SelectContent>
             </Select>
+            {isOvertimeOnlyPosition(f.position) ? (
+              <div className={`mt-1 text-xs ${f.commission_profile === "none" ? "text-muted-foreground" : "text-amber-800"}`}>
+                Depo personelinde prim ve komisyon yoktur: Ödeme 2&apos;de yalnız ek mesai eklenir, kesintiler düşülür.
+                {f.commission_profile === "none" ? "" : " Profili “Komisyon yok” yapın."}
+              </div>
+            ) : null}
           </F>
           <F label="Baz maaş (NET, aylık)">
             <MoneyInput value={f.base_salary} onChange={(v) => set("base_salary", v)} />

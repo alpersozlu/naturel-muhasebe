@@ -34,6 +34,22 @@ export const NEAR_ZERO_TL = 2500;
 /** Asgari ücret — Temmuz 2026'dan itibaren. */
 export const MIN_WAGE = { gross: 70893, net: 61677 } as const;
 
+/**
+ * DEPO PERSONELİ (sahibi, 05.10.2026: "depocuların primi — ekleme için sadece
+ * ek mesaisine bakacağız, çıkarmalarına bakacağız, mesela fiyat farkı gibi").
+ *
+ * Prim / komisyon YOKTUR. Ödeme 2'de eklenen tek kalem EK MESAİ'dir (saat ×
+ * net baz ÷ 208); kesintiler (fiyat farkı, kasa eksiği, faturasız masraf…)
+ * ondan düşülür. Top-seller, giysi / parfüm primi ve "ek prim" depocuya
+ * işlemez; komisyon profili "Komisyon yok" olmalıdır.
+ *
+ * Kural görev adına bağlıdır (position serbest metindir): "Depo", "Depocu",
+ * "Depo Sorumlusu"… Lojistik ayrı bir görevdir, bu kurala girmez.
+ */
+export function isOvertimeOnlyPosition(position: string | null | undefined): boolean {
+  return (position ?? "").toLocaleLowerCase("tr").includes("depo");
+}
+
 export type MaviAsistanBracket = { min: number; nd: number; denim: number };
 export type RateBracket = { min: number; rate: number };
 
