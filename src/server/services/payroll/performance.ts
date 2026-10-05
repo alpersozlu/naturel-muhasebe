@@ -77,6 +77,8 @@ export type BiPerson = {
   units_total: number | null;
   erkek_denim_units: number | null;
   kadin_denim_units: number | null;
+  /** Çocuk reyonu denim adedi (kategori sayfası; reyon yoksa 0). Eski kayıtlarda alan yoktur. */
+  cocuk_denim_units?: number | null;
 };
 export type BiPdfParsed = {
   kind: "bi_pdf";
@@ -84,6 +86,12 @@ export type BiPdfParsed = {
   persons: BiPerson[];
   total: Omit<BiPerson, "code" | "name">;
   category_layout_ok: boolean;
+  /** Belgede hangi sayfalar vardı — rapor iki ayrı PDF olarak da gelir (Lefkoşa, Eylül 2026). Eski kayıtlarda yok. */
+  has_sales?: boolean;
+  has_category?: boolean;
+  /** Raporun kendi süzgecinde yazan ay / yıl (okunabildiyse) */
+  month?: number | null;
+  year?: number | null;
 };
 export type KpiPerson = {
   code: string | null;
@@ -359,30 +367,55 @@ function tinyPdf(text: string): Uint8Array {
 }
 
 /** Can this server read a PDF at all? Never throws. */
-export async function pdfSelfTest(): Promise<{ ok: boolean; ms: number; error: string | null }> {
+export async function pdfSelfTest(): Promise<{ ok: boolean; ms: number; error: string | null; positions: boolean }> {
   const t0 = Date.now();
   try {
-    const PDFParse = await loadPdfParse();
-    const parser = new PDFParse({ data: tinyPdf("NATUREL PDF OK 1234") });
-    try {
-      const res = await parser.getText();
-      const text = (res.pages ?? []).map((p: { text: string }) => p.text).join(" ");
-      if (!text.includes("NATUREL PDF OK 1234")) return { ok: false, ms: Date.now() - t0, error: `metin okunamadı: "${text.slice(0, 60)}"` };
-    } finally {
-      await parser.destroy?.();
-    }
-    return { ok: true, ms: Date.now() - t0, error: null };
+    // Asıl okuyucunun yolu: metin + (BI kategori sayfası için) parça konumları.
+    const pages = await pdfPages(Buffer.from(tinyPdf("NATUREL PDF OK 1234")));
+    const text = pages.map((p) => p.text).join(" ");
+    const positions = pages.some((p) => p.items.some((i) => i.s.includes("NATUREL") && i.x > 0 && i.y > 0));
+    if (!text.includes("NATUREL PDF OK 1234")) return { ok: false, ms: Date.now() - t0, error: `metin okunamadı: "${text.slice(0, 60)}"`, positions };
+    return { ok: true, ms: Date.now() - t0, error: null, positions };
   } catch (e) {
-    return { ok: false, ms: Date.now() - t0, error: (e instanceof Error ? e.message : String(e)).slice(0, 300) };
+    return { ok: false, ms: Date.now() - t0, error: (e instanceof Error ? e.message : String(e)).slice(0, 300), positions: false };
   }
 }
 
-async function pdfPages(buf: Buffer): Promise<Array<{ text: string }>> {
+/** Sayfadaki bir metin parçası ve konumu (PDF birimi; y yukarı doğru artar). */
+export type PdfItem = { s: string; x: number; y: number; w: number };
+type PdfPage = { text: string; items: PdfItem[] };
+
+async function pdfPages(buf: Buffer): Promise<PdfPage[]> {
   const PDFParse = await loadPdfParse();
   const parser = new PDFParse({ data: new Uint8Array(buf) });
   try {
     const res = await parser.getText();
-    return (res.pages ?? []).map((p: { text: string }) => ({ text: p.text }));
+    // Konumlar: pdf-parse belgeyi (pdf.js) dışarı vermez; getText'in de kullandığı iç `load()`
+    // ile aynı belgeye erişilir (sürüm sabit: pdf-parse 2.4.5). Erişilemezse sayfalar yalnız
+    // metinle döner ve okuyucular metin yoluna düşer — hata vermez.
+    type Doc = { getPage(n: number): Promise<{ getTextContent(): Promise<{ items: unknown[] }> }> };
+    const load = (parser as unknown as { load?: () => Promise<Doc> }).load;
+    let doc: Doc | null = null;
+    try {
+      doc = typeof load === "function" ? await load.call(parser) : null;
+    } catch {
+      doc = null;
+    }
+    const pages: PdfPage[] = [];
+    for (const p of (res.pages ?? []) as Array<{ text: string; num: number }>) {
+      let items: PdfItem[] = [];
+      try {
+        const content = doc ? await (await doc.getPage(p.num)).getTextContent() : { items: [] };
+        for (const it of content.items as Array<{ str?: string; transform?: number[]; width?: number }>) {
+          if (typeof it.str !== "string" || !it.str.trim() || !it.transform) continue;
+          items.push({ s: it.str.trim(), x: it.transform[4] ?? 0, y: it.transform[5] ?? 0, w: it.width ?? 0 });
+        }
+      } catch {
+        items = []; // konum okunamazsa metinle devam edilir
+      }
+      pages.push({ text: p.text, items });
+    }
+    return pages;
   } finally {
     await parser.destroy?.();
   }
@@ -536,10 +569,185 @@ export function parseKpiPdfPages(pages: string[]): KpiParsed {
   return { kind: "kpi_xlsx", store_code, store_label, persons, date_from, date_to, format: "pdf" };
 }
 
-function parseBiPdf(pages: Array<{ text: string }>): BiPdfParsed {
+type BiCategoryRow = { units_total: number | null; erkek_denim_units: number; kadin_denim_units: number; cocuk_denim_units: number };
+
+/**
+ * BI "ÇALIŞAN KATEGORİ KPI" sayfası — KONUMLA okunur.
+ *
+ * Tablo reyon reyon adet verir: Erkek (… Denim …, Toplam) · Kadın (…) · varsa
+ * Çocuk (…) · en sağda genel Toplam. Hangi sütunların göründüğü mağazaya göre
+ * değişir (Girne'de Erkek-Ceket ve Çocuk reyonu yok; Lefkoşa'da ikisi de var)
+ * ve BOŞ HÜCRE METİNDE HİÇ YER TUTMAZ — sıradan sayarak okumak, bir hücresi boş
+ * olan satırda (çoğu satır) yanlış sütuna düşer. Bu yüzden her sayı, başlık
+ * satırındaki en yakın sütun başlığına bağlanır. Güvence: her reyonda
+ * kalemlerin toplamı reyon Toplam'ına, reyon toplamları genel Toplam'a eşit
+ * çıkmalıdır; çıkmayan satırın denim adedi YAZILMAZ (ok = false).
+ */
+export function parseBiCategoryGrid(items: PdfItem[]): { rows: Map<string, BiCategoryRow & { name: string }>; total: BiCategoryRow | null; ok: boolean } {
+  const rows = new Map<string, BiCategoryRow & { name: string }>();
+  const empty = { rows, total: null, ok: false };
+  // Satırlar: y'si birbirine yakın parçalar
+  const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
+  const lines: PdfItem[][] = [];
+  for (const it of sorted) {
+    const last = lines[lines.length - 1];
+    if (last && Math.abs(last[0]!.y - it.y) <= 4) last.push(it);
+    else lines.push([it]);
+  }
+  for (const l of lines) l.sort((a, b) => a.x - b.x);
+  const header = lines.find((l) => l.some((i) => i.s === "Çalışan") && l.filter((i) => i.s === "Toplam").length >= 2);
+  const sectionLine = lines.find((l) => l.some((i) => i.s === "Bölüm"));
+  if (!header || !sectionLine) return empty;
+  const center = (i: PdfItem) => i.x + i.w / 2;
+  const nameX = header.find((i) => i.s === "Çalışan")!.x;
+  const sectionNames = sectionLine.filter((i) => i.s !== "Bölüm" && i.s !== "Toplam").map((i) => i.s);
+  const grand = sectionLine.filter((i) => i.s === "Toplam").pop();
+  type Col = { label: string; cx: number; section: number; grand: boolean };
+  const cols: Col[] = [];
+  let section = 0;
+  for (const h of header.filter((i) => i.x > nameX)) {
+    cols.push({ label: h.s, cx: center(h), section, grand: false });
+    if (h.s === "Toplam") section += 1;
+  }
+  const sectionCount = section;
+  if (sectionCount < 2 || !grand || grand.x <= cols[cols.length - 1]!.cx) return empty;
+  cols.push({ label: "Toplam", cx: center(grand), section: -1, grand: true });
+  const sectionOf = (name: string) => sectionNames.findIndex((n) => normalizeName(n) === name);
+  const iE = sectionOf("erkek");
+  const iK = sectionOf("kadin");
+  const iC = sectionOf("cocuk");
+  if (sectionNames.length !== sectionCount || iE < 0 || iK < 0) return empty;
+  // İki sütun arasının yarısından uzağa düşen sayı hiçbir sütuna ait sayılmaz.
+  const gaps = cols.slice(1).map((c, i) => c.cx - cols[i]!.cx);
+  const reach = Math.min(...gaps) / 2;
+
+  let ok = true;
+  let total: BiCategoryRow | null = null;
+  for (const line of lines) {
+    const first = line[0]!;
+    const m = first.s.match(/^(\d{8})\s*-\s*(.+)$/);
+    const isTotal = first.s === "Genel Toplam";
+    if (!m && !isTotal) continue;
+    const values = new Map<Col, number>();
+    let clean = true;
+    for (const it of line.slice(1)) {
+      if (!/^-?[\d.]+$/.test(it.s)) continue;
+      const v = trNum(it.s);
+      const col = cols.reduce((a, b) => (Math.abs(b.cx - center(it)) < Math.abs(a.cx - center(it)) ? b : a));
+      if (v == null || Math.abs(col.cx - center(it)) > reach || values.has(col)) {
+        clean = false;
+        break;
+      }
+      values.set(col, v);
+    }
+    const grandValue = values.get(cols[cols.length - 1]!) ?? null;
+    let sum = 0;
+    for (let sIdx = 0; clean && sIdx < sectionCount; sIdx++) {
+      const sc = cols.filter((c) => c.section === sIdx);
+      const parts = sc.filter((c) => c.label !== "Toplam").reduce((a, c) => a + (values.get(c) ?? 0), 0);
+      const tot = values.get(sc.find((c) => c.label === "Toplam")!);
+      if ((tot ?? 0) !== parts) clean = false;
+      sum += tot ?? 0;
+    }
+    if (clean && grandValue !== sum) clean = false;
+    const denim = (sIdx: number) => (sIdx < 0 ? 0 : (values.get(cols.find((c) => c.section === sIdx && c.label === "Denim")!) ?? 0));
+    const row: BiCategoryRow = clean
+      ? { units_total: grandValue, erkek_denim_units: denim(iE), kadin_denim_units: denim(iK), cocuk_denim_units: denim(iC) }
+      : { units_total: grandValue, erkek_denim_units: NaN, kadin_denim_units: NaN, cocuk_denim_units: NaN };
+    if (!clean) ok = false;
+    if (isTotal) total = row;
+    else rows.set(m![1]!, { ...row, name: m![2]!.trim() });
+  }
+  return { rows, total, ok: ok && rows.size > 0 };
+}
+
+const TR_MONTHS = ["ocak", "subat", "mart", "nisan", "mayis", "haziran", "temmuz", "agustos", "eylul", "ekim", "kasim", "aralik"];
+
+/**
+ * BI sayfasının süzgeç kutuları: "Tarih" başlığının hemen altında ay adı, "Yıl"
+ * başlığının altında yıl yazar. Konumla okunur (ay adları kişi adı da olabilir:
+ * Eylül, Nisan…); konum yoksa sayfada TEK ay adı ve TEK yıl geçiyorsa o alınır.
+ * Emin olunamıyorsa null — dönem denetimi yapılmaz, yanlış ret verilmez.
+ */
+function biReportPeriod(pg: PdfPage): { month: number; year: number } | null {
+  const below = (label: string) => {
+    const h = pg.items.find((i) => i.s === label);
+    if (!h) return null;
+    return (
+      pg.items
+        .filter((i) => i !== h && i.y < h.y && h.y - i.y < 70 && Math.abs(i.x - h.x) < 40)
+        .sort((a, b) => b.y - a.y)[0]?.s ?? null
+    );
+  };
+  const m = TR_MONTHS.indexOf(normalizeName(below("Tarih") ?? ""));
+  const y = below("Yıl");
+  if (m >= 0 && y && /^20\d{2}$/.test(y)) return { month: m + 1, year: Number(y) };
+  const words = pg.text.split(/\s+/).filter(Boolean);
+  const months = Array.from(new Set(words.map((w) => TR_MONTHS.indexOf(normalizeName(w))).filter((i) => i >= 0)));
+  const years = Array.from(new Set(words.filter((w) => /^20\d{2}$/.test(w)).map(Number)));
+  return months.length === 1 && years.length === 1 ? { month: months[0]! + 1, year: years[0]! } : null;
+}
+
+/** Belgede hangi sayfalar var (eski kayıtlarda bayrak yoktur — içerikten anlaşılır). */
+export function biPdfPagesOf(p: BiPdfParsed): { sales: boolean; category: boolean } {
+  return {
+    sales: p.has_sales ?? (p.total.net_tl != null || p.persons.some((x) => x.net_tl != null)),
+    category: p.has_category ?? (p.total.units_total != null || p.persons.some((x) => x.units_total != null)),
+  };
+}
+
+/**
+ * Rapor iki ayrı PDF olarak gelebilir (her sayfa ayrı yazdırılmış: biri SATIŞ
+ * KPI, biri KATEGORİ KPI). Sistemde mağaza × ay başına TEK BI kaydı durur;
+ * ikinci dosya birincinin üstüne yazmaz, eksik sayfasını tamamlar. Yeni dosyada
+ * bulunan sayfa yeni dosyadan, bulunmayan sayfa eldeki kayıttan alınır.
+ */
+export function mergeBiPdf(prev: BiPdfParsed, next: BiPdfParsed): BiPdfParsed {
+  const a = biPdfPagesOf(prev);
+  const b = biPdfPagesOf(next);
+  const pick = <T extends Omit<BiPerson, "code" | "name">>(p: T | undefined, n: T | undefined): Omit<BiPerson, "code" | "name"> => {
+    const sales = b.sales ? n : p;
+    const cat = b.category ? n : p;
+    return {
+      net_tl: sales?.net_tl ?? null,
+      upt: sales?.upt ?? null,
+      sepet: sales?.sepet ?? null,
+      two_plus_one_pct: sales?.two_plus_one_pct ?? null,
+      single_pct: sales?.single_pct ?? null,
+      transactions: sales?.transactions ?? null,
+      denim_units: sales?.denim_units ?? null,
+      units_total: cat?.units_total ?? null,
+      erkek_denim_units: cat?.erkek_denim_units ?? null,
+      kadin_denim_units: cat?.kadin_denim_units ?? null,
+      cocuk_denim_units: cat?.cocuk_denim_units ?? null,
+    };
+  };
+  const codes = Array.from(new Set([...next.persons, ...prev.persons].map((x) => x.code)));
+  return {
+    kind: "bi_pdf",
+    store_code: next.store_code ?? prev.store_code,
+    persons: codes.map((code) => {
+      const p = prev.persons.find((x) => x.code === code);
+      const n = next.persons.find((x) => x.code === code);
+      return { code, name: (n ?? p)!.name, ...pick(p, n) };
+    }),
+    total: pick(prev.total, next.total),
+    category_layout_ok: b.category ? next.category_layout_ok : prev.category_layout_ok,
+    has_sales: a.sales || b.sales,
+    has_category: a.category || b.category,
+    month: next.month ?? prev.month ?? null,
+    year: next.year ?? prev.year ?? null,
+  };
+}
+
+function parseBiPdf(pages: PdfPage[]): BiPdfParsed {
   const persons = new Map<string, BiPerson>();
   const total: BiPdfParsed["total"] = { ...EMPTY_TOTAL };
   let category_layout_ok = true;
+  let has_sales = false;
+  let has_category = false;
+  let month: number | null = null;
+  let year: number | null = null;
   const person = (code: string, name: string): BiPerson => {
     let p = persons.get(code);
     if (!p) {
@@ -562,7 +770,8 @@ function parseBiPdf(pages: Array<{ text: string }>): BiPdfParsed {
     t.transactions = nums.length ? trNum(nums[0]) : null;
     t.denim_units = nums.length >= 2 && !nums[1]!.includes(",") ? trNum(nums[1]) : null;
   };
-  const applyCategory = (t: Omit<BiPerson, "code" | "name">, cells: string[]) => {
+  // Konum okunamadıysa: yalnız bütün hücreleri dolu 19 sütunlu satır (Girne düzeni) sıradan okunur.
+  const applyCategoryText = (t: Omit<BiPerson, "code" | "name">, cells: string[]) => {
     const n = cells.map((c) => trNum(c) ?? 0);
     t.units_total = n.length ? n[n.length - 1]! : null;
     if (n.length === 19) {
@@ -581,6 +790,26 @@ function parseBiPdf(pages: Array<{ text: string }>): BiPdfParsed {
     const isSales = /ÇALIŞAN SATIŞ KPI/.test(pg.text);
     const isCategory = /ÇALIŞAN KATEGORİ KPI/.test(pg.text);
     if (!isSales && !isCategory) continue;
+    if (isSales) has_sales = true;
+    if (isCategory) has_category = true;
+    // Raporun dönemi: süzgeç kutularında yazar ("Tarih" altında ay adı, "Yıl" altında yıl).
+    const period = biReportPeriod(pg);
+    if (period) [month, year] = [period.month, period.year];
+
+    const grid = isCategory ? parseBiCategoryGrid(pg.items) : null;
+    if (grid && grid.rows.size > 0) {
+      if (!grid.ok) category_layout_ok = false;
+      const put = (t: Omit<BiPerson, "code" | "name">, r: BiCategoryRow) => {
+        t.units_total = r.units_total;
+        if (Number.isNaN(r.erkek_denim_units)) return; // toplamı tutmayan satır: denim adedi yazılmaz
+        t.erkek_denim_units = r.erkek_denim_units;
+        t.kadin_denim_units = r.kadin_denim_units;
+        t.cocuk_denim_units = r.cocuk_denim_units;
+      };
+      for (const [code, r] of Array.from(grid.rows.entries())) put(person(code, r.name), r);
+      if (grid.total) put(total, grid.total);
+      continue;
+    }
     for (const raw of pg.text.split("\n")) {
       const line = raw.trim();
       const m = line.match(/^(\d{8})\s*-\s*([^\t]+?)\s*\t(.+)$/);
@@ -592,7 +821,7 @@ function parseBiPdf(pages: Array<{ text: string }>): BiPdfParsed {
         .filter(Boolean);
       const target = m ? person(m[1]!, m[2]!.trim()) : total;
       if (isSales) applySales(target, cells);
-      else applyCategory(target, cells);
+      else applyCategoryText(target, cells);
     }
   }
   if (persons.size === 0) {
@@ -600,7 +829,7 @@ function parseBiPdf(pages: Array<{ text: string }>): BiPdfParsed {
   }
   const codes = Array.from(persons.keys()).map((c) => c.slice(0, 4));
   const store_code = codes.sort((a, b) => codes.filter((x) => x === b).length - codes.filter((x) => x === a).length)[0] ?? null;
-  return { kind: "bi_pdf", store_code, persons: Array.from(persons.values()), total, category_layout_ok };
+  return { kind: "bi_pdf", store_code, persons: Array.from(persons.values()), total, category_layout_ok, has_sales, has_category, month, year };
 }
 
 export async function parsePerformanceFile(
@@ -901,10 +1130,20 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
         });
       }
     }
+    // Denim adedi: KPI raporu yalnız Erkek + Kadın reyonunu sayar; BI satış sayfasındaki
+    // "Denim Adet" çocuk reyonunu da içerir (Lefkoşa Eylül 2026: Selbi 281 = 168 + 107 + 6).
     const duKpi = s.kpi ? s.kpi.denim_units_erkek + s.kpi.denim_units_kadin : null;
     const duBi = s.bi?.denim_units ?? null;
-    if (duKpi != null && duBi != null && duKpi !== duBi) {
-      rf.push({ level: "error", text: `Denim adedi tutmuyor: KPI dosyası ${duKpi}, BI raporu ${duBi}` });
+    const duKids = s.bi?.cocuk_denim_units ?? null; // BI kategori sayfası okunduysa
+    if (duKpi != null && duBi != null && duBi !== duKpi + (duKids ?? 0)) {
+      if (duKids == null && duBi > duKpi) {
+        rf.push({
+          level: "info",
+          text: `BI denim adedi ${duBi}, KPI ${duKpi}: aradaki ${duBi - duKpi} adet çocuk denimi olabilir (KPI raporunda çocuk reyonu yok) — BI raporunun kategori sayfası yüklenince kesinleşir`,
+        });
+      } else {
+        rf.push({ level: "error", text: `Denim adedi tutmuyor: KPI dosyası ${duKpi}${duKids ? ` + çocuk reyonu ${duKids}` : ""}, BI raporu ${duBi}` });
+      }
     }
     // KPI raporunun TL sütunları IT POS tabanındadır: ortak fişte bu kişiden düşülmeyen Kartuş
     // payını içerir (Lefkoşa Eylül 2026, kasiyer: KPI toplamı = IT POS rakamı = 15.930,56;
@@ -964,9 +1203,13 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
 
   const persons_sum = rows.some((r) => r.net_used != null) ? r2(rows.reduce((s, r) => s + (r.net_used ?? 0), 0)) : null;
   const docStoreNet = itk?.net_ciro ?? bi?.total.net_tl ?? null;
-  const store_net = docStoreNet ?? (dailyComplete ? daily!.store_net : null);
+  // BI mağaza toplamını tam liraya yuvarlar. Günlük dosyalar tam ve BI ile aynı liradaysa
+  // kuruşlu günlük toplam alınır (Lefkoşa Eylül 2026: BI 5.691.599 · günlük 5.691.598,70 —
+  // IT POS mağaza ekranı da 5.691.598,70 gösterir).
+  const biAgreesToLira = itk?.net_ciro == null && bi?.total.net_tl != null && dailyComplete && Math.abs(bi.total.net_tl - daily!.store_net) <= DAILY_SAME_TL;
+  const store_net = biAgreesToLira ? daily!.store_net : (docStoreNet ?? (dailyComplete ? daily!.store_net : null));
   const store_net_source: PerfCheck["store_net_source"] =
-    itk?.net_ciro != null ? "itpos" : bi?.total.net_tl != null ? "bi" : dailyComplete ? "daily" : null;
+    itk?.net_ciro != null ? "itpos" : biAgreesToLira ? "daily" : bi?.total.net_tl != null ? "bi" : dailyComplete ? "daily" : null;
 
   if (itk?.net_ciro != null && bi?.total.net_tl != null && Math.abs(itk.net_ciro - bi.total.net_tl) > 5) {
     flags.push({
@@ -1034,7 +1277,13 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
   if (!itk) {
     flags.push({
       level: "info",
-      text: bi ? "IT POS Performans (KPI) yüklenmedi — mağaza cirosu BI raporundan alınır" : dailyComplete ? "IT POS Performans (KPI) yüklenmedi — mağaza cirosu günlük bayi dosyalarından alınır" : "IT POS Performans (KPI) yüklenmedi",
+      text: biAgreesToLira
+        ? "IT POS Performans (KPI) yüklenmedi — mağaza cirosu günlük bayi dosyalarından alındı (kuruşlu); BI raporundaki toplamla aynı"
+        : bi
+          ? "IT POS Performans (KPI) yüklenmedi — mağaza cirosu BI raporundan alınır"
+          : dailyComplete
+            ? "IT POS Performans (KPI) yüklenmedi — mağaza cirosu günlük bayi dosyalarından alınır"
+            : "IT POS Performans (KPI) yüklenmedi",
     });
   }
   for (const l of lines.filter((x) => x.commission_profile === "mavi_asistan")) {

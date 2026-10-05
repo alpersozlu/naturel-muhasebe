@@ -242,3 +242,63 @@ describe("performans çapraz kontrolü — IT POS kişi tablosu ve ortak fişler
     expect(f.text).toContain("ilk okutulan ürünün temsilcisinden");
   });
 });
+
+/**
+ * BI raporu (Lefkoşa Eylül 2026, gerçek rakamlar): kişi Net TL'si pay oranlı
+ * ciroyla liraya kadar aynıdır; "Denim Adet" çocuk reyonunu da sayar.
+ */
+describe("performans çapraz kontrolü — BI raporu, çocuk reyonu ve mağaza toplamı", () => {
+  const person = (code: string, name: string, net_tl: number, denim_units: number, kids: number | null): BiPdfParsed["persons"][number] => ({
+    code, name, ...NONE, net_tl, denim_units, cocuk_denim_units: kids,
+  });
+  const B = (kids: Array<number | null>): BiPdfParsed => ({
+    kind: "bi_pdf",
+    store_code: "9400",
+    category_layout_ok: true,
+    persons: [person("94000027", "Selbi Hayatova", 1417624, 281, kids[0]!), person("94000038", "Yaşar Kemal Tıngır", 1672920, 375, kids[1]!)],
+    total: { ...NONE, net_tl: 3090544 },
+  });
+  const K: KpiParsed = {
+    kind: "kpi_xlsx", store_code: "9400", store_label: null,
+    persons: [
+      { code: "94000027", name: "Selbi Hayatova", denim_tl_erkek: 287281.2, denim_tl_kadin: 169552.05, denim_units_erkek: 168, denim_units_kadin: 107, category_tl_total: 1331689.59, units_total: 1444 },
+      { code: "94000038", name: "Yaşar Kemal Tıngır", denim_tl_erkek: 367526.06, denim_tl_kadin: 268005.71, denim_units_erkek: 213, denim_units_kadin: 153, category_tl_total: 1588870.86, units_total: 1562 },
+    ],
+  };
+  const lines = [line("1", "Selbi Hayatova"), line("2", "Yaşar Kemal Tıngır")];
+  const D = () => daily([["94000027", "Selbi Hayatova", 1417623.64, null, 1160.21], ["94000038", "Yaşar Kemal Tıngır", 1672920.02, null, 1173.13]]);
+  const I = itpos([["Selbi Hayatova", 1418783.86], ["Yaşar Kemal Tıngır", 1674093.16]]);
+
+  it("BI denim adedi = KPI (erkek + kadın) + çocuk reyonu ise tutar", () => {
+    const c = buildPerformanceCheck([B([6, 9]), K, I], lines, D());
+    expect(hasError(c)).toBe(false);
+    expect(c.ready).toBe(true);
+    // üç kaynak da aynı kişide birleşir: BI liraya kadar günlükle aynı, IT POS düşülmeyen pay kadar yüksek
+    const selbi = c.rows.find((r) => r.code === "94000027")!;
+    expect(selbi.net_bi).toBe(1417624);
+    expect(selbi.net_used).toBe(1417623.64);
+    expect(selbi.flags.some((f) => f.level !== "info")).toBe(false);
+  });
+
+  it("çocuk reyonu adedi bilinmiyorsa (kategori sayfası yok) fazlalık hata sayılmaz, not düşülür", () => {
+    const c = buildPerformanceCheck([B([null, null]), K, I], lines, D());
+    expect(hasError(c)).toBe(false);
+    expect(c.rows.find((r) => r.code === "94000027")!.flags.some((f) => f.level === "info" && f.text.includes("çocuk denimi olabilir"))).toBe(true);
+  });
+
+  it("BI denim adedi KPI'dan AZSA ya da çocuk reyonuyla da tutmuyorsa hata", () => {
+    const less = B([null, null]);
+    less.persons[0]!.denim_units = 270; // KPI 275
+    expect(hasError(buildPerformanceCheck([less, K, I], lines, D()))).toBe(true);
+    expect(hasError(buildPerformanceCheck([B([5, 9]), K, I], lines, D()))).toBe(true); // 275 + 5 ≠ 281
+  });
+
+  it("mağaza cirosu: BI liraya yuvarlar; günlük dosyalar aynı liradaysa kuruşlu toplam alınır", () => {
+    const c = buildPerformanceCheck([B([6, 9]), K, I], lines, D());
+    expect(c.store_net).toBe(3090543.66); // BI 3.090.544
+    expect(c.store_net_source).toBe("daily");
+    expect(c.daily_agrees).toBe(true);
+    expect(c.persons_sum).toBe(c.store_net);
+  });
+});
+

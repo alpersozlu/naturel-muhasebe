@@ -23,4 +23,6 @@ check() { # ad, yol, yanıtta aranacak metin
 }
 check "API ayakta (tRPC rotası yükleniyor)" "/api/trpc/health" '"ok":true'
 check "PDF okunabiliyor (pdf.js sunucuda yükleniyor)" "/api/trpc/healthPdf" '"ok":true'
+# BI raporunun kategori sayfası parça KONUMLARIYLA okunur (boş hücre metinde yer tutmaz).
+check "PDF'te konumlar okunabiliyor (BI kategori sayfası)" "/api/trpc/healthPdf" '"positions":true'
 [ "$fail" = "0" ] && echo "Duman testi geçti: $BASE" || { echo "DUMAN TESTİ BAŞARISIZ: $BASE"; exit 1; }

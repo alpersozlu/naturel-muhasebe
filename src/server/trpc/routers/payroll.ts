@@ -46,10 +46,13 @@ import { carryForwardCore } from "@/server/services/payroll/carry";
 import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
 import { kolayikLeaveStatus, kolayikMonth, kolayikSundayAudit } from "@/server/services/kolayik/payroll-sync";
 import {
+  biPdfPagesOf,
   buildPerformanceCheck,
   expectedStoreCode,
+  mergeBiPdf,
   parsePerformanceFile,
   sha256,
+  type BiPdfParsed,
   type PerfLineRef,
   type PerfParsed,
 } from "@/server/services/payroll/performance";
@@ -248,6 +251,31 @@ export const payrollRouter = router({
           });
         }
       }
+      // BI raporu kendi ayını yazar; başka ayın raporu bu aya yüklenemez.
+      if (res.parsed.kind === "bi_pdf" && res.parsed.month && res.parsed.year && (res.parsed.month !== period.month || res.parsed.year !== period.year)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Bu Çalışan Performans Raporu ${periodLabel(res.parsed.year, res.parsed.month)} dönemine ait; ${periodLabel(period.year, period.month)} bekleniyordu.`,
+        });
+      }
+      // BI raporu iki ayrı PDF olarak da gelir (satış sayfası + kategori sayfası): ikinci dosya
+      // birincinin üstüne yazmaz, eksik sayfasını tamamlar (performance.ts mergeBiPdf).
+      let parsedToStore: PerfParsed = res.parsed;
+      let fileName = input.file_name;
+      if (res.parsed.kind === "bi_pdf") {
+        const prev = await ctx.prisma.payrollPerformanceDoc.findUnique({
+          where: { period_id_store_id_kind: { period_id: period.id, store_id: store.id, kind: "bi_pdf" } },
+        });
+        if (prev) {
+          const old = prev.parsed_json as unknown as BiPdfParsed;
+          const had = biPdfPagesOf(old);
+          const has = biPdfPagesOf(res.parsed);
+          if ((had.sales && !has.sales) || (had.category && !has.category)) {
+            parsedToStore = mergeBiPdf(old, res.parsed);
+            fileName = Array.from(new Set([...prev.file_name.split(" + "), input.file_name])).join(" + ").slice(0, 200);
+          }
+        }
+      }
       const path = `${store.id}/payroll/${period.year}-${mm}/${res.parsed.kind}-${res.hash.slice(0, 16)}.${res.ext}`;
       let file_path: string | null = path;
       try {
@@ -257,12 +285,12 @@ export const payrollRouter = router({
         if (!/exist|duplicate/i.test(e instanceof Error ? e.message : "")) file_path = null;
       }
       const data = {
-        file_name: input.file_name,
+        file_name: fileName,
         file_hash: res.hash,
         file_path,
         genuine: res.genuine,
         meta_json: (res.meta ?? undefined) as Prisma.InputJsonValue | undefined,
-        parsed_json: res.parsed as unknown as Prisma.InputJsonValue,
+        parsed_json: parsedToStore as unknown as Prisma.InputJsonValue,
         uploaded_by: ctx.user.id,
         uploaded_by_name: ctx.user.full_name ?? ctx.user.email,
       };
