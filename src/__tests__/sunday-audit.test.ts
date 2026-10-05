@@ -43,15 +43,17 @@ describe("pazar çalışması ↔ hak günü", () => {
   });
 
   it("8 saat hak günüdür, üstü ücrettir; hafta içi mesai tamamen ücrettir", () => {
-    expect(splitOvertime({ date: "2026-09-06", minutes: 480, description: "Pazar mesaisi" })).toEqual({ credit_day: true, paid_minutes: 0 });
-    expect(splitOvertime({ date: "2026-09-06", minutes: 600, description: "Molasız pazar mesaisi" })).toEqual({ credit_day: true, paid_minutes: 120 });
-    // yalnız ek saat girilmiş pazar: hak günü kaydı yok, girilen dakika ücrettir
-    expect(splitOvertime({ date: "2026-09-13", minutes: 180, description: "1.5 x2 ek Pazar" })).toEqual({ credit_day: false, paid_minutes: 180 });
-    expect(splitOvertime({ date: "2026-09-09", minutes: 120, description: "2 saat fazla mesai" })).toEqual({ credit_day: false, paid_minutes: 120 });
+    expect(splitOvertime({ date: "2026-09-06", minutes: 480, description: "Pazar mesaisi" })).toEqual({ credit_day: true, paid_minutes: 0, rest_day: true });
+    // sahibi: "10 saat yazarsa 2 saat ek mesai olarak eklenecek"
+    expect(splitOvertime({ date: "2026-09-06", minutes: 600, description: "Molasız pazar mesaisi" })).toEqual({ credit_day: true, paid_minutes: 120, rest_day: true });
+    // yalnız ek saat girilmiş pazar ("kaç saat yaptıysa ek mesai onu yazmış"): girilen dakikanın tamamı ücrettir
+    expect(splitOvertime({ date: "2026-09-13", minutes: 180, description: "1.5 x2 ek Pazar" })).toEqual({ credit_day: false, paid_minutes: 180, rest_day: true });
+    expect(splitOvertime({ date: "2026-09-13", minutes: 120, description: "Pazar ek mesai" })).toEqual({ credit_day: false, paid_minutes: 120, rest_day: true });
+    expect(splitOvertime({ date: "2026-09-09", minutes: 120, description: "2 saat fazla mesai" })).toEqual({ credit_day: false, paid_minutes: 120, rest_day: false });
     // resmî tatil hafta içine denk gelse de hak günüdür
-    expect(splitOvertime({ date: "2026-08-25", minutes: 480, description: "Resmi tatil" })).toEqual({ credit_day: true, paid_minutes: 0 });
+    expect(splitOvertime({ date: "2026-08-25", minutes: 480, description: "Resmi tatil" })).toEqual({ credit_day: true, paid_minutes: 0, rest_day: true });
     // hafta içi 8 saat, tatil notu yok: hak günü sayılmaz
-    expect(splitOvertime({ date: "2026-10-02", minutes: 480, description: null })).toEqual({ credit_day: false, paid_minutes: 480 });
+    expect(splitOvertime({ date: "2026-10-02", minutes: 480, description: null })).toEqual({ credit_day: false, paid_minutes: 480, rest_day: false });
   });
 
   it("izin açıklamasından tür ve hangi pazarın karşılığı olduğu okunur", () => {
@@ -125,12 +127,15 @@ describe("pazar çalışması ↔ hak günü", () => {
     expect(p.sundays[0]!.notes.join(" ")).toContain("07.09–12.09 6 günlük izin var");
   });
 
-  it("yalnız ek saat girilmiş pazar: çalışılmış sayılır ama 8 saat kaydı eksiktir", () => {
+  it("yalnız ek saat girilmiş pazar: çalışılmış sayılır, yazılan saat ücrettir, kayıt düzeltilmelidir", () => {
+    // Selbi H., Eylül 2026 — sahibi: "kaç saat yaptıysa ek mesai onu yazmış, onları düzeltebiliriz"
     const p = run([ot("p", "2026-09-13", 120, { description: "Pazar ek mesai", createdAt: "2026-10-03" })], [lv("p", "2026-09-16", "Haftalık ızın")]);
-    expect(p.counts).toMatchObject({ worked: 1, with_8h: 0, used: 1 });
+    expect(p.counts).toMatchObject({ worked: 1, with_8h: 0, used: 1, unused: 0 });
     expect(p.sundays[0]!.paid_minutes).toBe(120);
+    expect(p.sundays[0]!.state).toBe("used");
     expect(p.sundays[0]!.entered_after_days).toBe(20);
-    expect(p.issues).toEqual(["1 pazar için 8 saat mesai girilmemiş (13.09)"]);
+    expect(p.sundays[0]!.notes[0]).toBe("Yalnız ek mesai yazılmış (2 saat, ücrete girer) — pazarın 8 saati ayrıca girilmemiş; kayıt 8 + ek saat olarak düzeltilmeli");
+    expect(p.issues).toEqual(["1 pazarda yalnız ek mesai yazılmış, 8 saat girilmemiş (13.09)"]);
   });
 
   it("pazar çalışması izin olarak girilmişse yakalanır (bakiyeden yanlışlıkla 1 gün düşer)", () => {

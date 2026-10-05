@@ -84,7 +84,7 @@ export function SundayAuditPanel({ year, month }: { year: number; month: number 
             </span>
             {data.totals.worked - data.totals.with_8h > 0 ? (
               <span className="text-amber-800">
-                <b>{data.totals.worked - data.totals.with_8h}</b> pazar için 8 saat girilmemiş
+                <b>{data.totals.worked - data.totals.with_8h}</b> pazarda 8 saat kaydı yok
               </span>
             ) : null}
             <div className="flex-1" />
@@ -167,7 +167,7 @@ export function SundayAuditPanel({ year, month }: { year: number; month: number 
             <div>
               Okuma: pazar günü girilen mesai kaydı çalışmayı, ardından alınan tek günlük izin karşılık gününü gösterir. Açıklamasında tarih ya da “pazar / haftalık”
               yazan izin en yakın önceki pazara bağlanır; açıklaması “yıllık izin” diyen gün karşılık sayılmaz. 8 saatin üstü (molasız çalışma) ücrettir, hak gününe
-              girmez.
+              girmez. Pazar günü 8 saat yerine yalnız ek saatini yazan kişi de çalışmış sayılır; yazdığı saat ücrettir, kaydı 8 + ek saat olarak düzeltilmelidir.
             </div>
             <div>
               “Kolay İK kalan” yıllık izin bakiyesidir (hak edilen + eklenen hak günleri − kullanılan). Bir yıllık haktan fazlası birikmiş hak günü demektir. Kolay İK
@@ -210,7 +210,7 @@ function SundayCell({ row }: { row: Sunday | undefined }) {
       ) : row.source === "leave_comment" ? (
         <div className="text-[10px] text-amber-800">mesai kaydı yok</div>
       ) : !row.has_8h ? (
-        <div className="text-[10px] text-amber-800">8 saat yok · {row.minutes} dk</div>
+        <div className="text-[10px] text-amber-800">yalnız ek mesai · {num((row.minutes ?? 0) / 60)} s ücret</div>
       ) : extra ? (
         <div className="text-[10px] text-muted-foreground">+{num(extra / 60)} s ücret</div>
       ) : null}

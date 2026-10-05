@@ -27,6 +27,12 @@ import {
  * Mert'in Ağustos bordrosu da böyleydi (Yaşar: iki pazar × "1 saat x 2" =
  * 4 saat). approved_hours / waiting_hours ÖDENECEK saattir; girilen ham toplam
  * raw_hours, hak günü sayısı credit_days alanındadır.
+ *
+ * PAZAR 8 SAAT ÜSTÜ (sahibi, 05.10.2026): "pazar günü 8 saatten fazla yapan ek
+ * mesai olarak ödenir; 10 saat yazarsa 2 saat ek mesai olarak maaşa eklenir."
+ * Bazıları 10 yerine yalnız ek saati yazar ("Pazar ek mesai" 2 saat) — o da
+ * tamamen ücrettir. Ödenecek saatin pazar / tatile düşen kısmı
+ * sunday_extra_hours alanında ayrıca verilir; kalanı diğer günlerin mesaisidir.
  */
 export type KolayikMonth = {
   configured: boolean;
@@ -51,10 +57,23 @@ export type KolayikMonth = {
     raw_hours: number;
     /** Onaylı pazar / tatil kayıtlarından doğan hak günü sayısı */
     credit_days: number;
+    /** approved_hours'ın pazar / tatil gününe düşen kısmı: 8 saatin üstü; yalnız ek saat yazılmışsa tamamı */
+    sunday_extra_hours: number;
+    /** Pazar / tatil günü 8 saatin altında girilmiş kayıt sayısı — yalnız ek mesai yazılmış, 8 saat ayrıca girilmemiş */
+    short_sunday_records: number;
     /** Hafta içi 8+ saatlik, tatil notu olmayan kayıt var — elle bakılmalı */
     review: boolean;
     note: string;
-    entries: Array<{ date: string; hours: number; paid_hours: number; credit_day: boolean; status: string; description: string | null }>;
+    entries: Array<{
+      date: string;
+      hours: number;
+      paid_hours: number;
+      credit_day: boolean;
+      /** Pazar / resmî tatil gününe ait kayıt */
+      rest_day: boolean;
+      status: string;
+      description: string | null;
+    }>;
   }>;
   leaves: Array<{
     employee_id: string | null;
@@ -98,6 +117,9 @@ const personName = (p: KPerson) => `${p.firstName ?? ""} ${p.lastName ?? ""}`.tr
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
 const dm = (s: string) => `${s.slice(8, 10)}.${s.slice(5, 7)}`;
+const hTr = (v: number) => String(v).replace(".", ",");
+/** Satırın mesai notu 500 karakterle sınırlı (lineUpdateSchema) — taşan liste kırpılır. */
+const clip = (s: string) => (s.length <= 480 ? s : `${s.slice(0, 477)}…`);
 
 export async function kolayikMonth(prisma: PrismaClient, year: number, month: number): Promise<KolayikMonth> {
   const base: KolayikMonth = {
@@ -167,6 +189,8 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
           other_hours: 0,
           raw_hours: 0,
           credit_days: 0,
+          sunday_extra_hours: 0,
+          short_sunday_records: 0,
           review: false,
           note: "",
           entries: [],
@@ -180,19 +204,40 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
         row.approved_hours = r2(row.approved_hours + paid);
         row.raw_hours = r2(row.raw_hours + hours);
         if (split.credit_day) row.credit_days += 1;
+        if (split.rest_day) row.sunday_extra_hours = r2(row.sunday_extra_hours + paid);
       } else if (t.status === "waiting") row.waiting_hours = r2(row.waiting_hours + paid);
       else row.other_hours = r2(row.other_hours + hours);
+      if (t.status !== "rejected" && split.rest_day && !split.credit_day) row.short_sunday_records += 1;
       // Hafta içi 8+ saat ve tatil notu yok: hak günü mü, ücret mi — belli değil
       if (t.status !== "rejected" && minutes >= 480 && !split.credit_day && !isHolidayNote(t.description)) row.review = true;
-      row.entries.push({ date, hours, paid_hours: paid, credit_day: split.credit_day, status: t.status, description: t.description ?? null });
+      row.entries.push({
+        date,
+        hours,
+        paid_hours: paid,
+        credit_day: split.credit_day,
+        rest_day: split.rest_day,
+        status: t.status,
+        description: t.description ?? null,
+      });
       ot.set(t.personId, row);
     }
     for (const row of Array.from(ot.values())) {
       const paidOnes = row.entries.filter((e) => e.status === "approved" && e.paid_hours > 0);
+      const other = r2(row.approved_hours - row.sunday_extra_hours);
+      const tail = [
+        row.sunday_extra_hours > 0
+          ? other > 0
+            ? `pazar/tatil 8 saat üstü ${hTr(row.sunday_extra_hours)} s + diğer günler ${hTr(other)} s`
+            : "tamamı pazar/tatil 8 saat üstü"
+          : "",
+        row.credit_days ? `${row.credit_days} pazar/tatil × 8 saat hak günüdür, ücrete girmez` : "",
+      ].filter(Boolean);
       row.note = paidOnes.length
-        ? `Kolay İK onaylı mesai: ${paidOnes.map((e) => `${dm(e.date)} ${e.paid_hours}s`).join(", ")} = ${row.approved_hours} saat${
-            row.credit_days ? ` (${row.credit_days} pazar/tatil × 8 saat hak günü olarak ayrı — ücrete girmez)` : ""
-          }`
+        ? clip(
+            `Kolay İK onaylı mesai: ${paidOnes.map((e) => `${dm(e.date)} ${hTr(e.paid_hours)}s${e.rest_day ? " pazar" : ""}`).join(", ")} = ${hTr(
+              row.approved_hours
+            )} saat${tail.length ? ` (${tail.join("; ")})` : ""}`
+          )
         : "";
     }
     base.overtime = Array.from(ot.values()).sort((a, b) => a.person_name.localeCompare(b.person_name, "tr"));

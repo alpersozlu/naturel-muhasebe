@@ -15,6 +15,11 @@ export function moneyTL(v: number | null | undefined): string {
   return v == null ? "—" : `${TRY2.format(v)} ₺`;
 }
 
+/** Saat: 2 → "2", 21.5 → "21,5" */
+export function hoursTr(v: number | null | undefined): string {
+  return new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 2 }).format(v ?? 0);
+}
+
 export function pct(ratio: number | null | undefined): string {
   return ratio == null ? "—" : `%${PCT1.format(ratio * 100)}`;
 }

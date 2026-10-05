@@ -19,7 +19,7 @@ import {
   periodLabel,
 } from "@/server/services/payroll/rules";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { money, nextMonthOf, pct } from "./format";
+import { hoursTr, money, nextMonthOf, pct } from "./format";
 import { EntryDialog, type EntryKind } from "./entry-dialog";
 import { KolayikPanel } from "./kolayik-panel";
 import { SundayAuditPanel } from "./sunday-audit";
@@ -364,13 +364,21 @@ function StoreExtras({
                     {(() => {
                       const ot = overtimeOf(l.id);
                       if (!ot || (ot.approved_hours <= 0 && ot.waiting_hours <= 0 && ot.credit_days <= 0)) return null;
-                      const differs = Math.abs(ot.approved_hours - numOf(d.overtime_hours)) > 0.001;
+                      const current = numOf(d.overtime_hours);
+                      const differs = Math.abs(ot.approved_hours - current) > 0.001;
                       // Pazar / tatil 8 saati hak günüdür, ücrete girmez — öneri yalnız ödenecek saattir.
+                      // Ödenecek saatin pazar kısmı (8 saatin üstü) ayrıca gösterilir.
+                      const sundayPart = ot.sunday_extra_hours;
+                      const otherPart = Math.round((ot.approved_hours - sundayPart) * 100) / 100;
+                      const onlySundayApplied = differs && sundayPart > 0 && Math.abs(current - sundayPart) < 0.001;
                       return (
                         <div className="mt-0.5 text-[11px] text-sky-800" title={ot.note || undefined}>
-                          Kolay İK: {ot.approved_hours} s ödenecek
+                          Kolay İK: {hoursTr(ot.approved_hours)} s ödenecek
+                          {sundayPart > 0 ? (otherPart > 0 ? ` (pazar 8 saat üstü ${hoursTr(sundayPart)} + diğer günler ${hoursTr(otherPart)})` : " (pazar 8 saat üstü)") : ""}
                           {ot.credit_days ? ` · ${ot.credit_days} hak günü ayrı` : ""}
-                          {ot.waiting_hours ? ` · ${ot.waiting_hours} s bekliyor` : ""}
+                          {ot.short_sunday_records ? ` · ${ot.short_sunday_records} pazarda yalnız ek saat yazılmış` : ""}
+                          {onlySundayApplied ? " · şu an yalnız pazar kısmı işli" : ""}
+                          {ot.waiting_hours ? ` · ${hoursTr(ot.waiting_hours)} s bekliyor` : ""}
                           {ot.review ? " · ⚠ hafta içi 8+ saat" : ""}
                           {differs && (ot.approved_hours > 0 || numOf(d.overtime_hours) > 0) && !closed ? (
                             <button

@@ -4,7 +4,7 @@ import { RefreshCw } from "lucide-react";
 import type { KolayikMonth } from "@/server/services/kolayik/payroll-sync";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { dmy } from "./format";
+import { dmy, hoursTr } from "./format";
 
 const STATUS_TR: Record<string, string> = {
   approved: "onaylı",
@@ -48,6 +48,7 @@ export function KolayikPanel({
   const otApproved = r1(data.overtime.reduce((s, o) => s + o.approved_hours, 0));
   const otWaiting = r1(data.overtime.reduce((s, o) => s + o.waiting_hours, 0));
   const creditDays = data.overtime.reduce((s, o) => s + o.credit_days, 0);
+  const sundayExtra = r1(data.overtime.reduce((s, o) => s + o.sunday_extra_hours, 0));
   const leaveDays = r1(data.leaves.reduce((s, l) => s + l.days_approved, 0));
 
   return (
@@ -63,8 +64,9 @@ export function KolayikPanel({
         )}
         {data.ok ? (
           <span className="text-muted-foreground">
-            ödenecek mesai {otApproved} saat ({otPeople.length} kişi){creditDays ? ` · ${creditDays} hak günü (pazar / tatil 8 saati, ücrete girmez)` : ""}
-            {otWaiting ? ` · onay bekleyen ${otWaiting} saat` : ""} · onaylı izin {leaveDays} gün ({data.leaves.length} kişi)
+            ödenecek mesai {hoursTr(otApproved)} saat ({otPeople.length} kişi){sundayExtra ? ` · bunun ${hoursTr(sundayExtra)} saati pazar 8 saat üstü` : ""}
+            {creditDays ? ` · ${creditDays} hak günü (pazar / tatil 8 saati, ücrete girmez)` : ""}
+            {otWaiting ? ` · onay bekleyen ${hoursTr(otWaiting)} saat` : ""} · onaylı izin {hoursTr(leaveDays)} gün ({data.leaves.length} kişi)
           </span>
         ) : null}
         <div className="flex-1" />
@@ -103,9 +105,10 @@ export function KolayikPanel({
                 {data.overtime.map((o) => (
                   <li key={o.person_name}>
                     <span className="font-medium">{o.person_name}</span>
-                    {!o.employee_id ? <span className="text-amber-800"> (bordroda eşleşmedi)</span> : null} — ödenecek {o.approved_hours} s
+                    {!o.employee_id ? <span className="text-amber-800"> (bordroda eşleşmedi)</span> : null} — ödenecek {hoursTr(o.approved_hours)} s
+                    {o.sunday_extra_hours ? ` (${hoursTr(o.sunday_extra_hours)} s pazar 8 saat üstü)` : ""}
                     {o.credit_days ? `, ${o.credit_days} hak günü` : ""}
-                    {o.waiting_hours ? `, bekleyen ${o.waiting_hours} s` : ""}
+                    {o.waiting_hours ? `, bekleyen ${hoursTr(o.waiting_hours)} s` : ""}
                     {o.review ? <span className="text-amber-800"> · hafta içi 8+ saat kayıt var, bakılmalı</span> : null}
                     <span className="text-muted-foreground">
                       {" "}
@@ -113,7 +116,13 @@ export function KolayikPanel({
                       {o.entries
                         .map(
                           (e) =>
-                            `${dmy(e.date)} ${e.hours}s${e.credit_day ? ` (8s hak günü${e.paid_hours > 0 ? ` + ${e.paid_hours}s ücret` : ""})` : ""} ${
+                            `${dmy(e.date)} ${e.hours}s${
+                              e.credit_day
+                                ? ` (8s hak günü${e.paid_hours > 0 ? ` + ${e.paid_hours}s ücret` : ""})`
+                                : e.rest_day
+                                  ? " (pazar: yalnız ek mesai yazılmış, tamamı ücret)"
+                                  : ""
+                            } ${
                               STATUS_TR[e.status] ?? e.status
                             }${e.description ? ` (${e.description.replace(/\s+/g, " ")})` : ""}`
                         )

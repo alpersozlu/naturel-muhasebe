@@ -8,7 +8,11 @@
  *   • Pazar çalışması  → "mesai" (timelog/overtime) kaydı, o pazar tarihli.
  *       480 dk  = 8 saat = 1 hak günü. Üstü (600, 660…) = molasız çalışılan
  *       ek saat; ÜCRET olarak ödenir, hak gününe girmez. Bazı kişiler yalnız
- *       ek saati girer (120 / 180 dk) — o zaman 8 saat kaydı EKSİKTİR.
+ *       ek saati girer (120 / 180 dk; "Pazar ek mesai", "1.5 x2 ek Pazar").
+ *       Sahibi (05.10.2026): "normalde 8 saat yazarlar, ek mesai yaptılarsa
+ *       8 saate eklerler, bazen 10 saat yazarlar; Selbi onun yerine kaç saat
+ *       ek mesai yaptıysa onu yazmış." → pazar ÇALIŞILMIŞ sayılır, girilen
+ *       saatin tamamı ücrettir; kayıt 8 + ek saat olarak düzeltilmelidir.
  *   • Karşılığında kullanılan gün → "Yıllık İzin" türünde tek günlük izin.
  *       Kolay İK'da hak günü için ayrı tür YOK; ayıran tek şey açıklama:
  *       "Pazar mesai izni", "Haftalık izin", "20.09.2026 pazar günü
@@ -128,11 +132,21 @@ export function isHolidayNote(description: string | null | undefined): boolean {
 /**
  * Bir mesai kaydının ÜCRETE giren kısmı: pazar / resmî tatilde 8 saat ve üstü
  * girildiyse ilk 480 dk hak günüdür, kalanı ödenir; diğer her kayıt tamamen ödenir.
+ * `rest_day`: kayıt pazar / resmî tatil gününe ait — ödenen kısmı "pazar 8 saat
+ * üstü" mesaisidir (8 saatin altında girilmişse yalnız ek saat yazılmış demektir).
  */
-export function splitOvertime(o: Pick<AuditOvertime, "date" | "minutes" | "description">): { credit_day: boolean; paid_minutes: number } {
-  const credit = o.minutes >= CREDIT_MINUTES && (isSunday(o.date) || isHolidayNote(o.description));
-  return { credit_day: credit, paid_minutes: credit ? o.minutes - CREDIT_MINUTES : o.minutes };
+export function splitOvertime(o: Pick<AuditOvertime, "date" | "minutes" | "description">): {
+  credit_day: boolean;
+  paid_minutes: number;
+  rest_day: boolean;
+} {
+  const rest = isSunday(o.date) || isHolidayNote(o.description);
+  const credit = rest && o.minutes >= CREDIT_MINUTES;
+  return { credit_day: credit, paid_minutes: credit ? o.minutes - CREDIT_MINUTES : o.minutes, rest_day: rest };
 }
+
+/** 120 → "2", 90 → "1,5" */
+const hoursTr = (minutes: number) => String(Math.round((minutes / 60) * 100) / 100).replace(".", ",");
 
 export type LeaveClass = "sick" | "worklog" | "inlieu" | "annual" | "unknown";
 
@@ -238,7 +252,7 @@ function auditPerson(personId: string, overtime: AuditOvertime[], leaves: AuditL
     const has8 = (w.minutes ?? 0) >= CREDIT_MINUTES;
     if (w.source === "misfiled_leave") notes.push("Pazar çalışması mesai yerine İZİN olarak girilmiş — bakiyeden 1 gün yanlışlıkla düşmüş; izin silinip 8 saat mesai girilmeli");
     else if (w.source === "leave_comment") notes.push("Mesai kaydı yok — çalışıldığı yalnız izin açıklamasından anlaşılıyor");
-    else if (!has8) notes.push(`8 saat girilmemiş — yalnız ${w.minutes} dk ek saat kaydı var`);
+    else if (!has8) notes.push(`Yalnız ek mesai yazılmış (${hoursTr(w.minutes ?? 0)} saat, ücrete girer) — pazarın 8 saati ayrıca girilmemiş; kayıt 8 + ek saat olarak düzeltilmeli`);
     if (w.status === "waiting") notes.push("Mesai kaydı onay bekliyor");
     const after = w.createdAt ? diffDays(w.createdAt, s) : null;
     if (after != null && after > 7) notes.push(`Mesai ${after} gün sonra girilmiş`);
@@ -296,7 +310,7 @@ function auditPerson(personId: string, overtime: AuditOvertime[], leaves: AuditL
   const unused = rows.filter((r) => r.state === "unused");
   if (unused.length) issues.push(`${unused.length} pazarın karşılığı kullanılmamış (${unused.map((r) => tr(r.date)).join(", ")})`);
   const no8 = rows.filter((r) => !r.has_8h && r.source === "overtime");
-  if (no8.length) issues.push(`${no8.length} pazar için 8 saat mesai girilmemiş (${no8.map((r) => tr(r.date)).join(", ")})`);
+  if (no8.length) issues.push(`${no8.length} pazarda yalnız ek mesai yazılmış, 8 saat girilmemiş (${no8.map((r) => tr(r.date)).join(", ")})`);
   for (const r of rows.filter((x) => x.source === "misfiled_leave")) issues.push(`${tr(r.date)} pazar çalışması izin olarak girilmiş (yanlış)`);
   for (const r of rows.filter((x) => x.source === "leave_comment")) issues.push(`${tr(r.date)} pazarı için mesai kaydı yok`);
   if (orphan_rests.length) issues.push(`${orphan_rests.length} gün “pazar / haftalık izin” alınmış ama karşılığında çalışılmış pazar kaydı yok (${orphan_rests.map((o) => tr(o.date)).join(", ")})`);
