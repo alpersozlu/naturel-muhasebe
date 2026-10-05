@@ -33,6 +33,7 @@ import {
   nextPeriodKey,
   num,
 } from "@/server/services/payroll/period";
+import { fmtTRY, pendingPrepared, type EntryLike } from "@/server/services/payroll/compute";
 import { derimodMonthRevenue, normalizeName, personRevenueFor } from "@/server/services/payroll/nebim-revenue";
 import {
   buildCashListXlsx,
@@ -40,7 +41,7 @@ import {
   parseGarantiTalimat,
   talimatFileName,
 } from "@/server/services/payroll/talimat";
-import { periodLabel } from "@/server/services/payroll/rules";
+import { batchChannelError, inBatchList, periodLabel } from "@/server/services/payroll/rules";
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
 import { carryForwardCore } from "@/server/services/payroll/carry";
 import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
@@ -67,6 +68,9 @@ const lineAudited = withAudit("PayrollLine");
 const entryAudited = withAudit("PayrollEntry");
 const batchAudited = withAudit("PayrollBatch");
 const loanAudited = withAudit("PayrollLoan");
+
+/** Gönderilmemiş talimat uyarısında kanal adı ("Garanti talimatı var") */
+const PENDING_CHANNEL_NAME: Record<string, string> = { garanti: "Garanti", ziraat: "Ziraat", cash: "nakit" };
 
 const KIND_LABEL: Record<"advance" | "payment1" | "payment2" | "single", string> = {
   advance: "Avans",
@@ -727,6 +731,8 @@ export const payrollRouter = router({
      * gelir — bu yüzden mutation: gelecek dönem ve satırı yoksa açılır.
      */
     prepare: batchAudited.input(batchPreviewSchema).mutation(async ({ ctx, input }) => {
+      const channelError = batchChannelError(input.kind, input.channel);
+      if (channelError) throw new TRPCError({ code: "BAD_REQUEST", message: channelError });
       const view = await loadPeriodView(ctx.prisma, input.period_id);
       if (!view) throw new TRPCError({ code: "NOT_FOUND" });
       const rows: Array<{
@@ -744,10 +750,23 @@ export const payrollRouter = router({
         has_bank_details: boolean;
         note: string | null;
         for_next_month: boolean;
+        /** Aynı tür için hazırlanmış, gönderilmemiş talimattaki tutar (çift ödeme uyarısı) */
+        pending_prepared: number;
+        pending_note: string | null;
       }> = [];
+      const pendingOf = (entries: EntryLike[]) => {
+        const p = pendingPrepared(entries, input.kind);
+        if (p.amount <= 0) return { pending_prepared: 0, pending_note: null };
+        const where = p.channels.map((c) => PENDING_CHANNEL_NAME[c] ?? "").filter(Boolean).join(" + ");
+        return {
+          pending_prepared: p.amount,
+          pending_note: `Hazırlanmış, gönderilmemiş ${where ? `${where} ` : ""}talimatı var: ${fmtTRY(p.amount)}. Önce onu iptal et ya da "Gönderildi / ödendi" işaretle; yoksa iki kez ödenir.`,
+        };
+      };
       const lines = view.stores.flatMap((s) => s.lines);
       for (const l of lines) {
-        if (l.pay_method !== input.channel) continue;
+        // Avans / Ödeme 1: kişi kendi maaş kanalının listesinde. Ödeme 2: herkese nakit (rules.ts).
+        if (!inBatchList(input.kind, input.channel, l.pay_method)) continue;
         if (l.employee_status === "inactive") continue;
         if (input.kind === "payment1" && l.paid_month_early) continue; // gelecek ay satırıyla aşağıda
         let due = 0;
@@ -771,6 +790,7 @@ export const payrollRouter = router({
           has_bank_details: l.has_bank_details,
           note: l.calc.flags.find((f) => f.level !== "info")?.text ?? null,
           for_next_month: false,
+          ...pendingOf(l.calc.entries),
         });
       }
       if (input.kind === "payment1") {
@@ -800,6 +820,7 @@ export const payrollRouter = router({
               has_bank_details: c.has_bank_details,
               note: `${periodLabel(nk.year, nk.month)} maaşı — bir ay önceden ödenir`,
               for_next_month: true,
+              ...pendingOf(c.calc.entries),
             });
           }
         }
@@ -808,6 +829,8 @@ export const payrollRouter = router({
     }),
 
     create: batchAudited.input(batchCreateSchema).mutation(async ({ ctx, input }) => {
+      const channelError = batchChannelError(input.kind, input.channel);
+      if (channelError) throw new TRPCError({ code: "BAD_REQUEST", message: channelError });
       const lines = await ctx.prisma.payrollLine.findMany({
         where: { id: { in: input.items.map((i) => i.line_id) } },
         include: { employee: true, store: { select: { name: true } }, period: true },

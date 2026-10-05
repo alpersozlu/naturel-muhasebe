@@ -166,6 +166,29 @@ export function entryCounts(e: EntryLike): { counted: boolean; note: string | nu
   return { counted: true, note: null };
 }
 
+/**
+ * Aynı tür ödeme için HAZIRLANMIŞ ama gönderilmemiş talimat kayıtları. Bunlar
+ * toplama girmez (entryCounts), bu yüzden kişi yeni bir listede yeniden çıkar.
+ * İkinci kez ödenmesin diye listede uyarı olarak gösterilir ve kişi seçili
+ * gelmez (ör. Ödeme 2 için hazırlanıp gönderilmemiş bir Garanti talimatı
+ * dururken aynı kişi nakit listesine de girer).
+ */
+export function pendingPrepared(
+  entries: EntryLike[],
+  kind: "advance" | "payment1" | "payment2" | "single"
+): { amount: number; channels: string[] } {
+  const hit = entries.filter(
+    (e) =>
+      !e.voided_at &&
+      e.batch?.status === "prepared" &&
+      (kind === "advance" ? e.kind === "advance" : e.kind === "payment" && e.category === kind)
+  );
+  return {
+    amount: round2(hit.reduce((s, e) => s + e.amount, 0)),
+    channels: Array.from(new Set(hit.map((e) => e.channel ?? "other"))),
+  };
+}
+
 export function computeCommission(line: LineInput, store: StoreMonthInput): CommissionCalc {
   const p = line.commission_profile;
   const ex: string[] = [];

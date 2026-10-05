@@ -31,6 +31,8 @@ type Row = {
   has_bank_details: boolean;
   note: string | null;
   for_next_month: boolean;
+  pending_prepared: number;
+  pending_note: string | null;
 };
 
 export function BatchDialog({
@@ -59,7 +61,8 @@ export function BatchDialog({
       const ck: Record<string, boolean> = {};
       const am: Record<string, number | undefined> = {};
       for (const row of r.rows) {
-        ck[row.line_id] = choice.kind !== "advance";
+        // Hazırlanmış, gönderilmemiş talimatı olan kişi seçili gelmez (çift ödeme olmasın)
+        ck[row.line_id] = choice.kind !== "advance" && !row.pending_note;
         am[row.line_id] = choice.kind === "advance" ? undefined : row.due;
       }
       setChecked(ck);
@@ -94,6 +97,19 @@ export function BatchDialog({
     [rows, checked, amounts]
   );
   const total = items.reduce((s, i) => s + i.amount, 0);
+  // Nakit dağıtımı için: seçili tutarların mağaza mağaza toplamı
+  const byStore = useMemo(() => {
+    const m = new Map<string, { count: number; total: number }>();
+    for (const r of rows ?? []) {
+      const a = checked[r.line_id] ? (amounts[r.line_id] ?? 0) : 0;
+      if (a <= 0) continue;
+      const e = m.get(r.store_name) ?? { count: 0, total: 0 };
+      e.count += 1;
+      e.total += a;
+      m.set(r.store_name, e);
+    }
+    return Array.from(m.entries());
+  }, [rows, checked, amounts]);
   const missingBank = (rows ?? []).filter((r) => checked[r.line_id] && !r.has_bank_details).length;
   const isGaranti = choice.channel === "garanti";
   const isPayment2 = choice.kind === "payment2";
@@ -108,8 +124,12 @@ export function BatchDialog({
           <DialogDescription>
             {isGaranti
               ? "Garanti \"TGB Yeni Maaş Dosyası\" formatında talimat üretilir. Kişileri ve tutarları kontrol et; dosyayı bankaya e-posta ile gönder, ödeme gerçekleşince \"Gönderildi / ödendi\" işaretle."
-              : "Dosya üretilmez. Seçilen kişilerin ödemesi bu tarihle kaydedilir; kalan maaşları sıfırlanır."}
-            {isPayment2 ? " Ödeme 2 = mesai + komisyon + primler − kesintiler (kasa eksiği, fiyat farkı, faturasız masraf kişi penceresinden kesinti olarak girilir)." : ""}
+              : isPayment2
+                ? "Ödeme 2 herkese nakit ödenir; maaşını bankadan alanlar da bu listededir. Dosya üretilmez: seçilen kişilerin tutarı bu tarihle nakit ödendi olarak kaydedilir."
+                : "Dosya üretilmez. Seçilen kişilerin ödemesi bu tarihle kaydedilir; kalan maaşları sıfırlanır."}
+            {isPayment2
+              ? " Ödeme 2 = mesai + komisyon + primler − kesintiler (kasa eksiği, fiyat farkı, faturasız masraf kişi penceresinden kesinti olarak girilir)."
+              : ""}
             {choice.kind === "advance" ? " Avans tutarlarını elle gir; %50 sınırını geçenler işaretlenir." : ""}
           </DialogDescription>
         </DialogHeader>
@@ -153,6 +173,16 @@ export function BatchDialog({
               </div>
             </div>
 
+            {choice.channel === "cash" && byStore.length > 1 ? (
+              <div className="flex flex-wrap gap-2 text-xs">
+                {byStore.map(([store, v]) => (
+                  <span key={store} className="rounded-full bg-muted px-2.5 py-1 tabular-nums">
+                    {store}: {v.count} kişi · <b>{money(v.total)} ₺</b>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
             {missingBank > 0 && isGaranti ? (
               <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">
                 <AlertTriangle className="h-4 w-4" />
@@ -161,10 +191,14 @@ export function BatchDialog({
             ) : null}
 
             {!rows ? (
-              <div className="text-sm text-muted-foreground">Hazırlanıyor…</div>
+              prepare.isError ? (
+                <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">{prepare.error.message}</div>
+              ) : (
+                <div className="text-sm text-muted-foreground">Hazırlanıyor…</div>
+              )
             ) : rows.length === 0 ? (
               <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                Bu kanal için ödenecek kimse yok.
+                {isPayment2 ? "Ödeme 2'si bekleyen kimse yok." : "Bu kanal için ödenecek kimse yok."}
               </div>
             ) : (
               <table className="w-full text-sm">
@@ -213,6 +247,7 @@ export function BatchDialog({
                             {r.for_next_month ? " · gelecek ayın maaşı" : ""}
                           </div>
                           {r.note ? <div className="text-[11px] text-amber-800">{r.note}</div> : null}
+                          {r.pending_note ? <div className="text-[11px] text-rose-700">{r.pending_note}</div> : null}
                         </td>
                         <td className="py-2 text-right tabular-nums">{money(isPayment2 ? r.extras : r.base)}</td>
                         {!isPayment2 ? (

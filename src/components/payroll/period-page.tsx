@@ -145,7 +145,7 @@ export function PayrollPeriodPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PageHeader
           title="Maaşlar"
-          description="7 mağazanın bordrosu: baz maaş, mesai, komisyon, primler, avans ve kesintiler — Ödeme 1 ve Ödeme 2 talimatları buradan hazırlanır."
+          description="7 mağazanın bordrosu: baz maaş, mesai, komisyon, primler, avans ve kesintiler — Ödeme 1 talimatları ve Ödeme 2 nakit listesi buradan hazırlanır."
         />
         <div className="flex items-center gap-2">
           <Button asChild variant="outline">
@@ -276,12 +276,8 @@ export function PayrollPeriodPage() {
             <ActionCard
               icon={<HandCoins className="h-4 w-4" />}
               title="Ödeme 2 — mesai + komisyon + prim"
-              description="Performans verisi girildikten sonra kalan hak ediş."
-              buttons={[
-                { label: "Garanti talimatı", onClick: () => setBatch({ kind: "payment2", channel: "garanti" }) },
-                { label: "Ziraat", onClick: () => setBatch({ kind: "payment2", channel: "ziraat" }) },
-                { label: "Nakit", onClick: () => setBatch({ kind: "payment2", channel: "cash" }) },
-              ]}
+              description="Performans verisi girildikten sonra kalan hak ediş. Herkese nakit ödenir; maaşını bankadan alanlar da bu listededir."
+              buttons={[{ label: "Nakit listesi", onClick: () => setBatch({ kind: "payment2", channel: "cash" }) }]}
               disabled={isClosed}
             />
           </div>
@@ -843,6 +839,11 @@ function Batches({ data, onChanged }: { data: PeriodView; onChanged: () => void 
               >
                 İptal
               </Button>
+            ) : null}
+            {b.kind === "payment2" && b.status === "prepared" && b.channel !== "cash" ? (
+              <div className="basis-full text-xs text-amber-800">
+                Ödeme 2 nakit ödenir. Bu talimat bankaya gönderilmediyse &quot;İptal&quot; et; kişi Ödeme 2 nakit listesinde çıkar.
+              </div>
             ) : null}
           </li>
         ))}

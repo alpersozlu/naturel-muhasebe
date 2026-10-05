@@ -195,6 +195,29 @@ export const PAYMENT_CATEGORIES = {
 } as const;
 export type PaymentCategory = keyof typeof PAYMENT_CATEGORIES;
 
+/**
+ * ÖDEME 2 NAKİT ÖDENİR (sahibi, 05.10.2026: "burada Garanti'den ve Ziraat'tan
+ * ödemeyiz, bütün bu Ödeme 2'yi nakit ile yaparız").
+ *
+ * Maaşını (Ödeme 1) bankadan alan da mesai / komisyon / primini ELDEN alır.
+ * Bu yüzden Ödeme 2 için banka talimatı hazırlanmaz ve nakit listesine kişinin
+ * maaş kanalına bakılmadan Ödeme 2'si olan HERKES girer. Avans ve Ödeme 1'de
+ * ise kişi yalnız kendi maaş kanalının listesinde görünür.
+ */
+export const PAYMENT2_CHANNEL = "cash" as const;
+
+/** Bu tür ödeme bu kanaldan yapılabilir mi? Yapılamıyorsa nedenini döner. */
+export function batchChannelError(kind: string, channel: string): string | null {
+  if (kind === "payment2" && channel !== PAYMENT2_CHANNEL) return "Ödeme 2 nakit ödenir — Garanti ya da Ziraat talimatı hazırlanmaz.";
+  return null;
+}
+
+/** Kişi bu talimat / listeye girer mi? (kind + channel → maaş kanalı pay_method) */
+export function inBatchList(kind: string, channel: string, payMethod: string): boolean {
+  if (kind === "payment2") return channel === PAYMENT2_CHANNEL; // herkese nakit
+  return payMethod === channel;
+}
+
 export const CHANNEL_LABEL = {
   garanti: "Garanti talimatı",
   ziraat: "Ziraat",
