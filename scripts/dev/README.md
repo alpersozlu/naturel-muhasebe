@@ -40,6 +40,7 @@ salt okunur uca (`/api/jobs/kolayik`) yönlenir (anahtar yalnız Vercel'de).
 - `merge_group_dry_run.mts` — kasa birleşmesi (DayMergeGroup), geri alınan işlemde.
 - `payroll_restore_overtime.mts` — AuditLog'dan önceki değeri bulup geri yazma.
 - `expense_accept_once.mts` — tarih kuralına takılan masrafı tek seferlik kabul (yükleme kimliği içinde).
+- `dom-sim/extras-grid.dom.test.tsx` — Prim ve mesai girişi tablosu (sütun sırası, sebep etiketleri, Ödeme 2 dökümü).
 - `dom-sim/*.dom.test.tsx` — gerçek React bileşenlerini jsdom'da sürme (giriş gerektiren ekranlar
   için). jsdom projeye DEĞİL geçici bir klasöre kurulur (`npm install jsdom`), dosyadaki `SCRATCH`
   yolu ona çevrilir, dosya `src/__tests__/` altına kopyalanıp `npx vitest run <dosya>` ile çalıştırılır,

@@ -9,12 +9,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/money-input";
 import type { ComputedLine, PeriodView, StoreBlock } from "@/server/services/payroll/period";
-import { computeLine, type LineInput } from "@/server/services/payroll/compute";
+import { computeLine, type LineCalc, type LineInput } from "@/server/services/payroll/compute";
 import {
   ADDITION_CATEGORIES,
   CARRY_FORWARD_CATEGORY,
   CARRY_FORWARD_LABEL,
   DEDUCTION_CATEGORIES,
+  GARMENT_PREMIUM_PER_UNIT,
   isOvertimeOnlyPosition,
   periodLabel,
 } from "@/server/services/payroll/rules";
@@ -96,7 +97,68 @@ function toInput(l: ComputedLine, d: Draft): LineInput {
   };
 }
 
-const CAT_LABEL: Record<string, string> = { ...DEDUCTION_CATEGORIES, ...ADDITION_CATEGORIES, [CARRY_FORWARD_CATEGORY]: CARRY_FORWARD_LABEL };
+/**
+ * Kayıt türüne göre sebep etiketi. Kesinti ve ekleme sözlüklerinin ikisinde de
+ * "other" anahtarı var; tek sözlükte birleştirilince kesintinin "Diğer kesinti"si
+ * "Diğer ek hak ediş" olarak görünüyordu (Oğuzhan Özçetin, 07.10.2026).
+ */
+function categoryLabel(kind: "deduction" | "addition" | "advance" | "payment", category: string | null): string {
+  if (category === CARRY_FORWARD_CATEGORY) return CARRY_FORWARD_LABEL;
+  const dict: Record<string, string> = kind === "deduction" ? DEDUCTION_CATEGORIES : kind === "addition" ? ADDITION_CATEGORIES : {};
+  return dict[category ?? ""] ?? (kind === "deduction" ? "Kesinti" : "Ek hak ediş");
+}
+
+/**
+ * Ödeme 2 dökümü: satırın ekranda görünen bütün kalemleri alt alta, en altta
+ * kişiye ödenecek tutar. Kalemlerin toplamı Ödeme 2'den farklıysa fark tek
+ * satırla açıklanır: baz maaş tam ödenmemişse ödenmeyen kısım Ödeme 2'ye eklenir
+ * ("Ödenmeyen maaş bakiyesi"); ekleme/kesintinin Ödeme 1'de karşılanan kısmı
+ * Ödeme 2'den çıkar ("Ödeme 1 ile ödenir" — compute.ts: ekler ve kesintiler önce
+ * baz maaşa işler).
+ */
+function Payment2Breakdown({ c, hours, nextLabel }: { c: LineCalc; hours: number; nextLabel: string }) {
+  const rows: { label: string; amount: number; tone?: string }[] = [];
+  if (c.commission.final) rows.push({ label: "Komisyon", amount: c.commission.final });
+  if (c.top_seller_amount) rows.push({ label: "Top-seller", amount: c.top_seller_amount });
+  if (c.garment_amount) rows.push({ label: "Giysi primi", amount: c.garment_amount });
+  if (c.perfume_amount) rows.push({ label: "Parfüm primi", amount: c.perfume_amount });
+  if (c.extra_premium) rows.push({ label: "Ek prim", amount: c.extra_premium });
+  if (c.overtime_amount) rows.push({ label: `Mesai ${hoursTr(hours)} s`, amount: c.overtime_amount });
+  if (c.additions_total) rows.push({ label: "Eklemeler", amount: c.additions_total, tone: "text-emerald-700" });
+  if (c.deductions_total) rows.push({ label: "Kesintiler", amount: -c.deductions_total, tone: "text-rose-700" });
+  if (c.carried_forward_total) rows.push({ label: `${nextLabel} maaşına devir`, amount: c.carried_forward_total, tone: "text-violet-800" });
+  const listed = rows.reduce((s, r) => s + r.amount, 0);
+  const diff = Math.round((c.payment2_due - listed) * 100) / 100;
+  if (Math.abs(diff) > 0.005)
+    rows.push({
+      label: diff > 0 ? "Ödenmeyen maaş bakiyesi" : "Ödeme 1 ile ödenir",
+      amount: diff,
+      tone: "text-amber-800",
+    });
+  return (
+    <div className="ml-auto w-[210px]">
+      {rows.length ? (
+        <dl className="space-y-0.5 text-[11px]">
+          {rows.map((r) => (
+            <div key={r.label} className="flex items-baseline justify-between gap-2">
+              <dt className={cn("truncate text-muted-foreground", r.tone)}>{r.label}</dt>
+              <dd className={cn("shrink-0 tabular-nums", r.tone)}>
+                {r.amount < 0 ? "− " : "+ "}
+                {money(Math.abs(r.amount))}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <div className="text-[11px] text-muted-foreground">kalem yok</div>
+      )}
+      <div className={cn("mt-1 flex items-baseline justify-between gap-2 border-t pt-1", c.net_remaining < -0.5 && "text-rose-700")}>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Ödenecek</span>
+        <span className="text-base font-bold tabular-nums">{money(c.payment2_due)} ₺</span>
+      </div>
+    </div>
+  );
+}
 
 export function ExtrasGrid({
   data,
@@ -212,10 +274,10 @@ export function ExtrasGrid({
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card px-4 py-3 text-sm shadow-xs">
         <div className="text-muted-foreground">
-          Mesai saat ücreti = <b className="text-foreground">net baz ÷ 26 gün ÷ 8 saat</b>. Pazar ve resmî tatilde girilen 8 saat hak günüdür, ücrete girmez;
-          yalnız üstü ödenir. Yazdıkça hesaplanır;{" "}
-          <b className="text-foreground">Kaydet</b> deyince işlenir. Kasa eksiği, fiyat farkı ve faturasız masraf kesintileri satırdaki{" "}
-          <b className="text-foreground">− Kesinti</b> ile girilir.
+          Soldan sağa: mesai saati → ciro ve hedef → komisyon → primler → mesai ücreti → ekleme / kesinti → <b className="text-foreground">Ödeme 2</b>{" "}
+          (kişiye ödenecek tutar, dökümü satırda). Mesai saat ücreti = <b className="text-foreground">net baz ÷ 26 gün ÷ 8 saat</b>; pazar ve resmî tatildeki
+          8 saat hak günüdür, yalnız üstü ödenir. Yazdıkça hesaplanır, <b className="text-foreground">Kaydet</b> deyince işlenir. Kesinti ve ekleme sebebi
+          satırda yeşil (+) / kırmızı (−) olarak görünür.
         </div>
         <div className="flex-1" />
         <Button size="sm" onClick={() => saveLines(dirtyLines)} disabled={saving || closed || dirtyLines.length === 0}>
@@ -390,7 +452,7 @@ function StoreExtras({
         />
       ) : null}
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[1380px] text-sm">
           <thead className="text-[11px] uppercase tracking-wider text-muted-foreground">
             <tr className="border-b">
               <th className="px-4 py-2 text-left font-medium">Çalışan</th>
@@ -399,8 +461,9 @@ function StoreExtras({
               <th className="px-2 py-2 text-left font-medium">Hedef</th>
               <th className="px-2 py-2 text-right font-medium">Komisyon</th>
               <th className="px-2 py-2 text-left font-medium">Primler</th>
+              <th className="px-2 py-2 text-right font-medium">Mesai ücreti</th>
               <th className="px-2 py-2 text-left font-medium">Ekleme / kesinti</th>
-              <th className="px-2 py-2 text-right font-medium">Ödeme 2</th>
+              <th className="px-3 py-2 text-right font-medium">Ödeme 2</th>
               <th className="px-3 py-2" />
             </tr>
           </thead>
@@ -414,18 +477,18 @@ function StoreExtras({
               // Depo: prim yok — Ödeme 2 = mesai − kesintiler (rules.ts). Eskiden
               // girilmiş bir ek prim varsa görünür kalır ki silinebilsin.
               const overtimeOnly = isOvertimeOnlyPosition(l.position) && !d.extra_premium;
+              const hours = numOf(d.overtime_hours);
               return (
                 <tr key={l.id} className={cn("border-b last:border-0 align-top", dirty && "bg-amber-50/40")}>
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-3">
                     <button type="button" className="text-left hover:underline" onClick={() => onOpenLine(l.id)}>
                       <div className="font-medium leading-tight">{l.full_name}</div>
                     </button>
-                    <div className="text-[11px] text-muted-foreground">
-                      {l.position} · saatlik {money(c.hourly_rate)} ₺
-                    </div>
-                    {!c.base_paid ? <div className="text-[10px] text-amber-800">maaş henüz ödenmedi</div> : null}
+                    <div className="text-[11px] text-muted-foreground">{l.position}</div>
+                    <div className="text-[11px] tabular-nums text-muted-foreground">saatlik {money(c.hourly_rate)} ₺</div>
+                    {!c.base_paid ? <div className="mt-0.5 text-[10px] font-medium text-amber-800">maaş henüz ödenmedi</div> : null}
                   </td>
-                  <td className="px-2 py-2.5">
+                  <td className="px-2 py-3">
                     <Input
                       type="number"
                       inputMode="decimal"
@@ -437,11 +500,10 @@ function StoreExtras({
                       placeholder="0"
                       disabled={closed}
                     />
-                    <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">{c.overtime_amount ? `= ${money(c.overtime_amount)} ₺` : " "}</div>
                     {(() => {
                       const ot = overtimeOf(l.id);
                       if (!ot || (ot.approved_hours <= 0 && ot.waiting_hours <= 0 && ot.credit_days <= 0)) return null;
-                      const current = numOf(d.overtime_hours);
+                      const current = hours;
                       const differs = Math.abs(ot.approved_hours - current) > 0.001;
                       const decision = overtimeApplyDecision(ot, current);
                       // Pazar / tatil 8 saati hak günüdür, ücrete girmez — öneri yalnız ödenecek saattir.
@@ -450,7 +512,7 @@ function StoreExtras({
                       const otherPart = Math.round((ot.approved_hours - sundayPart) * 100) / 100;
                       const onlySundayApplied = differs && sundayPart > 0 && Math.abs(current - sundayPart) < 0.001;
                       return (
-                        <div className="mt-0.5 text-[11px] text-sky-800" title={ot.note || undefined}>
+                        <div className="mt-1 max-w-[180px] text-[11px] leading-snug text-sky-800" title={ot.note || undefined}>
                           Kolay İK: {hoursTr(ot.approved_hours)} s ödenecek
                           {sundayPart > 0 ? (otherPart > 0 ? ` (pazar 8 saat üstü ${hoursTr(sundayPart)} + diğer günler ${hoursTr(otherPart)})` : " (pazar 8 saat üstü)") : ""}
                           {ot.credit_days ? ` · ${ot.credit_days} hak günü ayrı` : ""}
@@ -462,7 +524,7 @@ function StoreExtras({
                             <span className="ml-1 text-amber-800" title="Bordrodaki saat Kolay İK'daki onaylı saatten fazla; fark bekleyen kayıtlarda. Kolay İK'da onaylayıp paneli yenileyince öneri güncellenir.">
                               · bekleyenler onaylanınca {hoursTr(decision.hours_after_approval)} s olur, şimdi uygulanmaz
                             </span>
-                          ) : decision.mode === "apply" && (ot.approved_hours > 0 || numOf(d.overtime_hours) > 0) && !closed ? (
+                          ) : decision.mode === "apply" && (ot.approved_hours > 0 || hours > 0) && !closed ? (
                             <button
                               type="button"
                               className="ml-1 underline"
@@ -475,7 +537,7 @@ function StoreExtras({
                       );
                     })()}
                   </td>
-                  <td className="px-2 py-2.5">
+                  <td className="px-2 py-3">
                     {p === "mavi_asistan" ? (
                       <div className="space-y-1">
                         <MoneyInput value={d.own_revenue_nd} onChange={(v) => patch(l, { own_revenue_nd: v })} placeholder="denim dışı" className="h-8 w-32 text-right" disabled={closed} />
@@ -489,7 +551,7 @@ function StoreExtras({
                       <span className="text-muted-foreground">—</span>
                     )}
                   </td>
-                  <td className="px-2 py-2.5">
+                  <td className="px-2 py-3">
                     {p === "mavi_asistan" || p === "deri_asistan" ? (
                       <MoneyInput value={d.own_target} onChange={(v) => patch(l, { own_target: v })} placeholder="kişisel hedef" className="h-8 w-32 text-right" disabled={closed} />
                     ) : isStoreBased ? (
@@ -498,12 +560,12 @@ function StoreExtras({
                       <span className="text-muted-foreground">—</span>
                     )}
                   </td>
-                  <td className="px-2 py-2.5 text-right tabular-nums">
+                  <td className="px-2 py-3 text-right tabular-nums">
                     {p === "none" ? (
                       <span className="text-muted-foreground">—</span>
                     ) : (
                       <>
-                        <div className="font-medium">{money(c.commission.final)}</div>
+                        <div className="font-semibold">{money(c.commission.final)}</div>
                         <div className="text-[11px] text-muted-foreground">
                           {c.commission.achievement_used != null ? pct(c.commission.achievement_used) : "hedef?"}
                           {c.commission.special ? " · ÖZEL" : ""}
@@ -512,27 +574,7 @@ function StoreExtras({
                       </>
                     )}
                   </td>
-                  <td className="px-2 py-2.5">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {l.perfume_eligible || l.perfume_units > 0 ? (
-                        <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                          parfüm
-                          <Input type="number" inputMode="numeric" min={0} value={d.perfume_units} onChange={(e) => patch(l, { perfume_units: e.target.value })} className="h-8 w-16 text-right" placeholder="0" disabled={closed} />
-                        </label>
-                      ) : null}
-                      {l.garment_eligible || l.garment_units > 0 ? (
-                        <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                          giysi
-                          <Input type="number" inputMode="numeric" min={0} value={d.garment_units} onChange={(e) => patch(l, { garment_units: e.target.value })} className="h-8 w-16 text-right" placeholder="0" disabled={closed} />
-                        </label>
-                      ) : null}
-                      {store.is_mavi && p !== "none" ? (
-                        <label className="flex items-center gap-1 text-[11px] text-muted-foreground" title="Ayın en çok satanı — 3.000 ₺">
-                          <input type="checkbox" className="h-4 w-4" checked={d.top_seller} onChange={(e) => patch(l, { top_seller: e.target.checked })} disabled={closed} />
-                          top-seller
-                        </label>
-                      ) : null}
-                    </div>
+                  <td className="px-2 py-3">
                     {overtimeOnly ? (
                       <div className="text-[11px] leading-snug text-muted-foreground">
                         prim yok
@@ -540,67 +582,102 @@ function StoreExtras({
                         yalnız mesai eklenir, kesinti düşülür
                       </div>
                     ) : (
-                      <div className="mt-1 flex items-center gap-1.5">
-                        <MoneyInput value={d.extra_premium} onChange={(v) => patch(l, { extra_premium: v })} placeholder="ek prim" className="h-8 w-28 text-right" disabled={closed} />
-                        {d.extra_premium ? (
-                          <Input value={d.extra_premium_note} onChange={(e) => patch(l, { extra_premium_note: e.target.value })} placeholder="açıklama" className="h-8 w-40" disabled={closed} />
+                      <div className="space-y-1.5">
+                        {store.is_mavi && p !== "none" ? (
+                          <label
+                            className={cn(
+                              "flex h-8 w-fit cursor-pointer items-center gap-2 rounded-md border px-2 text-xs transition-colors",
+                              d.top_seller ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "text-muted-foreground"
+                            )}
+                            title="Ayın en çok satanı — 3.000,00 ₺"
+                          >
+                            <input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={d.top_seller} onChange={(e) => patch(l, { top_seller: e.target.checked })} disabled={closed} />
+                            top-seller
+                            {d.top_seller ? <span className="font-semibold tabular-nums">+{money(c.top_seller_amount)}</span> : null}
+                          </label>
                         ) : null}
+                        {l.garment_eligible || l.garment_units > 0 ? (
+                          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                            giysi
+                            <Input type="number" inputMode="numeric" min={0} value={d.garment_units} onChange={(e) => patch(l, { garment_units: e.target.value })} className="h-8 w-14 text-right" placeholder="0" disabled={closed} />
+                            {c.garment_amount ? <span className="font-medium tabular-nums text-foreground">+{money(c.garment_amount)}</span> : <span>adet × {money(GARMENT_PREMIUM_PER_UNIT)}</span>}
+                          </label>
+                        ) : null}
+                        {l.perfume_eligible || l.perfume_units > 0 ? (
+                          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                            parfüm
+                            <Input type="number" inputMode="numeric" min={0} value={d.perfume_units} onChange={(e) => patch(l, { perfume_units: e.target.value })} className="h-8 w-14 text-right" placeholder="0" disabled={closed} />
+                            {c.perfume_amount ? <span className="font-medium tabular-nums text-foreground">+{money(c.perfume_amount)}</span> : null}
+                          </label>
+                        ) : null}
+                        <div className="flex items-center gap-1.5">
+                          <MoneyInput value={d.extra_premium} onChange={(v) => patch(l, { extra_premium: v })} placeholder="ek prim" className="h-8 w-28 text-right" disabled={closed} />
+                          {d.extra_premium ? (
+                            <Input value={d.extra_premium_note} onChange={(e) => patch(l, { extra_premium_note: e.target.value })} placeholder="sebebi (zorunlu)" className={cn("h-8 w-40", !d.extra_premium_note && "border-amber-400")} disabled={closed} />
+                          ) : null}
+                        </div>
                       </div>
                     )}
                   </td>
-                  <td className="px-2 py-2.5">
-                    <div className="flex flex-wrap gap-1">
-                      {adjustments.map((e) => (
-                        <button
-                          key={e.id}
-                          type="button"
-                          onClick={() => onOpenLine(l.id)}
-                          title={e.note ?? ""}
-                          className={cn(
-                            "rounded px-1.5 py-0.5 text-[11px] ring-1",
-                            e.category === CARRY_FORWARD_CATEGORY
-                              ? "bg-violet-50 text-violet-800 ring-violet-200/70"
-                              : e.kind === "deduction"
-                                ? "bg-rose-50 text-rose-800 ring-rose-200/70"
-                                : "bg-sky-50 text-sky-800 ring-sky-200/70"
-                          )}
-                        >
-                          {e.category === CARRY_FORWARD_CATEGORY ? (
-                            <>
-                              {money(e.amount)} → {nextLabel} maaşına devredildi
-                            </>
-                          ) : (
-                            <>
-                              {e.kind === "deduction" ? "−" : "+"}
-                              {money(e.amount)} {CAT_LABEL[e.category ?? ""] ?? ""}
-                            </>
-                          )}
-                        </button>
-                      ))}
-                    </div>
+                  <td className="px-2 py-3 text-right tabular-nums">
+                    {hours > 0 ? (
+                      <>
+                        <div className="font-semibold">{money(c.overtime_amount)}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {hoursTr(hours)} s × {money(c.hourly_rate)}
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-3">
+                    {adjustments.length ? (
+                      <ul className="min-w-[230px] divide-y rounded-md border text-[12px]">
+                        {adjustments.map((e) => {
+                          const carried = e.category === CARRY_FORWARD_CATEGORY;
+                          const tone = carried ? "text-violet-800" : e.kind === "deduction" ? "text-rose-700" : "text-emerald-700";
+                          return (
+                            <li key={e.id}>
+                              <button
+                                type="button"
+                                onClick={() => onOpenLine(l.id)}
+                                title={e.note ?? ""}
+                                className="flex w-full items-center justify-between gap-3 px-2 py-1 text-left hover:bg-muted/40"
+                              >
+                                <span className={cn("leading-tight", tone)}>
+                                  {carried ? `${nextLabel} maaşına devredildi` : categoryLabel(e.kind, e.category)}
+                                </span>
+                                <span className={cn("shrink-0 font-semibold tabular-nums", tone)}>
+                                  {carried ? "→ " : e.kind === "deduction" ? "− " : "+ "}
+                                  {money(e.amount)}
+                                </span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : (
+                      <div className="text-[11px] text-muted-foreground">yok</div>
+                    )}
                     {!closed ? (
-                      <div className="mt-1 flex gap-1">
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => onEntry(l, "deduction")}>
+                      <div className="mt-1.5 flex gap-1">
+                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-rose-700 hover:text-rose-800" onClick={() => onEntry(l, "deduction")}>
                           <Minus className="h-3 w-3 mr-1" />
                           Kesinti
                         </Button>
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => onEntry(l, "addition")}>
+                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-emerald-700 hover:text-emerald-800" onClick={() => onEntry(l, "addition")}>
                           <Plus className="h-3 w-3 mr-1" />
                           Ekleme
                         </Button>
                       </div>
                     ) : null}
                   </td>
-                  <td className="px-2 py-2.5 text-right tabular-nums">
-                    <div className={cn("font-semibold", c.net_remaining < -0.5 && "text-rose-700")}>{money(c.payment2_due)}</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      ekstra {money(c.extras_total)}
-                      {c.deductions_total ? ` · kesinti −${money(c.deductions_total)}` : ""}
-                      {c.carried_forward_total ? ` · devredilen ${money(c.carried_forward_total)}` : ""}
-                    </div>
+                  <td className="px-3 py-3 text-right tabular-nums">
+                    <Payment2Breakdown c={c} hours={hours} nextLabel={nextLabel} />
                     {c.net_remaining < -0.5 ? (
                       <>
-                        <div className="text-[10px] text-rose-700">
+                        <div className="mt-1 text-[11px] font-medium text-rose-700">
                           {c.deductions_total > 0.005 ? "bu ay kesilemeyen" : "fazla ödenen"}: {money(-c.net_remaining)}
                         </div>
                         {!closed ? (
@@ -619,7 +696,7 @@ function StoreExtras({
                       </>
                     ) : null}
                   </td>
-                  <td className="px-3 py-2.5 text-right">
+                  <td className="px-3 py-3 text-right">
                     {dirty ? (
                       <Button size="sm" className="h-8" onClick={() => onSave(l)} disabled={saving || closed}>
                         Kaydet
