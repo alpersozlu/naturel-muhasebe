@@ -137,6 +137,12 @@ export type LineCalc = {
   payment2_due: number;
   /** Baz maaş tamamen ödendi mi (sahibinin akışı: Garanti + Ziraat + nakit → "maaşlar kapandı") */
   base_paid: boolean;
+  /** Bu ay Ödeme 2 olarak fiilen ödenen (payment / payment2 kayıtları, sayılanlar) */
+  payment2_paid: number;
+  /** Kişi Ödeme 2 kapsamında mı: bir Ödeme 2 ödemesi var ya da ödenecek Ödeme 2'si var */
+  payment2_in_scope: boolean;
+  /** Ödeme 2 kapandı mı: ödeme yapıldı ve kalan yok */
+  payment2_settled: boolean;
   /** Ödeme 2 kapsamı: mesai + komisyon + primler + ek hak edişler */
   extras_total: number;
   entries: AnnotatedEntry[];
@@ -325,6 +331,9 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
   const deductions = sum("deduction");
   const advances = sum("advance");
   const payments = sum("payment");
+  const payment2Paid = annotated
+    .filter((e) => e.kind === "payment" && e.category === "payment2" && e.counted)
+    .reduce((s, e) => s + e.amount, 0);
 
   const gross =
     line.base_salary + overtime + commission.final + perfume + garment + topSeller + extra + additions - deductions;
@@ -417,6 +426,9 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
     payment1_due: round2(payment1),
     payment2_due: round2(payment2),
     base_paid: payment1 <= 0.5,
+    payment2_paid: round2(payment2Paid),
+    payment2_in_scope: payment2Paid > 0.005 || payment2 > 0.5,
+    payment2_settled: payment2Paid > 0.005 && payment2 <= 0.5,
     extras_total: round2(extras),
     entries: annotated,
     flags,

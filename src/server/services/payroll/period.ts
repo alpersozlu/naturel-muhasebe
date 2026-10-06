@@ -204,6 +204,12 @@ export type PeriodView = {
     base_paid_count: number;
     /** Maaşı ödenmişlerde bekleyen ekstralar (Ödeme 2) */
     extras_pending: number;
+    /** Ödeme 2 kapsamındaki kişi sayısı (ödenen ya da ödenecek Ödeme 2'si olan) ve bunlardan kapananlar */
+    p2_lines: number;
+    p2_settled_count: number;
+    /** Ödeme 2'de ödenecek toplam (kalan) ve fiilen ödenen toplam — yalnız Ödeme 2 kalemleri, maaş değil */
+    p2_due: number;
+    p2_paid: number;
   };
   batches: Array<{
     id: string;
@@ -305,6 +311,10 @@ export async function loadPeriodView(prisma: PrismaClient, periodId: string): Pr
     base_lines: all.filter((l) => l.base_salary > 0).length,
     base_paid_count: all.filter((l) => l.base_salary > 0 && l.calc.base_paid).length,
     extras_pending: sum((l) => (l.calc.base_paid ? l.calc.payment2_due : 0)),
+    p2_lines: all.filter((l) => l.calc.payment2_in_scope).length,
+    p2_settled_count: all.filter((l) => l.calc.payment2_settled).length,
+    p2_due: sum((l) => l.calc.payment2_due),
+    p2_paid: sum((l) => l.calc.payment2_paid),
   };
 
   const alerts = all.flatMap((l) =>

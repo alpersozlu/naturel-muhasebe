@@ -6,11 +6,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import type { ComputedLine, PeriodView } from "@/server/services/payroll/period";
 import { CHANNEL_SHORT, KIND_LABEL, KIND_TONE, dmy, money } from "./format";
 
-export type KpiKind = "paid" | "salaries" | "remaining" | "extras";
+export type KpiKind = "paid" | "salaries" | "payment2" | "remaining" | "extras";
 
 const TITLE: Record<KpiKind, string> = {
   paid: "Ödenenler — kim, ne zaman, ne kadar",
   salaries: "Maaşlar (Ödeme 1) — kimin maaşı ödendi, kiminki bekliyor",
+  payment2: "Maaşlar (Ödeme 2) — mesai, komisyon, prim: kime ne ödenecek, kime ödendi",
   remaining: "Net kalan — kime ne kadar borçluyuz",
   extras: "Mesai + komisyon + primler — kişi kişi",
 };
@@ -46,6 +47,7 @@ export function KpiDetailDialog({
         </DialogHeader>
         {kind === "paid" ? <Paid lines={lines} onPick={pick} /> : null}
         {kind === "salaries" ? <Salaries lines={lines} onPick={pick} /> : null}
+        {kind === "payment2" ? <Payment2 lines={lines} onPick={pick} /> : null}
         {kind === "remaining" ? <Remaining lines={lines} onPick={pick} /> : null}
         {kind === "extras" ? <Extras lines={lines} onPick={pick} /> : null}
       </DialogContent>
@@ -148,6 +150,107 @@ function Salaries({ lines, onPick }: { lines: ComputedLine[]; onPick: (id: strin
               <li key={l.id} className="flex items-center gap-2">
                 <Name l={l} onPick={onPick} />
                 <span className="ml-auto tabular-nums text-muted-foreground">{money(l.calc.paid_total)} ₺</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Ödeme 2 listesi: maaş rakamı YOK. Yalnız Ödeme 2'yi oluşturan kalemler
+ * (mesai, komisyon, primler, eklemeler, kesintiler) ve kişiye ödenecek /
+ * ödenen Ödeme 2 tutarı (sahibi, 07.10.2026: "maaşları karışmasın").
+ */
+function Payment2({ lines, onPick }: { lines: ComputedLine[]; onPick: (id: string) => void }) {
+  const inScope = lines.filter((l) => l.calc.payment2_in_scope);
+  const due = inScope.filter((l) => !l.calc.payment2_settled).sort((a, b) => b.calc.payment2_due - a.calc.payment2_due);
+  const settled = inScope.filter((l) => l.calc.payment2_settled).sort((a, b) => b.calc.payment2_paid - a.calc.payment2_paid);
+  const tot = (rows: ComputedLine[], f: (l: ComputedLine) => number) => rows.reduce((s, l) => s + f(l), 0);
+  const prem = (l: ComputedLine) => l.calc.perfume_amount + l.calc.garment_amount + l.calc.top_seller_amount + l.calc.extra_premium;
+  const cell = (v: number, cls = "") => <td className={cn("py-1.5 text-right tabular-nums", cls)}>{Math.abs(v) > 0.005 ? money(v) : "—"}</td>;
+  return (
+    <div className="space-y-5">
+      <section>
+        <div className="mb-1 text-sm font-medium text-amber-800">
+          Ödeme 2 bekleyenler ({due.length}) · ödenecek {money(tot(due, (l) => l.calc.payment2_due))} ₺
+        </div>
+        {due.length === 0 ? (
+          <Empty text="Bekleyen Ödeme 2 yok." />
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="text-[11px] uppercase tracking-wider text-muted-foreground">
+              <tr className="border-b">
+                <th className="py-1 text-left font-medium">Çalışan</th>
+                <th className="py-1 text-right font-medium">Mesai</th>
+                <th className="py-1 text-right font-medium">Komisyon</th>
+                <th className="py-1 text-right font-medium">Primler</th>
+                <th className="py-1 text-right font-medium">Ekleme</th>
+                <th className="py-1 text-right font-medium">Kesinti</th>
+                <th className="py-1 text-right font-medium">Ödenen</th>
+                <th className="py-1 text-right font-medium">Ödenecek</th>
+              </tr>
+            </thead>
+            <tbody>
+              {due.map((l) => (
+                <tr key={l.id} className="border-b last:border-0">
+                  <td className="py-1.5">
+                    <Name l={l} onPick={onPick} />
+                    {!l.calc.base_paid ? <div className="text-[10px] text-amber-800">maaşı henüz ödenmedi</div> : null}
+                  </td>
+                  {cell(l.calc.overtime_amount)}
+                  {cell(l.calc.commission.final)}
+                  {cell(prem(l))}
+                  {cell(l.calc.additions_total, "text-emerald-700")}
+                  {cell(-l.calc.deductions_total, "text-rose-700")}
+                  {cell(l.calc.payment2_paid, "text-muted-foreground")}
+                  <td className="py-1.5 text-right tabular-nums font-semibold">{money(l.calc.payment2_due)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t font-semibold">
+                <td className="py-1.5">Toplam</td>
+                {cell(tot(due, (l) => l.calc.overtime_amount))}
+                {cell(tot(due, (l) => l.calc.commission.final))}
+                {cell(tot(due, prem))}
+                {cell(tot(due, (l) => l.calc.additions_total), "text-emerald-700")}
+                {cell(-tot(due, (l) => l.calc.deductions_total), "text-rose-700")}
+                {cell(tot(due, (l) => l.calc.payment2_paid), "text-muted-foreground")}
+                <td className="py-1.5 text-right tabular-nums">{money(tot(due, (l) => l.calc.payment2_due))}</td>
+              </tr>
+            </tfoot>
+          </table>
+        )}
+      </section>
+      <section>
+        <div className="mb-1 text-sm font-medium text-emerald-700">
+          Ödeme 2 ödenenler ({settled.length}) · {money(tot(settled, (l) => l.calc.payment2_paid))} ₺
+        </div>
+        {settled.length === 0 ? (
+          <Empty text="Henüz kimsenin Ödeme 2'si ödenmedi." />
+        ) : (
+          <ul className="divide-y text-sm">
+            {settled.map((l) => (
+              <li key={l.id} className="py-1.5">
+                <div className="flex items-center gap-2">
+                  <Name l={l} onPick={onPick} />
+                  <span className="ml-auto tabular-nums font-semibold">{money(l.calc.payment2_paid)} ₺</span>
+                </div>
+                <ul className="mt-0.5 space-y-0.5 pl-2 text-xs text-muted-foreground">
+                  {l.calc.entries
+                    .filter((e) => e.kind === "payment" && e.category === "payment2" && e.counted)
+                    .map((e) => (
+                      <li key={e.id} className="flex flex-wrap items-center gap-2">
+                        <span className="tabular-nums">{dmy(String(e.entry_date))}</span>
+                        {e.channel ? <span>{CHANNEL_SHORT[e.channel as keyof typeof CHANNEL_SHORT] ?? e.channel}</span> : null}
+                        <span className="tabular-nums text-foreground">{money(e.amount)} ₺</span>
+                        {e.batch ? <span className="truncate">· {e.batch.title}</span> : null}
+                      </li>
+                    ))}
+                </ul>
               </li>
             ))}
           </ul>

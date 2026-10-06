@@ -416,11 +416,25 @@ function Kpis({ data, onOpen }: { data: PeriodView; onOpen: (k: KpiKind) => void
       tone: t.remaining > 0.5 ? "text-amber-700" : "text-emerald-700",
       kind: "remaining",
     },
+    {
+      // Sahibi (07.10.2026): Ödeme 1 kartı gibi "kaç kişiden kaçı ödendi"; rakamlar
+      // yalnız Ödeme 2 kalemleri (mesai, komisyon, prim, ekleme − kesinti), maaş değil.
+      label: "Maaşlar (Ödeme 2)",
+      value: `${t.p2_settled_count} / ${t.p2_lines}`,
+      hint:
+        t.p2_lines === 0
+          ? "henüz Ödeme 2 yok"
+          : t.p2_settled_count === t.p2_lines
+            ? `tümü ödendi · ${money(t.p2_paid)}`
+            : `ödenecek ${money(t.p2_due)} · ödenen ${money(t.p2_paid)}`,
+      tone: t.p2_lines > 0 && t.p2_settled_count === t.p2_lines ? "text-emerald-700" : "text-amber-700",
+      kind: "payment2",
+    },
     { label: "Mesai + komisyon + prim", value: money(t.overtime + t.commission + t.premiums), hint: `kesinti ${money(t.deductions)}`, kind: "extras" },
     { label: "Uyarı", value: String(t.warnings), hint: t.warnings ? "kontrol edilmeli" : "temiz", tone: t.warnings ? "text-rose-700" : "text-emerald-700" },
   ];
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
       {items.map((it) =>
         it.kind ? (
           <button
