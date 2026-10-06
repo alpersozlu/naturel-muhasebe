@@ -125,7 +125,7 @@ function Payment2Breakdown({ c, hours, nextLabel }: { c: LineCalc; hours: number
   if (c.extra_premium) rows.push({ label: "Ek prim", amount: c.extra_premium });
   if (c.overtime_amount) rows.push({ label: `Mesai ${hoursTr(hours)} s`, amount: c.overtime_amount });
   if (c.additions_total) rows.push({ label: "Eklemeler", amount: c.additions_total, tone: "text-emerald-700" });
-  if (c.deductions_total) rows.push({ label: "Kesintiler", amount: -c.deductions_total, tone: "text-rose-700" });
+  if (c.deductions_from_extras) rows.push({ label: "Kesintiler", amount: -c.deductions_from_extras, tone: "text-rose-700" });
   if (c.carried_forward_total) rows.push({ label: `${nextLabel} maaşına devir`, amount: c.carried_forward_total, tone: "text-violet-800" });
   const listed = rows.reduce((s, r) => s + r.amount, 0);
   const diff = Math.round((c.payment2_due - listed) * 100) / 100;
@@ -135,6 +135,8 @@ function Payment2Breakdown({ c, hours, nextLabel }: { c: LineCalc; hours: number
       amount: diff,
       tone: "text-amber-800",
     });
+  // Maaştan düşülen kesinti bilgi satırıdır, Ödeme 2 toplamına girmez.
+  const fromSalary = c.deductions_from_salary;
   return (
     <div className="ml-auto w-[210px]">
       {rows.length ? (
@@ -152,6 +154,11 @@ function Payment2Breakdown({ c, hours, nextLabel }: { c: LineCalc; hours: number
       ) : (
         <div className="text-[11px] text-muted-foreground">kalem yok</div>
       )}
+      {fromSalary > 0.005 ? (
+        <div className="mt-0.5 text-[10px] text-muted-foreground" title="Bu kesinti baz maaştan (Ödeme 1) düşüldü; Ödeme 2'yi etkilemez.">
+          maaştan kesildi {money(fromSalary)} (Ödeme 1)
+        </div>
+      ) : null}
       <div className={cn("mt-1 flex items-baseline justify-between gap-2 border-t pt-1", c.net_remaining < -0.5 && "text-rose-700")}>
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Ödenecek</span>
         <span className="text-base font-bold tabular-nums">{money(c.payment2_due)} ₺</span>

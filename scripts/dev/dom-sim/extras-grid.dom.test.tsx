@@ -126,9 +126,11 @@ describe("ExtrasGrid", () => {
     expect(ogCells[6]).toContain("9 s × 340,83");
     // Ödeme 2 dökümü ve ödenecek tutar motorla aynı
     expect(ogCells[8]).toContain("Komisyon + 2.850,34");
-    expect(ogCells[8]).toContain("Kesintiler − 42.539,88");
+    // Kesintinin maaştan karşılanan 18.000'i Ödeme 2 dökümüne girmez, bilgi satırıdır
+    expect(ogCells[8]).toContain("Kesintiler − 24.539,88");
     expect(ogCells[8]).toContain("Ekim 2026 maaşına devir + 18.622,05");
-    expect(ogCells[8]).toContain("Ödenmeyen maaş bakiyesi + 18.000,00");
+    expect(ogCells[8]).toContain("maaştan kesildi 18.000,00 (Ödeme 1)");
+    expect(ogCells[8]).not.toContain("maaş bakiyesi");
     expect(ogCells[8]).toContain(`Ödenecek ${new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2 }).format(og.calc.payment2_due)} ₺`);
     expect(og.calc.payment2_due).toBeCloseTo(0, 2); // devirden sonra sıfır
 

@@ -137,6 +137,14 @@ export type LineCalc = {
   payment2_due: number;
   /** Baz maaş tamamen ödendi mi (sahibinin akışı: Garanti + Ziraat + nakit → "maaşlar kapandı") */
   base_paid: boolean;
+  /**
+   * Kesintinin bölünmesi: kesinti önce baz maaştan (Ödeme 1) düşer; maaş yetmezse
+   * kalanı Ödeme 2'den (mesai/komisyon/prim) düşer. Ödeme 2 ekranlarında yalnız
+   * deductions_from_extras gösterilir (07.10.2026: Yaşar Kemal'in 38.409,70'i
+   * maaşından kesilmişken Ödeme 2 tablosunda kesinti gibi görünüyordu).
+   */
+  deductions_from_salary: number;
+  deductions_from_extras: number;
   /** Bu ay Ödeme 2 olarak fiilen ödenen (payment / payment2 kayıtları, sayılanlar) */
   payment2_paid: number;
   /** Kişi Ödeme 2 kapsamında mı: bir Ödeme 2 ödemesi var ya da ödenecek Ödeme 2'si var */
@@ -343,6 +351,9 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
   const p1raw = line.base_salary + additions - deductions - paid;
   const payment1 = Math.max(0, Math.min(p1raw, net));
   const payment2 = Math.max(0, net - payment1);
+  // p1raw < 0 ise maaş kesintiyi karşılayamadı: eksik kadarı Ödeme 2'den düşer
+  // (fazla ödeme halinde eksik kesintiden büyük olabilir — kesintiyle sınırlanır).
+  const dedFromExtras = Math.min(deductions, Math.max(0, -p1raw));
   const extras = overtime + commission.final + perfume + garment + topSeller + extra + additions;
 
   const flags: Flag[] = [];
@@ -426,6 +437,8 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
     payment1_due: round2(payment1),
     payment2_due: round2(payment2),
     base_paid: payment1 <= 0.5,
+    deductions_from_salary: round2(deductions - dedFromExtras),
+    deductions_from_extras: round2(dedFromExtras),
     payment2_paid: round2(payment2Paid),
     payment2_in_scope: payment2Paid > 0.005 || payment2 > 0.5,
     payment2_settled: payment2Paid > 0.005 && payment2 <= 0.5,

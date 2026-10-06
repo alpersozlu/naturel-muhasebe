@@ -55,6 +55,27 @@ describe("Ödeme 2 kapsamı ve kapanışı", () => {
     expect(c.payment2_in_scope).toBe(false);
     expect(c.payment2_settled).toBe(false);
   });
+  it("Yaşar Kemal örneği: kesinti maaştan karşılandıysa Ödeme 2'den düşmez", () => {
+    // baz 68.000,01 · avans 15.000 · kesinti 38.409,70 · Ödeme 1 14.590,31 → maaş tam kapandı
+    const inp: LineInput = { ...base, base_salary: 68_000.01, overtime_hours: 8 };
+    const adv: EntryLike = { id: "a", kind: "advance", category: null, channel: "garanti", entry_date: "2026-09-16", amount: 15_000, note: null, reference: null, voided_at: null, batch: null };
+    const ded: EntryLike = { id: "d", kind: "deduction", category: "double_payment", channel: null, entry_date: "2026-09-30", amount: 38_409.7, note: "x", reference: null, voided_at: null, batch: null };
+    const c = computeLine(inp, store, [adv, ded, pay("p1", "payment1", 14_590.31)]);
+    expect(c.base_paid).toBe(true);
+    expect(c.deductions_from_salary).toBeCloseTo(38_409.7, 2);
+    expect(c.deductions_from_extras).toBe(0);
+    expect(c.payment2_due).toBeCloseTo(c.overtime_amount, 2);
+  });
+  it("Oğuzhan örneği: maaşın karşılayamadığı kesinti Ödeme 2'den düşer", () => {
+    // baz 70.893 · kesinti 42.539,88 · avans 30.000 · Ödeme 1 22.893 → maaştan 18.000, ekstradan 24.539,88
+    const inp: LineInput = { ...base, overtime_hours: 24 };
+    const adv: EntryLike = { id: "a", kind: "advance", category: null, channel: "cash", entry_date: "2026-09-16", amount: 30_000, note: null, reference: null, voided_at: null, batch: null };
+    const ded: EntryLike = { id: "d", kind: "deduction", category: "other", channel: null, entry_date: "2026-09-30", amount: 42_539.88, note: "x", reference: null, voided_at: null, batch: null };
+    const c = computeLine(inp, store, [adv, ded, pay("p1", "payment1", 22_893)]);
+    expect(c.deductions_from_salary).toBeCloseTo(18_000, 2);
+    expect(c.deductions_from_extras).toBeCloseTo(24_539.88, 2);
+    expect(c.deductions_from_salary + c.deductions_from_extras).toBeCloseTo(c.deductions_total, 2);
+  });
   it("kesinti ekstrayı yutunca ödenecek yok → kapsam dışı (devir ekranı ayrı)", () => {
     const ded: EntryLike = { id: "d", kind: "deduction", category: "other", channel: null, entry_date: "2026-09-30", amount: 20_000, note: "x", reference: null, voided_at: null, batch: null };
     const c = computeLine(base, store, [pay("p1", "payment1", 70_893), ded]);

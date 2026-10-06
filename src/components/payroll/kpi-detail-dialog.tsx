@@ -188,7 +188,7 @@ function Payment2({ lines, onPick }: { lines: ComputedLine[]; onPick: (id: strin
                 <th className="py-1 text-right font-medium">Komisyon</th>
                 <th className="py-1 text-right font-medium">Primler</th>
                 <th className="py-1 text-right font-medium">Ekleme</th>
-                <th className="py-1 text-right font-medium">Kesinti</th>
+                <th className="py-1 text-right font-medium" title="Yalnız Ödeme 2'den düşen kesinti; maaştan kesilen ayrıca not edilir">Kesinti (Ödeme 2'den)</th>
                 <th className="py-1 text-right font-medium">Ödenen</th>
                 <th className="py-1 text-right font-medium">Ödenecek</th>
               </tr>
@@ -204,7 +204,14 @@ function Payment2({ lines, onPick }: { lines: ComputedLine[]; onPick: (id: strin
                   {cell(l.calc.commission.final)}
                   {cell(prem(l))}
                   {cell(l.calc.additions_total, "text-emerald-700")}
-                  {cell(-l.calc.deductions_total, "text-rose-700")}
+                  <td className="py-1.5 text-right tabular-nums text-rose-700">
+                    {l.calc.deductions_from_extras > 0.005 ? money(-l.calc.deductions_from_extras) : "—"}
+                    {l.calc.deductions_from_salary > 0.005 ? (
+                      <div className="text-[10px] font-normal text-muted-foreground" title="Bu kesinti baz maaştan (Ödeme 1) düşüldü; Ödeme 2'yi etkilemez.">
+                        maaştan kesildi {money(l.calc.deductions_from_salary)}
+                      </div>
+                    ) : null}
+                  </td>
                   {cell(l.calc.payment2_paid, "text-muted-foreground")}
                   <td className="py-1.5 text-right tabular-nums font-semibold">{money(l.calc.payment2_due)}</td>
                 </tr>
@@ -217,7 +224,7 @@ function Payment2({ lines, onPick }: { lines: ComputedLine[]; onPick: (id: strin
                 {cell(tot(due, (l) => l.calc.commission.final))}
                 {cell(tot(due, prem))}
                 {cell(tot(due, (l) => l.calc.additions_total), "text-emerald-700")}
-                {cell(-tot(due, (l) => l.calc.deductions_total), "text-rose-700")}
+                {cell(-tot(due, (l) => l.calc.deductions_from_extras), "text-rose-700")}
                 {cell(tot(due, (l) => l.calc.payment2_paid), "text-muted-foreground")}
                 <td className="py-1.5 text-right tabular-nums">{money(tot(due, (l) => l.calc.payment2_due))}</td>
               </tr>
@@ -309,7 +316,7 @@ function Extras({ lines, onPick }: { lines: ComputedLine[]; onPick: (id: string)
           <th className="py-1 text-right font-medium">Mesai</th>
           <th className="py-1 text-right font-medium">Komisyon</th>
           <th className="py-1 text-right font-medium">Primler</th>
-          <th className="py-1 text-right font-medium">Kesinti</th>
+          <th className="py-1 text-right font-medium">Kesinti (Ödeme 2'den)</th>
           <th className="py-1 text-right font-medium">Ödeme 2</th>
         </tr>
       </thead>
@@ -324,7 +331,12 @@ function Extras({ lines, onPick }: { lines: ComputedLine[]; onPick: (id: string)
               <td className="py-1.5 text-right tabular-nums">{l.calc.overtime_amount ? money(l.calc.overtime_amount) : "—"}</td>
               <td className="py-1.5 text-right tabular-nums">{l.calc.commission.final ? money(l.calc.commission.final) : "—"}</td>
               <td className="py-1.5 text-right tabular-nums">{prem ? money(prem) : "—"}</td>
-              <td className="py-1.5 text-right tabular-nums text-rose-700">{l.calc.deductions_total ? `−${money(l.calc.deductions_total)}` : "—"}</td>
+              <td className="py-1.5 text-right tabular-nums text-rose-700">
+                {l.calc.deductions_from_extras ? `−${money(l.calc.deductions_from_extras)}` : "—"}
+                {l.calc.deductions_from_salary > 0.005 ? (
+                  <div className="text-[10px] text-muted-foreground" title="Baz maaştan (Ödeme 1) kesildi">maaştan kesildi {money(l.calc.deductions_from_salary)}</div>
+                ) : null}
+              </td>
               <td className="py-1.5 text-right tabular-nums font-medium">{money(l.calc.payment2_due)}</td>
             </tr>
           );
@@ -338,7 +350,7 @@ function Extras({ lines, onPick }: { lines: ComputedLine[]; onPick: (id: string)
           <td className="py-1.5 text-right tabular-nums">
             {money(tot((l) => l.calc.perfume_amount + l.calc.garment_amount + l.calc.top_seller_amount + l.calc.extra_premium + l.calc.additions_total))}
           </td>
-          <td className="py-1.5 text-right tabular-nums text-rose-700">−{money(tot((l) => l.calc.deductions_total))}</td>
+          <td className="py-1.5 text-right tabular-nums text-rose-700">−{money(tot((l) => l.calc.deductions_from_extras))}</td>
           <td className="py-1.5 text-right tabular-nums">{money(tot((l) => l.calc.payment2_due))}</td>
         </tr>
       </tfoot>
