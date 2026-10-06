@@ -2219,7 +2219,10 @@ export const nebimSalesRouter = router({
         .filter((o) => !o.expired)
         .sort((a, b) => (b.first_valid ?? "").localeCompare(a.first_valid ?? ""));
       // Kuruşluk artık bakiyeler ana listeyi şişirmesin — ayrı toplanır.
-      const MINOR_BALANCE = 50;
+      // Eşik 50 ₺ idi; sahibi 14.09.2026'da verilen çekin 30,00 ₺ kalanını
+      // listede göremedi (06.10.2026: "−30 kredi çeki var ama sistemde
+      // gözükmüyor"). 1 ₺ ve üstü artık ana listede; yalnız kuruş artıkları ayrı.
+      const MINOR_BALANCE = 1;
       const active = activeAll.filter((o) => o.remaining >= MINOR_BALANCE);
       const minor = activeAll.filter((o) => o.remaining < MINOR_BALANCE);
       const expiredAll = withIssuer

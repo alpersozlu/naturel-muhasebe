@@ -179,7 +179,7 @@ export function NebimKrediCeki({ filters }: { filters: NebimSalesSelection }) {
         </Card>
       )}
 
-      {/* ₺50 altı artık bakiyeler — ana listeyi şişirmesin diye ayrı */}
+      {/* ₺1 altı artık bakiyeler — ana listeyi şişirmesin diye ayrı */}
       {data.minor.length > 0 ? (
         <MinorCollapsible rows={data.minor} total={data.minor_total} />
       ) : null}
@@ -387,7 +387,7 @@ function KalanlarTable({
   );
 }
 
-/** ₺50 altı kalan bakiyeler — takip değeri düşük, katlanır özet. */
+/** ₺1 altı kalan bakiyeler — takip değeri düşük, katlanır özet. */
 function MinorCollapsible({
   rows, total,
 }: {
@@ -402,12 +402,12 @@ function MinorCollapsible({
         className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
       >
         {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-        Küçük bakiyeler (₺50 altı): {rows.length} çek · {fmt(total)} — takip
+        Küçük bakiyeler (₺1 altı): {rows.length} çek · {fmt(total)} — takip
         gerektirmez (göster/gizle)
       </button>
       {open ? (
         <div className="mt-2">
-          <KalanlarTable title="Küçük Bakiyeler (₺50 altı)" rows={rows} />
+          <KalanlarTable title="Küçük Bakiyeler (₺1 altı)" rows={rows} />
         </div>
       ) : null}
     </div>
