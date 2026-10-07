@@ -604,7 +604,8 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     if (sap) {
       const fix = reconcileExtraRowsWithSap(
         { loyalty: parsed.loyalty_points_total, voucher: parsed.shopping_voucher_total, sales: parsed.sales_total, cash: parsed.cash_sales, card: parsed.credit_card_total },
-        { loyalty: sap.loyalty_try.toNumber(), gift: sap.gift_card_try?.toNumber() ?? 0 }
+        { loyalty: sap.loyalty_try.toNumber(), gift: sap.gift_card_try?.toNumber() ?? 0 },
+        await prevSummaryExtras(upload.daily_record_id)
       );
       if (fix) {
         parsed.loyalty_points_total = fix.loyalty;
@@ -1301,7 +1302,8 @@ async function runDealerDailyReport(upload: Upload, buffer: Buffer, opts: { skip
         cash: existing.cash_sales_try?.toNumber() ?? null,
         card: existing.credit_card_total_try?.toNumber() ?? null,
       },
-      { loyalty: day.loyalty, gift: day.gift_card }
+      { loyalty: day.loyalty, gift: day.gift_card },
+      await prevSummaryExtras(upload.daily_record_id)
     );
     if (fix) {
       await prisma.storeSummary.update({
@@ -1321,6 +1323,21 @@ async function runDealerDailyReport(upload: Upload, buffer: Buffer, opts: { skip
   // it is known to be this store's own, readable file. Its outcome is kept on
   // the dealer report and never affects this upload. (Not on a mere re-read.)
   if (!opts.skipForward) await forwardDealerReport(upload.id, buffer);
+}
+
+/**
+ * Kümülatif özet (Mavi kasa birleşmesi): bir önceki günün özet satırları,
+ * Kartuş / Alışveriş Çeki düzeltmesinde SAP ile karşılaştırma tabanı olur.
+ * Kümülatif değilse null.
+ */
+async function prevSummaryExtras(dailyRecordId: string): Promise<{ loyalty: number | null; voucher: number | null } | null> {
+  const dr = await prisma.dailyRecord.findUnique({
+    where: { id: dailyRecordId },
+    select: { cumulative_prev: { select: { store_summary: { select: { loyalty_points_total_try: true, shopping_voucher_total_try: true } } } } },
+  });
+  const ps = dr?.cumulative_prev?.store_summary;
+  if (!ps) return null;
+  return { loyalty: ps.loyalty_points_total_try?.toNumber() ?? null, voucher: ps.shopping_voucher_total_try?.toNumber() ?? null };
 }
 
 /**

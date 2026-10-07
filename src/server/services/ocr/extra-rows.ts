@@ -15,11 +15,24 @@
  *    loyalty (or gift): the row was dropped; the value comes from the
  *    summary's own totals, not from SAP.
  * Nothing changes when the numbers do not agree.
+ *
+ * KÜMÜLATİF özet (Mavi kasa birleşmesi, DailyRecord.cumulative_prev_id): the
+ * summary carries the previous day's totals too, so the comparison is made
+ * against prev summary + today's SAP (`prev` = previous day's summary rows).
+ * Measured 06.10.2026 (Mavi Girne): summary "Alışveriş Çeki 3.990" with no
+ * Kartuş row; prev Kartuş 3.090 + SAP 900 = 3.990 — the same mix-up, which
+ * the same-day check could not see (900 ≠ 3.990) and so flagged
+ * "manipülasyon riski" on an honest day.
  */
 export function reconcileExtraRowsWithSap(
   summary: { loyalty: number | null; voucher: number | null; sales?: number | null; cash?: number | null; card?: number | null },
-  sap: { loyalty: number; gift: number }
+  sapToday: { loyalty: number; gift: number },
+  prev?: { loyalty: number | null; voucher: number | null } | null
 ): { loyalty: number | null; voucher: number | null; note: string } | null {
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const sap = prev
+    ? { loyalty: r2((prev.loyalty ?? 0) + sapToday.loyalty), gift: r2((prev.voucher ?? 0) + sapToday.gift) }
+    : sapToday;
   const near = (a: number | null | undefined, b: number) => a != null && Math.abs(a - b) <= Math.max(1, b * 0.01);
   const zero = (a: number | null | undefined) => a == null || Math.abs(a) < 0.005;
   if (zero(summary.loyalty) && summary.voucher != null && summary.voucher > 0 && near(summary.voucher, sap.loyalty) && zero(sap.gift)) {
