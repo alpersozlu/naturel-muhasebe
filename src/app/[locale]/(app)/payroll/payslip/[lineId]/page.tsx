@@ -1,7 +1,13 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { computeFromLine, lineInclude, num } from "@/server/services/payroll/period";
-import { CARRY_FORWARD_CATEGORY, PAY_METHOD_LABEL, periodLabel } from "@/server/services/payroll/rules";
+import {
+  ADDITION_CATEGORIES,
+  CARRY_FORWARD_CATEGORY,
+  DEDUCTION_CATEGORIES,
+  PAY_METHOD_LABEL,
+  periodLabel,
+} from "@/server/services/payroll/rules";
 import { nextPeriodKey } from "@/server/services/payroll/period";
 import { PrintButton } from "@/components/payroll/print-button";
 
@@ -13,13 +19,22 @@ const dmy = (iso: string) => {
   const [y, m, d] = iso.slice(0, 10).split("-");
   return `${d}.${m}.${y}`;
 };
-const KIND: Record<string, string> = { advance: "Avans", payment: "Ödeme", deduction: "Kesinti", addition: "Ek hak ediş" };
-const CHANNEL: Record<string, string> = { garanti: "banka talimatı", ziraat: "Ziraat", cash: "nakit", other: "diğer" };
+const CHANNEL: Record<string, string> = { garanti: "banka", ziraat: "Ziraat", cash: "nakit", other: "diğer" };
+const PCT = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const pct = (r: number) => `%${PCT.format(r * 100)}`;
+/** Ödeme satırı adı — personele giden belgede kısa ve tek biçimli */
+const paymentLabel = (e: { kind: string; category: string | null }) =>
+  e.kind === "advance" ? "Avans" : e.category === "payment1" ? "Ödeme 1 (maaş)" : e.category === "payment2" ? "Ödeme 2 (mesai · komisyon · prim)" : e.category === "cash" ? "Nakit ödeme" : "Ödeme";
 
 /**
  * Bordro fişi — Mert'in PDF düzeninin HTML karşılığı; tarayıcıdan PDF'e
  * yazdırılır. Rakamlar aynı hesap motorundan gelir (compute.ts), bu yüzden
  * ekrandaki tabloyla asla çelişmez.
+ *
+ * PERSONELE GİDER (sahibi, 07.10.2026: "basitleştir, ne kadar ödeneceğini rahat
+ * görsün"): iç notlar (kayıt notları, mesai dökümü, komisyon açıklaması, satır
+ * notu, kimin ne zaman karar verdiği) bu belgede YAZILMAZ; her kalem yalnız
+ * adı + tutarı. Ayrıntı uygulamadaki kişi penceresinde.
  */
 export default async function PayslipPage({ params }: { params: { lineId: string } }) {
   const l = await prisma.payrollLine.findUnique({
@@ -55,7 +70,7 @@ export default async function PayslipPage({ params }: { params: { lineId: string
       <article className="rounded-xl border bg-white p-8 text-[13px] leading-relaxed text-slate-900 shadow-xs print:border-0 print:shadow-none">
         <header className="border-b-2 border-slate-900 pb-3">
           <div className="text-lg font-bold tracking-tight">{label} MAAŞ BORDROSU</div>
-          <div className="text-slate-600">Naturel Ticaret — Mavi &amp; Derimod Kıbrıs</div>
+          <div className="text-slate-600">Naturel Ticaret</div>
         </header>
 
         <dl className="mt-4 grid grid-cols-[9rem_1fr] gap-y-1">
@@ -80,22 +95,14 @@ export default async function PayslipPage({ params }: { params: { lineId: string
         <Section title="1. MAAŞ ve ÖDEMELER">
           <Row label={`${periodLabel(l.period.year, l.period.month)} Net Maaş`} v={money(line.base_salary)} />
           {payments.map((e) => (
-            <Row
-              key={e.id}
-              label={`${dmy(String(e.entry_date))} — ${e.kind === "advance" ? "Avans" : e.category === "payment1" ? "Ödeme 1" : e.category === "payment2" ? "Ödeme 2" : "Ödeme"}${
-                e.channel ? ` (${CHANNEL[e.channel] ?? e.channel})` : ""
-              }${e.note ? ` · ${e.note}` : ""}`}
-              v={money(e.amount)}
-            />
+            <Row key={e.id} label={`${dmy(String(e.entry_date))} — ${paymentLabel(e)}${e.channel ? ` · ${CHANNEL[e.channel] ?? e.channel}` : ""}`} v={money(e.amount)} />
           ))}
           <Row label="Ödemeler Toplamı" v={money(c.paid_total)} bold />
         </Section>
 
         {c.overtime_amount > 0 ? (
           <Section title="2. EK MESAİ (Fazla Çalışma)">
-            <div className="text-slate-600">Saatlik ücret: {money(c.hourly_rate)}/saat (aylık net ÷ 208)</div>
-            {line.overtime_note ? <div className="text-slate-600">Onaylı kayıtlar: {line.overtime_note}</div> : null}
-            <Row label={`${line.overtime_hours} saat × ${money(c.hourly_rate)}`} v={money(c.overtime_amount)} bold />
+            <Row label={`${line.overtime_hours} saat × ${money(c.hourly_rate)} (saatlik ücret = aylık net ÷ 208)`} v={money(c.overtime_amount)} bold />
           </Section>
         ) : null}
 
@@ -103,20 +110,21 @@ export default async function PayslipPage({ params }: { params: { lineId: string
           <Section title="3. KOMİSYON ve PRİMLER">
             {line.commission_profile !== "none" && c.commission.final > 0 ? (
               <>
-                {c.commission.explanation.map((t, i) => (
-                  <div key={i} className="text-slate-600">
-                    {t}
-                  </div>
-                ))}
-                <Row label="Komisyon Toplamı" v={money(c.commission.final)} bold />
+                <Row
+                  label={`Komisyon — ${c.commission.basis_label.toLocaleLowerCase("tr")} ${money(c.commission.basis)}${
+                    c.commission.target ? ` · hedef ${money(c.commission.target)}` : ""
+                  }${c.commission.achievement_used != null ? ` · başarı ${pct(c.commission.achievement_used)}` : ""}`}
+                  v={money(c.commission.final)}
+                  bold
+                />
               </>
             ) : null}
             {c.perfume_amount > 0 ? <Row label={`Parfüm Primi: ${line.perfume_units} adet × 50 ₺`} v={money(c.perfume_amount)} /> : null}
             {c.garment_amount > 0 ? <Row label={`Giysi Primi: ${line.garment_units} adet × 200 ₺`} v={money(c.garment_amount)} /> : null}
             {c.top_seller_amount > 0 ? <Row label="Top-Seller Primi (ayın en çok satanı)" v={money(c.top_seller_amount)} /> : null}
-            {c.extra_premium > 0 ? <Row label={`Ek Prim${line.extra_premium_note ? ` — ${line.extra_premium_note}` : ""}`} v={money(c.extra_premium)} /> : null}
+            {c.extra_premium > 0 ? <Row label="Ek Prim" v={money(c.extra_premium)} /> : null}
             {additions.map((e) => (
-              <Row key={e.id} label={`${dmy(String(e.entry_date))} — ${e.note ?? "Ek hak ediş"}`} v={money(e.amount)} />
+              <Row key={e.id} label={`${dmy(String(e.entry_date))} — ${ADDITION_CATEGORIES[(e.category ?? "other") as keyof typeof ADDITION_CATEGORIES] ?? "Ek hak ediş"}`} v={money(e.amount)} />
             ))}
           </Section>
         ) : null}
@@ -125,23 +133,23 @@ export default async function PayslipPage({ params }: { params: { lineId: string
           {deductions.length === 0 ? (
             <Row label="Kesinti bulunmamaktadır." v={money(0)} />
           ) : (
-            deductions.map((e) => <Row key={e.id} label={`${dmy(String(e.entry_date))} — ${e.note ?? KIND[e.kind]}`} v={`−${money(e.amount)}`} />)
+            deductions.map((e) => (
+              <Row key={e.id} label={`${dmy(String(e.entry_date))} — ${DEDUCTION_CATEGORIES[(e.category ?? "other") as keyof typeof DEDUCTION_CATEGORIES] ?? "Kesinti"}`} v={`−${money(e.amount)}`} />
+            ))
           )}
         </Section>
 
         <Section title="5. ÖZET">
-          <Row label="Brüt Hak Ediş (Maaş + Mesai + Komisyon + Primler − Kesintiler)" v={money(c.gross)} />
-          <Row label="Toplam Ödenen (avanslar dahil)" v={money(c.paid_total)} />
+          <Row label="Toplam Hak Ediş (maaş + mesai + komisyon + primler − kesintiler)" v={money(c.gross)} />
+          <Row label="Şimdiye Kadar Ödenen (avanslar dahil)" v={`−${money(c.paid_total)}`} />
           {c.carried_forward_total > 0 ? (
             <Row
               label={`Sonraki aya devredilen (${periodLabel(nk.year, nk.month)} maaşından kesilecek)`}
               v={money(c.carried_forward_total)}
             />
           ) : null}
-          <Row label={`NET KALAN${closedMonth ? " (ay kapandı)" : ""}`} v={money(c.net_remaining)} bold big />
+          <Row label={closedMonth ? "KALAN (ay kapandı)" : "ÖDENECEK TUTAR"} v={money(c.net_remaining)} bold big />
         </Section>
-
-        {line.note ? <div className="mt-4 text-xs text-slate-500">Not: {line.note}</div> : null}
 
         <div className="mt-10 grid grid-cols-2 gap-8 text-slate-600">
           <div>Çalışan İmza: ____________________</div>
