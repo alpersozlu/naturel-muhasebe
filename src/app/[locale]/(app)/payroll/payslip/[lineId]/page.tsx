@@ -82,14 +82,7 @@ export default async function PayslipPage({ params }: { params: { lineId: string
           <dd>{line.store_name}</dd>
           <dt className="text-slate-500">Ödeme Şekli:</dt>
           <dd>{PAY_METHOD_LABEL[line.pay_method]}</dd>
-          {line.pay_method === "garanti" && l.employee.bank_account_no ? (
-            <>
-              <dt className="text-slate-500">Banka Hesabı:</dt>
-              <dd>
-                {line.bank_account_name ?? line.full_name} — Şube {l.employee.bank_branch_code} / Hesap {l.employee.bank_account_no}
-              </dd>
-            </>
-          ) : null}
+          {/* Banka şube / hesap numarası fişte YAZILMAZ (sahibi, 07.10.2026). */}
         </dl>
 
         <Section title="1. MAAŞ ve ÖDEMELER">
