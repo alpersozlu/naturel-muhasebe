@@ -348,7 +348,12 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
   const paid = advances + payments;
   const net = gross + carried - paid;
 
-  const p1raw = line.base_salary + additions - deductions - paid;
+  // Ödeme 1 bakiyesi: baz + ekler − kesintiler − avanslar − MAAŞ ödemeleri.
+  // Ödeme 2 (mesai/komisyon/prim) ödemeleri buraya girmez; yoksa maaşı henüz
+  // ödenmemiş kişide Ödeme 2 ödendikten sonra Ödeme 2 yeniden "ödenecek"
+  // görünüyor ve maaş bakiyesi küçülüyordu (07.10.2026: Ekin Doğan / Rojin
+  // Arık — ayrılan iki kişi, nakit Ödeme 2 önce ödendi).
+  const p1raw = line.base_salary + additions - deductions - (paid - payment2Paid);
   const payment1 = Math.max(0, Math.min(p1raw, net));
   const payment2 = Math.max(0, net - payment1);
   // p1raw < 0 ise maaş kesintiyi karşılayamadı: eksik kadarı Ödeme 2'den düşer

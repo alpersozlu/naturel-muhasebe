@@ -76,6 +76,18 @@ describe("Ödeme 2 kapsamı ve kapanışı", () => {
     expect(c.deductions_from_extras).toBeCloseTo(24_539.88, 2);
     expect(c.deductions_from_salary + c.deductions_from_extras).toBeCloseTo(c.deductions_total, 2);
   });
+  it("Ekin Doğan örneği: maaş ödenmeden Ödeme 2 ödenirse Ödeme 2 kapanır, maaş bakiyesi değişmez", () => {
+    // baz 70.893 · avans 20.000 · ekstra 13.140,17 (ek prim) · Ödeme 2 nakit 13.140,17 ödendi
+    const inp: LineInput = { ...base, overtime_hours: 0, extra_premium: 13_140.17, extra_premium_note: "çıkış" };
+    const adv: EntryLike = { id: "a", kind: "advance", category: null, channel: "cash", entry_date: "2026-09-16", amount: 20_000, note: null, reference: null, voided_at: null, batch: null };
+    const c = computeLine(inp, store, [adv, pay("p2", "payment2", 13_140.17)]);
+    expect(c.payment2_paid).toBeCloseTo(13_140.17, 2);
+    expect(c.payment2_due).toBeCloseTo(0, 2);
+    expect(c.payment2_settled).toBe(true);
+    expect(c.payment1_due).toBeCloseTo(50_893, 2); // 70.893 − 20.000: maaş bakiyesi Ödeme 2'den etkilenmez
+    expect(c.net_remaining).toBeCloseTo(50_893, 2);
+    expect(c.base_paid).toBe(false);
+  });
   it("kesinti ekstrayı yutunca ödenecek yok → kapsam dışı (devir ekranı ayrı)", () => {
     const ded: EntryLike = { id: "d", kind: "deduction", category: "other", channel: null, entry_date: "2026-09-30", amount: 20_000, note: "x", reference: null, voided_at: null, batch: null };
     const c = computeLine(base, store, [pay("p1", "payment1", 70_893), ded]);
