@@ -44,7 +44,7 @@ const STATUS: Record<MeritStatus, { label: string; cls: string; icon: React.Reac
   ok_card: { label: "Kart var", cls: "bg-emerald-50 text-emerald-800 ring-emerald-200", icon: <BadgeCheck className="h-3.5 w-3.5" /> },
   ok_no_card: { label: "Kartsız kabul", cls: "bg-sky-50 text-sky-800 ring-sky-200", icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
   rejected: { label: "Reddedildi", cls: "bg-slate-100 text-slate-700 ring-slate-200", icon: <XCircle className="h-3.5 w-3.5" /> },
-  not_required: { label: "Kural öncesi", cls: "bg-muted text-muted-foreground ring-border", icon: null },
+  not_required: { label: "Kart aranmaz", cls: "bg-muted text-muted-foreground ring-border", icon: null },
 };
 const ORDER: Record<MeritStatus, number> = { missing: 0, rejected: 1, ok_no_card: 2, ok_card: 3, not_required: 4 };
 
@@ -172,7 +172,11 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
           <Kpi label="Kartı olmayan" value={String(k.missing)} tone={k.missing ? "text-rose-700" : "text-emerald-700"} sub={k.missing ? "kontrol edilmeli" : "temiz"} />
           <Kpi label="Kartlı" value={String(k.with_card)} tone="text-emerald-700" />
           <Kpi label="Kartsız kabul" value={String(k.accepted_no_card)} />
-          <Kpi label="Kural öncesi" value={String(k.not_required)} sub="Lefkoşa 08.10 öncesi" />
+          <Kpi
+            label="Diğer anlaşmalı"
+            value={String(Object.values(k.other_hotels).reduce((a, b) => a + b, 0))}
+            sub={Object.entries(k.other_hotels).map(([h, n]) => `${h} ${n}`).join(" · ") || "kart programı yok"}
+          />
           <Kpi label="İndirim toplamı" value={`${money(k.discount_total)} ₺`} sub="satır + dip iskonto" />
         </div>
 
@@ -183,7 +187,7 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
               ["all", `Hepsi (${k.invoices})`],
               ["missing", `Kart yok (${k.missing})`],
               ["ok", `Kart var (${k.with_card})`],
-              ["other", `Diğer (${k.accepted_no_card + k.rejected + k.not_required})`],
+              ["other", `Diğer (${k.accepted_no_card + k.rejected + k.not_required + Object.values(k.other_hotels).reduce((a, b) => a + b, 0)})`],
             ] as Array<[Tab, string]>
           ).map(([t, label]) => (
             <button
@@ -322,7 +326,10 @@ function InvoiceRow({ inv, onPick, onAccept, onReject, onClear }: { inv: MeritIn
         <div className="truncate">{inv.invoice_ref}</div>
       </div>
       <div className="min-w-[180px] flex-1">
-        <div className="font-medium">{inv.customer_name ?? <span className="text-muted-foreground">müşteri adı yok</span>}</div>
+        <div className="flex items-center gap-2 font-medium">
+          {inv.customer_name ?? <span className="text-muted-foreground">müşteri adı yok</span>}
+          {inv.hotel !== "Merit" ? <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{inv.hotel}</span> : null}
+        </div>
         <div className="truncate text-xs text-muted-foreground" title={inv.note ?? ""}>
           {inv.salesperson_name ? `${inv.salesperson_name} · ` : ""}
           {inv.lines} satır · {inv.note ?? "—"}
@@ -347,7 +354,15 @@ function InvoiceRow({ inv, onPick, onAccept, onReject, onClear }: { inv: MeritIn
           </>
         ) : (
           <div className="text-xs text-muted-foreground">
-            {inv.status === "ok_no_card" || inv.status === "rejected" ? (inv.review_note ?? "—") : inv.suggestions.length ? `Benzer kart: ${inv.suggestions[0]!.full_name} (%${Math.round(inv.suggestions[0]!.score * 100)})` : missing ? "Kart fotoğrafı yok" : "Kart aranmaz"}
+            {inv.status === "ok_no_card" || inv.status === "rejected"
+              ? (inv.review_note ?? "—")
+              : inv.suggestions.length
+                ? `Benzer kart: ${inv.suggestions[0]!.full_name} (%${Math.round(inv.suggestions[0]!.score * 100)})`
+                : missing
+                  ? "Kart fotoğrafı yok"
+                  : inv.hotel !== "Merit"
+                    ? `${inv.hotel} — kart programı yok`
+                    : "Kural öncesi — kart aranmaz"}
           </div>
         )}
       </div>

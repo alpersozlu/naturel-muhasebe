@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nameSimilarity, normalizeName, photoDateFromName } from "@/server/services/merit/cards";
-import { meritRuleApplies, meritStatus } from "@/server/services/merit/check";
+import { hotelOf, meritRuleApplies, meritStatus } from "@/server/services/merit/check";
 
 describe("Merit kartı — ad eşleştirme", () => {
   it("normalize: Türkçe harf, boşluk, büyük/küçük", () => {
@@ -47,5 +47,19 @@ describe("Merit %10 — kart zorunluluğu ve durum", () => {
     expect(meritStatus({ decision: null, autoScore: 0.9, required: true })).toBe("ok_card");
     expect(meritStatus({ decision: null, autoScore: 0.5, required: true })).toBe("missing");
     expect(meritStatus({ decision: null, autoScore: 0.5, required: false })).toBe("not_required");
+  });
+});
+
+describe("anlaşmalı kurum tanıma (yönetim notu)", () => {
+  it("Merit tüm yazımlarıyla", () => {
+    for (const n of ["%10 Merit", "MERİT PERSONELİ", "merıt %10", "mrt", "merit royal personeli 2214"]) expect(hotelOf(n)).toBe("Merit");
+  });
+  it("diğer kurumlar ve ilgisiz notlar", () => {
+    expect(hotelOf("CRATOS PERSONEL")).toBe("Cratos");
+    expect(hotelOf("lORDS %10")).toBe("Lord's Palace");
+    expect(hotelOf("Tip-is yetkilisi %10 indirim")).toBe("Tip-İş");
+    expect(hotelOf("tıp ıs")).toBe("Tip-İş");
+    expect(hotelOf("500 TL HEDİYE ÇEKİ")).toBeNull();
+    expect(hotelOf("personel indirimi")).toBeNull();
   });
 });

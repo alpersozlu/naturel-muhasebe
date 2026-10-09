@@ -44,14 +44,30 @@ export function meritStatus(input: {
   return input.required ? "missing" : "not_required";
 }
 
+/**
+ * Anlaşmalı kurum tanıma — yönetim notu / fiş notu / iskonto nedeni / kampanya.
+ * Merit kasada "merit", "merıt" (noktasız ı), "mrt" diye yazılıyor (09.10.2026:
+ * 43 düz + 4 varyant). Diğer anlaşmalılar (Cratos, Lord's Palace, Acapulco,
+ * Tip-İş) da listelenir ama kart programı yalnız Merit'te.
+ */
+export const HOTEL_PATTERNS: Array<{ hotel: string; re: RegExp; needles: string[] }> = [
+  { hotel: "Merit", re: /m\s*e\s*r\s*[iı]\s*t|\bmrt\b/i, needles: ["merit", "merıt", "mrt"] },
+  { hotel: "Cratos", re: /cratos/i, needles: ["cratos"] },
+  { hotel: "Lord's Palace", re: /lord/i, needles: ["lord"] },
+  { hotel: "Acapulco", re: /acapulco/i, needles: ["acapulco"] },
+  { hotel: "Tip-İş", re: /t[iı]p[- ]?[iı][sş]/i, needles: ["tip-is", "tip is", "tıp ıs", "tip-iş", "tipis"] },
+];
+const NOTE_FIELDS = ["mgmt_note", "invoice_note", "discount_reason", "campaign"] as const;
+
+export function hotelOf(text: string): string | null {
+  const t = text.toLocaleLowerCase("tr");
+  for (const h of HOTEL_PATTERNS) if (h.re.test(t)) return h.hotel;
+  return null;
+}
+
 export const MERIT_LINE_WHERE: Prisma.NebimSaleLineWhereInput = {
   is_return: false,
-  OR: [
-    { mgmt_note: { contains: "merit", mode: "insensitive" } },
-    { invoice_note: { contains: "merit", mode: "insensitive" } },
-    { discount_reason: { contains: "merit", mode: "insensitive" } },
-    { campaign: { contains: "merit", mode: "insensitive" } },
-  ],
+  OR: HOTEL_PATTERNS.flatMap((h) => h.needles.flatMap((n) => NOTE_FIELDS.map((f) => ({ [f]: { contains: n, mode: "insensitive" as const } })))),
 };
 
 export type MeritCardView = {
@@ -80,6 +96,8 @@ export type MeritCardView = {
 
 export type MeritInvoiceView = {
   invoice_ref: string;
+  /** Anlaşmalı kurum (Merit, Cratos, Lord's Palace, Acapulco, Tip-İş) */
+  hotel: string;
   invoice_date: string;
   store_id: string | null;
   store_name: string;
@@ -101,7 +119,10 @@ export type MeritInvoiceView = {
 
 export type MeritCheck = {
   kpi: {
+    /** Merit fişi (tüm yazımlar) */
     invoices: number;
+    /** diğer anlaşmalı kurumlar: ad → fiş sayısı */
+    other_hotels: Record<string, number>;
     with_card: number;
     missing: number;
     not_required: number;
@@ -147,6 +168,7 @@ export async function buildMeritCheck(
         mgmt_note: true,
         invoice_note: true,
         discount_reason: true,
+        campaign: true,
         store: { select: { name: true } },
       },
       orderBy: { invoice_date: "desc" },
@@ -160,9 +182,13 @@ export async function buildMeritCheck(
   for (const l of lines) {
     let inv = byRef.get(l.invoice_ref);
     if (!inv) {
-      const merit = [l.mgmt_note, l.invoice_note, l.discount_reason].find((n) => n && /merit/i.test(n)) ?? null;
+      const noteText = [l.mgmt_note, l.invoice_note, l.discount_reason, l.campaign].filter(Boolean).join(" | ");
+      const hotel = hotelOf(noteText);
+      if (!hotel) continue; // satır başka nedenle gelmiş olabilir (kampanya adı vb.)
+      const merit = [l.mgmt_note, l.invoice_note, l.discount_reason].find((n) => n && hotelOf(n)) ?? null;
       inv = {
         invoice_ref: l.invoice_ref,
+        hotel,
         invoice_date: l.invoice_date.toISOString().slice(0, 10),
         store_id: l.store_id,
         store_name: l.store?.name ?? l.store_name_raw ?? "?",
@@ -232,7 +258,7 @@ export async function buildMeritCheck(
     const { _doc: _ignored, ...rest } = inv;
     void _ignored;
     const v: MeritInvoiceView = { ...rest, total: r2(inv.total), discount: r2(inv.discount), units: r2(inv.units) };
-    v.required = meritRuleApplies(v.store_code, v.invoice_date);
+    v.required = v.hotel === "Merit" && meritRuleApplies(v.store_code, v.invoice_date);
     const review = reviewByRef.get(v.invoice_ref) ?? null;
     v.review_note = review?.note ?? null;
     // adaylar: ad benzerliği; aynı gün çekilmiş kart +0,1 (eşik altındakileri öne alır)
@@ -281,11 +307,15 @@ export async function buildMeritCheck(
     }
   }
 
+  const meritInv = invoices.filter((i) => i.hotel === "Merit");
+  const other_hotels: Record<string, number> = {};
+  for (const i of invoices) if (i.hotel !== "Merit") other_hotels[i.hotel] = (other_hotels[i.hotel] ?? 0) + 1;
   const kpi = {
-    invoices: invoices.length,
+    invoices: meritInv.length,
+    other_hotels,
     with_card: invoices.filter((i) => i.status === "ok_card").length,
     missing: invoices.filter((i) => i.status === "missing").length,
-    not_required: invoices.filter((i) => i.status === "not_required").length,
+    not_required: meritInv.filter((i) => i.status === "not_required").length,
     accepted_no_card: invoices.filter((i) => i.status === "ok_no_card").length,
     rejected: invoices.filter((i) => i.status === "rejected").length,
     total: r2(invoices.reduce((s, i) => s + i.total, 0)),
