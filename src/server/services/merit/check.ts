@@ -83,6 +83,8 @@ export type MeritCardView = {
   ocr_error: string | null;
   note: string | null;
   uploaded_at: string;
+  /** yükleyen mağaza (mağaza kutusundan geldiyse), yönetici yüklemesinde null */
+  store_name: string | null;
   url: string | null;
   /** bu karta bağlı (elle ya da otomatik) fiş sayısı */
   linked: number;
@@ -173,7 +175,7 @@ export async function buildMeritCheck(
       },
       orderBy: { invoice_date: "desc" },
     }),
-    prisma.meritCard.findMany({ where: { deleted_at: null }, orderBy: { uploaded_at: "desc" } }),
+    prisma.meritCard.findMany({ where: { deleted_at: null }, orderBy: { uploaded_at: "desc" }, include: { store: { select: { name: true } } } }),
     prisma.meritInvoiceReview.findMany(),
   ]);
 
@@ -245,6 +247,7 @@ export async function buildMeritCheck(
     ocr_error: c.ocr_error,
     note: c.note,
     uploaded_at: c.uploaded_at.toISOString(),
+    store_name: c.store?.name ?? null,
     url: urls.get(c.id) ?? null,
     linked: 0,
     other: null,

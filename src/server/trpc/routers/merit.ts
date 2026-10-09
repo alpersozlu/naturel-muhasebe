@@ -1,12 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, adminProcedure } from "../trpc";
-import { withAudit } from "../middleware/audit";
+import { router, adminProcedure, protectedProcedure } from "../trpc";
+import { withAudit, withAuditProtected } from "../middleware/audit";
 import { downloadFromStorage, uploadBufferToStorage } from "@/server/services/storage";
 import { buildMeritCheck } from "@/server/services/merit/check";
 import { normalizeName, ocrMeritCard, photoDateFromName } from "@/server/services/merit/cards";
-import { getAccessibleStoreIds, isAdmin } from "@/lib/auth/permissions";
+import { assertCanAccessStore, getAccessibleStoreIds, isAdmin } from "@/lib/auth/permissions";
+import { matchCardToSales } from "@/server/services/merit/store-match";
+import { createSignedReadUrl } from "@/server/services/storage";
 
 /**
  * Merit %10 Kontrolü — anlaşmalı otel personeli indirimi doğru kişiye mi yapıldı?
@@ -17,10 +19,43 @@ import { getAccessibleStoreIds, isAdmin } from "@/lib/auth/permissions";
  */
 const cardAudited = withAudit("MeritCard");
 const reviewAudited = withAudit("MeritInvoiceReview");
+const storeCardAudited = withAuditProtected("MeritCard");
 
 const MIME = z.enum(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
 const EXT: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic", "image/heif": "heif" };
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+const fileSchema = z.object({ name: z.string().max(200), mime_type: MIME, base64: z.string().min(16).max(16_000_000) });
+
+/** Dosyaları storage'a + MeritCard satırına yazar (ocr_status=pending). SHA-256 mükerrer korunur. */
+async function storeFiles(prisma: Parameters<typeof buildMeritCheck>[0], files: z.infer<typeof fileSchema>[], by: string, storeId: string | null) {
+  const created: string[] = [];
+  const skipped: Array<{ name: string; reason: string }> = [];
+  for (const f of files) {
+    const buffer = Buffer.from(f.base64, "base64");
+    if (buffer.length < 1000) {
+      skipped.push({ name: f.name, reason: "boş / bozuk dosya" });
+      continue;
+    }
+    const hash = createHash("sha256").update(buffer).digest("hex");
+    const dup = await prisma.meritCard.findUnique({ where: { file_hash: hash } });
+    if (dup) {
+      if (dup.deleted_at) {
+        await prisma.meritCard.update({ where: { id: dup.id }, data: { deleted_at: null, store_id: storeId ?? dup.store_id } });
+        created.push(dup.id);
+      } else skipped.push({ name: f.name, reason: `zaten yüklü${dup.full_name ? ` (${dup.full_name})` : ""}` });
+      continue;
+    }
+    const path = `merit-cards/${randomUUID()}.${EXT[f.mime_type] ?? "bin"}`;
+    await uploadBufferToStorage({ path, buffer, mimeType: f.mime_type });
+    const pd = photoDateFromName(f.name);
+    const row = await prisma.meritCard.create({
+      data: { storage_path: path, mime_type: f.mime_type, file_hash: hash, source_name: f.name, photo_date: pd ? new Date(`${pd}T00:00:00.000Z`) : null, uploaded_by: by, store_id: storeId },
+    });
+    created.push(row.id);
+  }
+  return { created, skipped };
+}
 
 const filterSchema = z.object({
   store_id: z.string().uuid().optional(),
@@ -72,49 +107,8 @@ export const meritRouter = router({
    * dosya (SHA-256) ikinci kez kabul edilmez. OCR sonra `readCard` ile.
    */
   uploadCards: cardAudited
-    .input(
-      z.object({
-        files: z
-          .array(z.object({ name: z.string().max(200), mime_type: MIME, base64: z.string().min(16).max(16_000_000) }))
-          .min(1)
-          .max(30),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const created: string[] = [];
-      const skipped: Array<{ name: string; reason: string }> = [];
-      for (const f of input.files) {
-        const buffer = Buffer.from(f.base64, "base64");
-        if (buffer.length < 1000) {
-          skipped.push({ name: f.name, reason: "boş / bozuk dosya" });
-          continue;
-        }
-        const hash = createHash("sha256").update(buffer).digest("hex");
-        const dup = await ctx.prisma.meritCard.findUnique({ where: { file_hash: hash } });
-        if (dup) {
-          if (dup.deleted_at) {
-            await ctx.prisma.meritCard.update({ where: { id: dup.id }, data: { deleted_at: null } });
-            created.push(dup.id);
-          } else skipped.push({ name: f.name, reason: `zaten yüklü${dup.full_name ? ` (${dup.full_name})` : ""}` });
-          continue;
-        }
-        const path = `merit-cards/${randomUUID()}.${EXT[f.mime_type] ?? "bin"}`;
-        await uploadBufferToStorage({ path, buffer, mimeType: f.mime_type });
-        const pd = photoDateFromName(f.name);
-        const row = await ctx.prisma.meritCard.create({
-          data: {
-            storage_path: path,
-            mime_type: f.mime_type,
-            file_hash: hash,
-            source_name: f.name,
-            photo_date: pd ? new Date(`${pd}T00:00:00.000Z`) : null,
-            uploaded_by: ctx.user.id,
-          },
-        });
-        created.push(row.id);
-      }
-      return { created, skipped };
-    }),
+    .input(z.object({ files: z.array(fileSchema).min(1).max(30) }))
+    .mutation(({ ctx, input }) => storeFiles(ctx.prisma, input.files, ctx.user.id, null)),
 
   /** Tek kartın OCR'ı (istemci sırayla çağırır). */
   readCard: cardAudited.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
@@ -176,5 +170,64 @@ export const meritRouter = router({
   clear: reviewAudited.input(z.object({ invoice_ref: z.string().min(3).max(40) })).mutation(async ({ ctx, input }) => {
     await ctx.prisma.meritInvoiceReview.deleteMany({ where: { invoice_ref: input.invoice_ref } });
     return { ok: true };
+  }),
+
+  // ── MAĞAZA TARAFI (Yükle ve Analiz Et › Otel Anlaşması) ─────────────────
+  /** Mağaza kart fotoğrafı yükler (kendi mağazası). OCR sonra `storeRead`. */
+  storeUpload: storeCardAudited
+    .input(z.object({ store_id: z.string().uuid(), files: z.array(fileSchema).min(1).max(10) }))
+    .mutation(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      return storeFiles(ctx.prisma, input.files, ctx.user.id, input.store_id);
+    }),
+
+  /** Kartı okur ve NEBİM'de o adla fiş var mı, %10 otel notu yazılmış mı bakar. */
+  storeRead: storeCardAudited.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+    const card = await ctx.prisma.meritCard.findUniqueOrThrow({ where: { id: input.id } });
+    if (!card.store_id) throw new TRPCError({ code: "FORBIDDEN", message: "Bu kart mağaza kartı değil" });
+    await assertCanAccessStore(ctx.user, card.store_id);
+    const r = await applyOcr(ctx.prisma, input.id);
+    const match = await matchCardToSales(ctx.prisma, r);
+    return { id: r.id, full_name: r.full_name, is_card: r.is_card, ocr_status: r.ocr_status, error: r.ocr_error, match };
+  }),
+
+  /** Mağazanın son kartları + canlı fiş doğrulaması. */
+  storeCards: protectedProcedure
+    .input(z.object({ store_id: z.string().uuid(), days: z.number().int().min(1).max(120).default(45) }))
+    .query(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      const since = new Date(Date.now() - input.days * 86_400_000);
+      const [cards, fresh] = await Promise.all([
+        ctx.prisma.meritCard.findMany({ where: { store_id: input.store_id, deleted_at: null, uploaded_at: { gte: since } }, orderBy: { uploaded_at: "desc" }, take: 60 }),
+        ctx.prisma.nebimSaleLine.aggregate({ _max: { updated_at: true } }),
+      ]);
+      const rows = await Promise.all(
+        cards.map(async (c) => {
+          const [url, match] = await Promise.all([createSignedReadUrl(c.storage_path, 3600).catch(() => null), matchCardToSales(ctx.prisma, c)]);
+          return {
+            id: c.id,
+            full_name: c.full_name,
+            id_no: c.id_no,
+            company: c.company,
+            photo_date: c.photo_date ? c.photo_date.toISOString().slice(0, 10) : null,
+            uploaded_at: c.uploaded_at.toISOString(),
+            ocr_status: c.ocr_status,
+            is_card: c.is_card,
+            ocr_error: c.ocr_error,
+            url,
+            match,
+          };
+        })
+      );
+      return { cards: rows, nebim_last_ingest_at: fresh._max.updated_at?.toISOString() ?? null };
+    }),
+
+  /** Mağaza kendi yüklediği yanlış fotoğrafı kaldırır. */
+  storeDelete: storeCardAudited.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+    const card = await ctx.prisma.meritCard.findUniqueOrThrow({ where: { id: input.id } });
+    if (!card.store_id) throw new TRPCError({ code: "FORBIDDEN", message: "Bu kart mağaza kartı değil" });
+    await assertCanAccessStore(ctx.user, card.store_id);
+    await ctx.prisma.meritInvoiceReview.deleteMany({ where: { card_id: input.id } });
+    return ctx.prisma.meritCard.update({ where: { id: input.id }, data: { deleted_at: new Date() } });
   }),
 });

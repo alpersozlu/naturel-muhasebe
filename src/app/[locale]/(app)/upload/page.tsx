@@ -25,6 +25,7 @@ import { MasrafFaturaCard } from "@/components/upload/masraf-fatura-card";
 import { GiftVoucherCard } from "@/components/upload/gift-voucher-card";
 import { MaviGiftVoucherCard } from "@/components/upload/mavi-gift-voucher-card";
 import { CumulativeMergeCard } from "@/components/upload/cumulative-merge-card";
+import { HotelCardUpload } from "@/components/upload/hotel-card-upload";
 import { UploadList } from "@/components/upload/upload-list";
 import { ReconciliationPanel } from "@/components/upload/reconciliation-panel";
 import { MergeWizard } from "@/components/upload/merge-wizard";
@@ -217,6 +218,8 @@ export default function UploadPage() {
         {isDerimod ? (
           <MaviGiftVoucherCard storeId={sel.storeId} date={sel.date} />
         ) : null}
+        {/* Otel Anlaşması (Merit %10) — SADECE Derimod: personel kartı fotoğrafı → fiş doğrulaması */}
+        {isDerimod && sel.storeId ? <HotelCardUpload storeId={sel.storeId} /> : null}
         <MasrafFaturaCard storeId={sel.storeId} date={sel.date} />
         {/* Bayi Gün Sonu (SAP) — SADECE Mavi (Derimod NEBIM kullanır, SAP yok) */}
         {isMavi ? (

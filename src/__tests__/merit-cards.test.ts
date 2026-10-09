@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { nameSimilarity, normalizeName, photoDateFromName } from "@/server/services/merit/cards";
 import { hotelOf, meritRuleApplies, meritStatus } from "@/server/services/merit/check";
+import { storeMatchStatus } from "@/server/services/merit/store-match";
 
 describe("Merit kartı — ad eşleştirme", () => {
   it("normalize: Türkçe harf, boşluk, büyük/küçük", () => {
@@ -61,5 +62,15 @@ describe("anlaşmalı kurum tanıma (yönetim notu)", () => {
     expect(hotelOf("tıp ıs")).toBe("Tip-İş");
     expect(hotelOf("500 TL HEDİYE ÇEKİ")).toBeNull();
     expect(hotelOf("personel indirimi")).toBeNull();
+  });
+});
+
+describe("mağaza tarafı doğrulama durumu", () => {
+  const inv = (hotel: string | null) => ({ invoice_ref: "1-R-7-1", invoice_date: "2026-10-09", total: 100, discount_pct: 10, hotel, note: null });
+  it("okunamayan kart / fiş yok / notsuz fiş / Merit notlu fiş", () => {
+    expect(storeMatchStatus([], false)).toBe("unreadable");
+    expect(storeMatchStatus([], true)).toBe("not_found");
+    expect(storeMatchStatus([inv(null)], true)).toBe("no_hotel_note");
+    expect(storeMatchStatus([inv(null), inv("Merit")], true)).toBe("confirmed");
   });
 });

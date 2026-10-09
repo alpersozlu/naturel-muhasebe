@@ -155,6 +155,7 @@ model Store {
   budget_limits            BudgetLimit[]
   merge_groups             DayMergeGroup[]
   nebim_sale_lines         NebimSaleLine[]
+  merit_cards              MeritCard[]
   outlet_stock_items       OutletStockItem[]
   nebim_action_prices      NebimActionPrice[]
   nebim_targets            NebimStoreTarget[]
@@ -1485,11 +1486,16 @@ model MeritCard {
   uploaded_by  String?
   uploaded_at  DateTime  @default(now())
   deleted_at   DateTime?
+  /// Kartı yükleyen mağaza (Yükle ve Analiz Et › Otel Anlaşması kutusu). Yönetici
+  /// yüklemelerinde boş. Mağaza kendi kartlarını ve fiş doğrulamasını görür.
+  store_id     String?
+  store        Store?    @relation(fields: [store_id], references: [id])
 
   reviews MeritInvoiceReview[]
 
   @@index([name_key])
   @@index([deleted_at])
+  @@index([store_id, uploaded_at])
 }
 
 /// "%10 Merit" indirimli bir fiş için insan kararı: hangi karta bağlı, ya da

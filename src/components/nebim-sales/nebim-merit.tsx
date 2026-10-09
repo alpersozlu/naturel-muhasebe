@@ -410,7 +410,10 @@ function CardTile({ c, onRead, onEdit, onDelete }: { c: MeritCardView; onRead: (
             {c.id_no ? `Sicil ${c.id_no}` : ""}
             {c.company ? ` · ${c.company}` : ""}
           </div>
-          <div className="truncate text-muted-foreground">{c.photo_date ? `çekim ${dmy(c.photo_date)}` : (c.source_name ?? "")}</div>
+          <div className="truncate text-muted-foreground">
+            {c.photo_date ? `çekim ${dmy(c.photo_date)}` : (c.source_name ?? "")}
+            {c.store_name ? ` · ${c.store_name} yükledi` : ""}
+          </div>
           <div className={cn("mt-0.5", c.linked ? "text-emerald-700" : "text-muted-foreground")}>
             {c.linked
               ? `${c.linked} fişle eşleşti`
