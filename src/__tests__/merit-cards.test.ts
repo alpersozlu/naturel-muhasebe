@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nameSimilarity, normalizeName, photoDateFromName } from "@/server/services/merit/cards";
-import { hotelOf, meritRuleApplies, meritStatus } from "@/server/services/merit/check";
+import { extraRateOf, hotelOf, isExtraOk, meritRuleApplies, meritStatus, noteApproves } from "@/server/services/merit/check";
 import { storeMatchStatus } from "@/server/services/merit/store-match";
 
 describe("Merit kartı — ad eşleştirme", () => {
@@ -65,12 +65,34 @@ describe("anlaşmalı kurum tanıma (yönetim notu)", () => {
   });
 });
 
+describe("ek %10 ve yönetim notu", () => {
+  it("dip iskonto ÷ (fiyat − satır iskontosu): Hatice Özer 30.09 = %10, Halyna Tanık 08.10 = %6,2", () => {
+    expect(extraRateOf(7999.99 + 989.99, 800 + 99)).toBeCloseTo(0.1, 3);
+    expect(isExtraOk(extraRateOf(7999.99 + 989.99, 800 + 99))).toBe(true);
+    const halyna = extraRateOf(959.99 + 1499.99 + 1499.99, 59.63 + 93.17 + 93.17);
+    expect(halyna).toBeCloseTo(0.0621, 3);
+    expect(isExtraOk(halyna)).toBe(false);
+    expect(extraRateOf(0, 0)).toBeNull();
+    expect(isExtraOk(0.0987)).toBe(true); // Zekeriya 17.09 — blink dahil küsurat
+  });
+  it("yönetim notu: %10 + otel adı birlikte", () => {
+    expect(noteApproves("%10 Merit")).toBe(true);
+    expect(noteApproves("merıt %10")).toBe(true);
+    expect(noteApproves("merit peronel")).toBe(false); // 10 yok
+    expect(noteApproves("%10 arkadas indirimi")).toBe(false); // otel yok
+    expect(noteApproves(null)).toBe(false);
+  });
+});
+
 describe("mağaza tarafı doğrulama durumu", () => {
-  const inv = (hotel: string | null) => ({ invoice_ref: "1-R-7-1", invoice_date: "2026-10-09", total: 100, discount_pct: 10, hotel, note: null });
-  it("okunamayan kart / fiş yok / notsuz fiş / Merit notlu fiş", () => {
+  const inv = (o: Partial<{ hotel: string | null; note_ok: boolean; extra_ok: boolean }>) => ({
+    invoice_ref: "1-R-7-1", invoice_date: "2026-10-09", total: 100, mgmt_note: null, hotel: null, note_ok: false, extra_rate: 0.1, extra_ok: true, ...o,
+  });
+  it("okunamayan / fiş yok / not bekliyor / ek %10 tutmuyor / doğrulandı", () => {
     expect(storeMatchStatus([], false)).toBe("unreadable");
     expect(storeMatchStatus([], true)).toBe("not_found");
-    expect(storeMatchStatus([inv(null)], true)).toBe("no_hotel_note");
-    expect(storeMatchStatus([inv(null), inv("Merit")], true)).toBe("confirmed");
+    expect(storeMatchStatus([inv({})], true)).toBe("note_pending");
+    expect(storeMatchStatus([inv({ hotel: "Merit", note_ok: true, extra_ok: false })], true)).toBe("extra_mismatch");
+    expect(storeMatchStatus([inv({ hotel: "Merit", note_ok: true, extra_ok: true })], true)).toBe("confirmed");
   });
 });

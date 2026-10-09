@@ -26,6 +26,29 @@ export const SUGGEST_MIN = 0.4;
 
 export type MeritStatus = "ok_card" | "ok_no_card" | "missing" | "not_required" | "rejected";
 
+/**
+ * EK %10 nasıl görünür (09.10.2026, ham satırlardan): kampanya indirimi satır
+ * iskontosudur (line_disc); sahibinin manuel %10'u DİP İSKONTO (doc_disc) olarak
+ * satırlara dağıtılır = (fiyat × adet − satır iskontosu) × %10. Örn. Hatice Özer
+ * 30.09: 9.999,99 − 2.000 = 7.999,99 → dip 800,00. Oran 8,5–11,5 arası "%10
+ * uygulandı" (küsurat / blink hariç tutma). Halyna Tanık 08.10: 245,97 / 3.959,97
+ * = %6,2 → %10 DEĞİL.
+ */
+export const EXTRA_OK_RANGE: [number, number] = [0.085, 0.115];
+
+export function extraRateOf(baseAfterLineDisc: number, docDisc: number): number | null {
+  if (baseAfterLineDisc <= 0.005) return null;
+  return Math.round((docDisc / baseAfterLineDisc) * 10000) / 10000;
+}
+export function isExtraOk(rate: number | null): boolean {
+  return rate != null && rate >= EXTRA_OK_RANGE[0] && rate <= EXTRA_OK_RANGE[1];
+}
+/** Yönetim notu (sahibi yazar) hem "10" hem otel adı içeriyor mu. */
+export function noteApproves(mgmtNote: string | null | undefined): boolean {
+  if (!mgmtNote) return false;
+  return !!hotelOf(mgmtNote) && /10/.test(mgmtNote);
+}
+
 export function meritRuleApplies(storeCode: string | null, dateIso: string): boolean {
   const start = storeCode ? MERIT_RULE_START[storeCode] : undefined;
   return !!start && dateIso >= start;
@@ -109,8 +132,16 @@ export type MeritInvoiceView = {
   lines: number;
   units: number;
   total: number; // Σ Tutar (KDV dahil, satılan)
-  discount: number; // Σ satır + dip iskonto
+  discount: number; // Σ satır + dip iskonto (tüm satırlar)
   note: string | null; // merit geçen not (yönetim / fiş)
+  /** yönetim notu (sahibi yazar) — "%10 Merit" */
+  mgmt_note: string | null;
+  /** yönetim notunda %10 + otel adı var (sahibinin onayı) */
+  note_ok: boolean;
+  /** ek indirim oranı = Σ dip iskonto ÷ Σ (fiyat×adet − satır iskontosu); null = hesaplanamadı */
+  extra_rate: number | null;
+  /** ek indirim gerçekten ≈ %10 */
+  extra_ok: boolean;
   required: boolean;
   status: MeritStatus;
   match: "manual" | "auto" | null;
@@ -125,6 +156,9 @@ export type MeritCheck = {
     invoices: number;
     /** diğer anlaşmalı kurumlar: ad → fiş sayısı */
     other_hotels: Record<string, number>;
+    /** Merit fişi ama ek indirim ≈%10 değil ya da yönetim notu eksik */
+    extra_mismatch: number;
+    note_incomplete: number;
     with_card: number;
     missing: number;
     not_required: number;
@@ -164,6 +198,7 @@ export async function buildMeritCheck(
         customer_name: true,
         salesperson_name: true,
         qty: true,
+        price: true,
         amount_vi: true,
         line_disc: true,
         doc_disc: true,
@@ -180,7 +215,7 @@ export async function buildMeritCheck(
   ]);
 
   // fiş bazında topla
-  const byRef = new Map<string, MeritInvoiceView & { _doc: Set<string> }>();
+  const byRef = new Map<string, MeritInvoiceView & { _base: number; _doc: number }>();
   for (const l of lines) {
     let inv = byRef.get(l.invoice_ref);
     if (!inv) {
@@ -202,25 +237,28 @@ export async function buildMeritCheck(
         total: 0,
         discount: 0,
         note: merit ? merit.replace(/\s+/g, " ").trim().slice(0, 160) : null,
+        mgmt_note: l.mgmt_note?.replace(/\s+/g, " ").trim().slice(0, 160) ?? null,
+        note_ok: noteApproves(l.mgmt_note),
+        extra_rate: null,
+        extra_ok: false,
         required: false,
         status: "not_required",
         match: null,
         card: null,
         suggestions: [],
         review_note: null,
-        _doc: new Set(),
+        _base: 0,
+        _doc: 0,
       };
       byRef.set(l.invoice_ref, inv);
     }
     inv.lines += 1;
     inv.units += num(l.qty);
     inv.total += num(l.amount_vi);
-    inv.discount += num(l.line_disc);
-    // dip iskonto fatura geneli — her satırda tekrar eder, bir kez say
-    if (l.doc_disc != null && !inv._doc.has("doc")) {
-      inv.discount += num(l.doc_disc);
-      inv._doc.add("doc");
-    }
+    // satır iskontosu = kampanya; dip iskonto = satırlara dağıtılmış manuel ek indirim (her satır kendi payı)
+    inv.discount += num(l.line_disc) + num(l.doc_disc);
+    inv._base += num(l.price) * num(l.qty) - num(l.line_disc);
+    inv._doc += num(l.doc_disc);
   }
 
   // kart görünümleri + imzalı URL
@@ -258,9 +296,9 @@ export async function buildMeritCheck(
 
   const invoices: MeritInvoiceView[] = [];
   for (const inv of Array.from(byRef.values())) {
-    const { _doc: _ignored, ...rest } = inv;
-    void _ignored;
-    const v: MeritInvoiceView = { ...rest, total: r2(inv.total), discount: r2(inv.discount), units: r2(inv.units) };
+    const { _base, _doc, ...rest } = inv;
+    const extra_rate = extraRateOf(_base, _doc);
+    const v: MeritInvoiceView = { ...rest, total: r2(inv.total), discount: r2(inv.discount), units: r2(inv.units), extra_rate, extra_ok: isExtraOk(extra_rate) };
     v.required = v.hotel === "Merit" && meritRuleApplies(v.store_code, v.invoice_date);
     const review = reviewByRef.get(v.invoice_ref) ?? null;
     v.review_note = review?.note ?? null;
@@ -316,6 +354,8 @@ export async function buildMeritCheck(
   const kpi = {
     invoices: meritInv.length,
     other_hotels,
+    extra_mismatch: meritInv.filter((i) => !i.extra_ok).length,
+    note_incomplete: meritInv.filter((i) => !i.note_ok).length,
     with_card: invoices.filter((i) => i.status === "ok_card").length,
     missing: invoices.filter((i) => i.status === "missing").length,
     not_required: meritInv.filter((i) => i.status === "not_required").length,

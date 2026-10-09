@@ -48,7 +48,8 @@ const STATUS: Record<MeritStatus, { label: string; cls: string; icon: React.Reac
 };
 const ORDER: Record<MeritStatus, number> = { missing: 0, rejected: 1, ok_no_card: 2, ok_card: 3, not_required: 4 };
 
-type Tab = "all" | "missing" | "ok" | "other";
+type Tab = "all" | "missing" | "extra" | "ok" | "other";
+const pct = (r: number | null) => (r == null ? "—" : `%${(r * 100).toFixed(1).replace(".", ",")}`);
 
 function fileToBase64(f: File): Promise<string> {
   return new Promise((res, rej) => {
@@ -118,6 +119,7 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
     if (!data) return [] as MeritInvoiceView[];
     const list = [...data.invoices].sort((a, b) => ORDER[a.status] - ORDER[b.status] || b.invoice_date.localeCompare(a.invoice_date));
     if (tab === "missing") return list.filter((i) => i.status === "missing");
+    if (tab === "extra") return list.filter((i) => i.hotel === "Merit" && (!i.extra_ok || !i.note_ok));
     if (tab === "ok") return list.filter((i) => i.status === "ok_card");
     if (tab === "other") return list.filter((i) => i.status === "ok_no_card" || i.status === "rejected" || i.status === "not_required");
     return list;
@@ -153,8 +155,8 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
               Merit %10 Kontrolü
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Otel personeline yapılan %10 indirim doğru kişiye mi? Fişteki müşteri adı, mağazanın çektiği personel kartıyla eşleştirilir.
-              Kart zorunlu: Girne baştan beri · Lefkoşa 08.10.2026'dan itibaren.
+              Üç kontrol: yönetim notunda &quot;%10 + otel&quot; yazılı mı (sahibi işler) · fişte ek %10 gerçekten uygulanmış mı (dip iskonto) · fişteki ad
+              mağazanın çektiği personel kartıyla tutuyor mu. Kart zorunlu: Girne baştan beri · Lefkoşa 08.10.2026'dan itibaren.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -170,6 +172,7 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
         <div className="grid grid-cols-2 gap-px border-b bg-border sm:grid-cols-3 lg:grid-cols-6">
           <Kpi label="Merit fişi" value={String(k.invoices)} sub={`${money(k.total)} ₺ satış`} />
           <Kpi label="Kartı olmayan" value={String(k.missing)} tone={k.missing ? "text-rose-700" : "text-emerald-700"} sub={k.missing ? "kontrol edilmeli" : "temiz"} />
+          <Kpi label="Ek %10 değil" value={String(k.extra_mismatch)} tone={k.extra_mismatch ? "text-amber-700" : "text-emerald-700"} sub={k.note_incomplete ? `${k.note_incomplete} fişte yönetim notu eksik` : "dip iskonto ≈ %10"} />
           <Kpi label="Kartlı" value={String(k.with_card)} tone="text-emerald-700" />
           <Kpi label="Kartsız kabul" value={String(k.accepted_no_card)} />
           <Kpi
@@ -186,6 +189,7 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
             [
               ["all", `Hepsi (${k.invoices})`],
               ["missing", `Kart yok (${k.missing})`],
+              ["extra", `Ek %10 / not sorunlu (${k.extra_mismatch + k.note_incomplete})`],
               ["ok", `Kart var (${k.with_card})`],
               ["other", `Diğer (${k.accepted_no_card + k.rejected + k.not_required + Object.values(k.other_hotels).reduce((a, b) => a + b, 0)})`],
             ] as Array<[Tab, string]>
@@ -290,6 +294,15 @@ function Kpi({ label, value, sub, tone }: { label: string; value: string; sub?: 
   );
 }
 
+function Check({ ok, label, warn }: { ok: boolean; label: string; warn?: boolean }) {
+  return (
+    <span className={cn("inline-flex items-center gap-1", ok ? "text-emerald-700" : warn ? "text-amber-800" : "text-muted-foreground")} title={label}>
+      {ok ? <CheckCircle2 className="h-3 w-3 shrink-0" /> : <XCircle className="h-3 w-3 shrink-0" />}
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
 function StatusBadge({ s }: { s: MeritStatus }) {
   const m = STATUS[s];
   return (
@@ -366,7 +379,9 @@ function InvoiceRow({ inv, onPick, onAccept, onReject, onClear }: { inv: MeritIn
           </div>
         )}
       </div>
-      <div className="w-28 shrink-0">
+      <div className="flex w-44 shrink-0 flex-col gap-0.5 text-[11px]">
+        <Check ok={inv.note_ok} label={inv.note_ok ? "Yönetim notu %10 + otel" : inv.mgmt_note ? `Not: "${inv.mgmt_note.slice(0, 22)}"` : "Yönetim notu yok"} />
+        <Check ok={inv.extra_ok} label={`Ek indirim ${pct(inv.extra_rate)}${inv.extra_ok ? "" : " — %10 değil"}`} warn={!inv.extra_ok} />
         <StatusBadge s={inv.status} />
       </div>
       <div className="flex shrink-0 items-center gap-1">

@@ -25,7 +25,8 @@ const TARGET_MAX = 3 * 1024 * 1024; // Vercel gövde sınırı — base64 önces
 
 const STATUS: Record<StoreMatchStatus, { label: string; cls: string; icon: React.ReactNode }> = {
   confirmed: { label: "Doğrulandı", cls: "bg-emerald-50 text-emerald-800 ring-emerald-200", icon: <BadgeCheck className="h-3.5 w-3.5" /> },
-  no_hotel_note: { label: "Fiş var, Merit notu yok", cls: "bg-amber-50 text-amber-900 ring-amber-200", icon: <TriangleAlert className="h-3.5 w-3.5" /> },
+  extra_mismatch: { label: "Ek %10 tutmuyor", cls: "bg-amber-50 text-amber-900 ring-amber-200", icon: <TriangleAlert className="h-3.5 w-3.5" /> },
+  note_pending: { label: "Yönetim onayı bekliyor", cls: "bg-sky-50 text-sky-800 ring-sky-200", icon: <Clock className="h-3.5 w-3.5" /> },
   not_found: { label: "Henüz fiş yok", cls: "bg-muted text-muted-foreground ring-border", icon: <Clock className="h-3.5 w-3.5" /> },
   unreadable: { label: "Kart okunamadı", cls: "bg-rose-50 text-rose-800 ring-rose-200", icon: <ImageOff className="h-3.5 w-3.5" /> },
 };
@@ -101,8 +102,9 @@ export function HotelCardUpload({ storeId }: { storeId: string }) {
         done += 1;
         setProgress({ done, total: r.created.length });
         if (!o.is_card || !o.full_name) toast.error(`${o.full_name ?? "Fotoğraf"}: kart okunamadı — daha yakından, düz çekin`);
-        else if (o.match.status === "confirmed") toast.success(`${o.full_name}: fiş bulundu, %10 Merit notu var ✓`);
-        else if (o.match.status === "no_hotel_note") toast.warning(`${o.full_name}: fiş var ama Merit notu yazılmamış`);
+        else if (o.match.status === "confirmed") toast.success(`${o.full_name}: fiş bulundu, yönetim notu ve ek %10 tutuyor ✓`);
+        else if (o.match.status === "extra_mismatch") toast.warning(`${o.full_name}: fişteki ek indirim %10 değil`);
+        else if (o.match.status === "note_pending") toast.info(`${o.full_name}: fiş bulundu, yönetim notu henüz işlenmedi`);
         else toast.info(`${o.full_name}: kart okundu, NEBİM'de henüz fiş yok (aktarım saatlik)`);
       }
       void utils.merit.storeCards.invalidate({ store_id: storeId });
@@ -117,7 +119,7 @@ export function HotelCardUpload({ storeId }: { storeId: string }) {
   const busy = !!progress;
   const cards = q.data?.cards ?? [];
   const last = q.data?.nebim_last_ingest_at ? new Date(q.data.nebim_last_ingest_at) : null;
-  const waiting = cards.filter((c) => c.match.status === "not_found").length;
+  const waiting = cards.filter((c) => c.match.status === "not_found" || c.match.status === "note_pending").length;
 
   return (
     <Card
@@ -135,8 +137,8 @@ export function HotelCardUpload({ storeId }: { storeId: string }) {
           <div className="min-w-0 flex-1">
             <div className="font-semibold">Otel Anlaşması — Personel Kartı (%10)</div>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Merit personeline %10 indirim yaparken kimlik kartının fotoğrafını çekip buraya yükleyin. Sistem kartı okur, NEBİM'de o isme kesilen
-              fişi bulur ve fişte &quot;%10 Merit&quot; notunu doğrular. Fişi NEBİM&apos;e açıklama olarak <b>%10 Merit</b> yazmayı unutmayın.
+              Merit personeline %10 indirim yaparken kimlik kartının fotoğrafını çekip buraya yükleyin. Sistem kartı okur, NEBİM&apos;de o isme kesilen
+              fişi bulur; yönetim notu işlenince (&quot;%10 Merit&quot;) ve fişte ek %10 gerçekten uygulanmışsa &quot;Doğrulandı&quot; olur.
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
@@ -187,11 +189,15 @@ export function HotelCardUpload({ storeId }: { storeId: string }) {
                   <div className="min-w-[220px] flex-1 text-xs text-muted-foreground">
                     {c.match.status === "confirmed" && inv ? (
                       <>
-                        Fiş {dmy(inv.invoice_date)} · {TRY.format(inv.total)} ₺{inv.discount_pct != null ? ` · %${inv.discount_pct}` : ""} · not &quot;{inv.note}&quot;
+                        Fiş {dmy(inv.invoice_date)} · {TRY.format(inv.total)} ₺ · ek indirim %{((inv.extra_rate ?? 0) * 100).toFixed(1).replace(".", ",")} · not &quot;{inv.mgmt_note}&quot;
                       </>
-                    ) : c.match.status === "no_hotel_note" && inv ? (
+                    ) : c.match.status === "extra_mismatch" && inv ? (
                       <>
-                        Bu adla {dmy(inv.invoice_date)} fişi var ({TRY.format(inv.total)} ₺{inv.discount_pct != null ? ` · %${inv.discount_pct}` : ""}) ama açıklamada Merit yazmıyor — kasada düzeltin.
+                        Fiş {dmy(inv.invoice_date)} · {TRY.format(inv.total)} ₺ · ek indirim {inv.extra_rate == null ? "yok" : `%${(inv.extra_rate * 100).toFixed(1).replace(".", ",")}`} — %10 olmalıydı.
+                      </>
+                    ) : c.match.status === "note_pending" && inv ? (
+                      <>
+                        Fiş {dmy(inv.invoice_date)} · {TRY.format(inv.total)} ₺ bulundu; yönetim notu henüz işlenmedi (merkez işler).
                       </>
                     ) : c.match.status === "not_found" ? (
                       <>
