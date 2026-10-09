@@ -1457,3 +1457,51 @@ model DealerDailyRep {
   @@unique([store_id, report_date, rep_code])
   @@index([store_id, report_date])
 }
+
+/// Anlaşmalı otel (Merit) PERSONEL KİMLİK KARTI fotoğrafı. Derimod'da otel
+/// çalışanına sepette %10 indirim yapılır ("%10 Merit" yönetim notu); mağaza
+/// kartın fotoğrafını çeker. Bu tablo o fotoğrafları ve OCR'dan okunan
+/// ad / sicil / kurum bilgisini tutar; "Merit %10 Kontrolü" fişleri bu
+/// kartlarla eşler (09.10.2026). Fotoğraf `uploads` bucket'ında merit-cards/… altında.
+model MeritCard {
+  id           String    @id @default(uuid())
+  hotel        String    @default("Merit")
+  storage_path String
+  mime_type    String
+  file_hash    String    @unique
+  source_name  String? // orijinal dosya adı (IMG_20260909_192414.jpg / ALİNA NANAEVA.jpg)
+  photo_date   DateTime? @db.Date // dosya adından (IMG_YYYYMMDD) — fişle tarih yakınlığı
+  full_name    String?
+  name_key     String? // normalize ad (aksansız, büyük, tek boşluk) — eşleştirme anahtarı
+  id_no        String? // Sicil Numarası / ID No
+  company      String? // Kurum: Merit Park / Merit Royal / Merit Crystal Cove…
+  department   String?
+  join_date    String?
+  is_card      Boolean   @default(true) // model: bu bir personel kimlik kartı mı
+  ocr_status   String    @default("pending") // pending | done | failed
+  ocr_json     Json?
+  ocr_error    String?
+  note         String?
+  uploaded_by  String?
+  uploaded_at  DateTime  @default(now())
+  deleted_at   DateTime?
+
+  reviews MeritInvoiceReview[]
+
+  @@index([name_key])
+  @@index([deleted_at])
+}
+
+/// "%10 Merit" indirimli bir fiş için insan kararı: hangi karta bağlı, ya da
+/// kartsız kabul / red. Otomatik ad eşleşmesi kayıt yazmaz; yalnız elle
+/// verilen kararlar burada durur (fiş başına tek karar, invoice_ref).
+model MeritInvoiceReview {
+  id          String     @id @default(uuid())
+  invoice_ref String     @unique
+  card_id     String?
+  card        MeritCard? @relation(fields: [card_id], references: [id])
+  decision    String // card | no_card_ok | rejected
+  note        String?
+  decided_by  String?
+  decided_at  DateTime   @default(now())
+}

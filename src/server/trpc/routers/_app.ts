@@ -17,6 +17,7 @@ import { manualInvoiceRouter } from "./manualInvoice";
 import { budgetRouter } from "./budget";
 import { mergeGroupRouter } from "./mergeGroup";
 import { nebimSalesRouter } from "./nebimSales";
+import { meritRouter } from "./merit";
 import { peopleCountRouter } from "./peopleCount";
 import { payrollRouter } from "./payroll";
 import { pdfSelfTest } from "@/server/services/payroll/performance";
@@ -51,6 +52,7 @@ export const appRouter = router({
   budget: budgetRouter,
   mergeGroup: mergeGroupRouter,
   nebimSales: nebimSalesRouter,
+  merit: meritRouter,
   peopleCount: peopleCountRouter,
   payroll: payrollRouter,
 });

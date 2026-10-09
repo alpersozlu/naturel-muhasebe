@@ -9,6 +9,7 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { NebimScorecard } from "./nebim-scorecard";
 import { NebimKrediCeki } from "./nebim-kredi-ceki";
+import { NebimMerit } from "./nebim-merit";
 import type { NebimSalesSelection } from "./nebim-filters";
 
 const TRY = new Intl.NumberFormat("tr-TR", {
@@ -101,6 +102,11 @@ export function NebimAnaliz({
         <NebimKrediCeki filters={filters} />
       </section>
 
+      {/* Merit %10 — otel personeli indirimi doğru kişiye mi (kart fotoğrafı ↔ fiş) */}
+      <section id={SECTION_IDS.merit} className={SECTION_ANCHOR}>
+        <NebimMerit filters={filters} />
+      </section>
+
       {/* Outlet Geliri (ay × mağaza) + kural-dışı outlet satışları */}
       {hasOutlet && outlet.data ? (
         <section id={SECTION_IDS.outlet} className={`${SECTION_ANCHOR} space-y-6`}>
@@ -130,6 +136,7 @@ const SECTION_IDS = {
   ozet: "analiz-ozet",
   indirim: "analiz-indirim",
   kredi: "analiz-kredi",
+  merit: "analiz-merit",
   outlet: "analiz-outlet",
   calisan: "analiz-calisan",
 } as const;
@@ -150,6 +157,7 @@ function SectionNav({
         { id: SECTION_IDS.ozet, label: "Özet" },
         { id: SECTION_IDS.indirim, label: "İndirim" },
         { id: SECTION_IDS.kredi, label: "Kredi Çeki" },
+        { id: SECTION_IDS.merit, label: "Merit %10" },
         ...(hasOutlet ? [{ id: SECTION_IDS.outlet, label: "Outlet" }] : []),
         ...(hasStaff ? [{ id: SECTION_IDS.calisan, label: "Çalışan KPI" }] : []),
       ] as const,

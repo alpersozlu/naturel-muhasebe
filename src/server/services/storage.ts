@@ -64,6 +64,18 @@ export async function createSignedReadUrl(
 }
 
 /**
+ * Download a stored object as a Buffer (server side; admin client, no RLS).
+ * Used when a file must be re-read after upload (ör. Merit kartı OCR'ı,
+ * yükleme ile okuma ayrı isteklerde koşar — Vercel süre sınırı).
+ */
+export async function downloadFromStorage(path: string): Promise<Buffer> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.storage.from(UPLOAD_BUCKET).download(path);
+  if (error || !data) throw new Error(`Storage download failed: ${error?.message ?? "no data"}`);
+  return Buffer.from(await data.arrayBuffer());
+}
+
+/**
  * Hard-delete an object from storage. Use carefully — DB row should be removed too.
  */
 export async function deleteFromStorage(path: string): Promise<void> {
