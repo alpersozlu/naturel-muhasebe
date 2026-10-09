@@ -396,7 +396,15 @@ function CardTile({ c, onRead, onEdit, onDelete }: { c: MeritCardView; onRead: (
             {c.company ? ` · ${c.company}` : ""}
           </div>
           <div className="truncate text-muted-foreground">{c.photo_date ? `çekim ${dmy(c.photo_date)}` : (c.source_name ?? "")}</div>
-          <div className={cn("mt-0.5", c.linked ? "text-emerald-700" : "text-muted-foreground")}>{c.linked ? `${c.linked} fişle eşleşti` : "eşleşme yok"}</div>
+          <div className={cn("mt-0.5", c.linked ? "text-emerald-700" : "text-muted-foreground")}>
+            {c.linked
+              ? `${c.linked} fişle eşleşti`
+              : c.other == null
+                ? "eşleşme yok"
+                : c.other.count === 0
+                  ? "Merit fişi yok · bu adla hiç alışveriş yok (Ocak 2026'dan beri)"
+                  : `Merit fişi yok · bu adla ${c.other.count} fiş var, Merit notu yazılmamış (son ${dmy(c.other.last_date!)})`}
+          </div>
           {bad ? <div className="mt-0.5 text-amber-800">{c.ocr_error ?? "okuma bekliyor"}</div> : null}
         </div>
       </div>

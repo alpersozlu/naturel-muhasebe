@@ -70,6 +70,12 @@ export type MeritCardView = {
   url: string | null;
   /** bu karta bağlı (elle ya da otomatik) fiş sayısı */
   linked: number;
+  /**
+   * Merit notu OLMAYAN ama aynı adla kesilmiş fişler (tüm Nebim, Ocak 2026'dan
+   * beri): "kart var, eşleşme yok" ne demek — kişi hiç gelmemiş mi, yoksa
+   * indirimsiz / notsuz mu almış? Yalnız eşleşmeyen kartlar için doldurulur.
+   */
+  other: { count: number; last_date: string | null; customer_name: string | null } | null;
 };
 
 export type MeritInvoiceView = {
@@ -215,6 +221,7 @@ export async function buildMeritCheck(
     uploaded_at: c.uploaded_at.toISOString(),
     url: urls.get(c.id) ?? null,
     linked: 0,
+    other: null,
   }));
   const cardById = new Map(cards.map((c) => [c.id, c]));
   const reviewByRef = new Map(reviews.map((r) => [r.invoice_ref, r]));
@@ -256,6 +263,22 @@ export async function buildMeritCheck(
     }
     v.suggestions = scored.slice(0, 3).map((x) => ({ id: x.c.id, full_name: x.c.full_name, id_no: x.c.id_no, score: r2(x.s) }));
     invoices.push(v);
+  }
+
+  // Eşleşmeyen kartlar: aynı adla Merit notsuz fiş var mı? (tüm Nebim)
+  const orphans = cards.filter((c) => c.linked === 0 && c.is_card && c.ocr_status === "done" && c.full_name);
+  if (orphans.length > 0) {
+    const names = await prisma.nebimSaleLine.findMany({ where: { customer_name: { not: null } }, distinct: ["customer_name"], select: { customer_name: true } });
+    const all = names.map((n) => n.customer_name!);
+    for (const c of orphans) {
+      const best = all.map((n) => ({ n, s: nameSimilarity(c.full_name, n) })).filter((x) => x.s >= AUTO_MATCH_MIN).sort((a, b) => b.s - a.s)[0];
+      if (!best) {
+        c.other = { count: 0, last_date: null, customer_name: null };
+        continue;
+      }
+      const inv = await prisma.nebimSaleLine.findMany({ where: { customer_name: best.n, is_return: false }, select: { invoice_ref: true, invoice_date: true }, distinct: ["invoice_ref"], orderBy: { invoice_date: "desc" } });
+      c.other = { count: inv.length, last_date: inv[0]?.invoice_date.toISOString().slice(0, 10) ?? null, customer_name: best.n };
+    }
   }
 
   const kpi = {
