@@ -30,10 +30,31 @@ export function normalizeName(s: string | null | undefined): string {
     .toUpperCase();
 }
 
+/** Levenshtein oranı 0..1 (1 = aynı). OCR'ın tek harf hataları için (KÖRÜKÇÜ ↔ KÖRÜKCİ). */
+export function tokenRatio(a: string, b: string): number {
+  if (a === b) return 1;
+  const n = a.length;
+  const m = b.length;
+  if (!n || !m) return 0;
+  let prev = Array.from({ length: m + 1 }, (_, j) => j);
+  for (let i = 1; i <= n; i++) {
+    const cur = [i];
+    for (let j = 1; j <= m; j++) {
+      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return 1 - prev[m]! / Math.max(n, m);
+}
+
+const TOKEN_FUZZY_MIN = 0.75;
+
 /**
  * 0..1 benzerlik. Önce tam eşitlik ve bitişik yazım (boşluksuz eşitlik),
- * sonra kelime kümesi (Jaccard) + en uzun ortak kelime payı. ≥ 0,8 "aynı kişi"
- * sayılır (otomatik eşleşme), 0,5–0,8 "öneri", altı eşleşme yok.
+ * sonra kelime eşleşmesi: her kelime için karşı taraftaki en iyi kelime
+ * (tam = 1, Levenshtein oranı ≥ 0,75 ise o oran — OCR tek harf hatası).
+ * Jaccard + soyadı bonusu + bitişik içerme. ≥ 0,8 "aynı kişi" (otomatik),
+ * 0,4–0,8 "öneri", altı eşleşme yok.
  */
 export function nameSimilarity(a: string | null | undefined, b: string | null | undefined): number {
   const A = normalizeName(a);
@@ -43,21 +64,43 @@ export function nameSimilarity(a: string | null | undefined, b: string | null | 
   const aj = A.replace(/ /g, "");
   const bj = B.replace(/ /g, "");
   if (aj === bj) return 0.98;
-  // biri diğerini bitişik içeriyor (ikinci ad eksik / fazla): "MEHMET BERKTUN" ~ "BERKTUN MEHMET"
-  const ta = new Set(A.split(" ").filter((w) => w.length > 1));
-  const tb = new Set(B.split(" ").filter((w) => w.length > 1));
-  if (ta.size === 0 || tb.size === 0) return 0;
+  const ta = A.split(" ").filter((w) => w.length > 1);
+  const tb = B.split(" ").filter((w) => w.length > 1);
+  if (ta.length === 0 || tb.length === 0) return 0;
+  // her A kelimesi için B'deki en iyi karşılık (tam 1, yakın ≥0,75 kendi oranı)
   let inter = 0;
-  for (const w of Array.from(ta)) if (tb.has(w)) inter += 1;
-  const union = ta.size + tb.size - inter;
+  let matchedTokens = 0;
+  const used = new Set<number>();
+  for (const w of ta) {
+    let best = 0;
+    let bestJ = -1;
+    tb.forEach((v, j) => {
+      if (used.has(j)) return;
+      const r = w === v ? 1 : tokenRatio(w, v);
+      if (r > best) {
+        best = r;
+        bestJ = j;
+      }
+    });
+    if (best >= TOKEN_FUZZY_MIN && bestJ >= 0) {
+      inter += best;
+      matchedTokens += 1;
+      used.add(bestJ);
+    }
+  }
+  const union = ta.length + tb.length - matchedTokens;
   const jaccard = inter / union;
   // soyadı (son kelime) eşleşiyorsa ek güven
-  const la = Array.from(ta).at(-1);
-  const lb = Array.from(tb).at(-1);
-  const surname = la && lb && la === lb ? 0.15 : 0;
+  const la = ta.at(-1)!;
+  const lb = tb.at(-1)!;
+  const surname = la === lb ? 0.15 : tokenRatio(la, lb) >= TOKEN_FUZZY_MIN ? 0.1 : 0;
   // bitişik gövde içerme: "KEMALTEKELIOGLU" ⊃ "TEKELIOGLU"
   const contains = aj.includes(bj) || bj.includes(aj) ? 0.6 : 0;
-  return Math.min(1, Math.max(jaccard + surname, contains, inter >= 2 ? 0.85 : 0));
+  // iki kelime (ad + soyad) eşleşti: aynı kişi — tam eşleşmede 0,85, yakın eşleşmede biraz altı
+  const twoTokens = matchedTokens >= 2 ? 0.85 * (inter / matchedTokens) : 0;
+  // ad aynı, soyadı yarı yarıya benziyor (fişte yanlış yazılmış soyadı): yalnız ÖNERİ
+  const firstName = ta[0] === tb[0] && tokenRatio(la, lb) >= 0.5 ? 0.45 : 0;
+  return Math.min(1, Math.max(jaccard + surname, contains, twoTokens, firstName));
 }
 
 /** IMG_20260909_192414.jpg → 2026-09-09; başka ad → null */

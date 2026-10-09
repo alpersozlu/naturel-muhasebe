@@ -14,6 +14,12 @@ describe("Merit kartı — ad eşleştirme", () => {
     expect(nameSimilarity("BERKTUN MEHMET", "MEHMET BERKTUN")).toBeGreaterThanOrEqual(0.8);
     expect(nameSimilarity("HATİCE ÖZER", "Hatice Özer")).toBe(1);
   });
+  it("OCR tek harf hatası: KÖRÜKÇÜ ↔ KÖRÜKCİ yine aynı kişi; Ahmed Kurabnoplu ↔ Kurbanov yalnız öneri", () => {
+    expect(nameSimilarity("BARIŞ KÖRÜKÇÜ", "BARIŞ KÖRÜKCİ")).toBeGreaterThanOrEqual(0.8);
+    const s = nameSimilarity("AHMED KURABNOPLU", "AHMED KURBANOV");
+    expect(s).toBeGreaterThanOrEqual(0.4);
+    expect(s).toBeLessThan(0.8);
+  });
   it("farklı kişi düşük kalır", () => {
     expect(nameSimilarity("HALYNA TANIK", "ALİNA NANAEVA")).toBeLessThan(0.4);
     expect(nameSimilarity("MUSTAFA TOSUN", "MUSTAFA ÖZER")).toBeLessThan(0.8);
