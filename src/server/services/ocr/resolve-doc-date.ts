@@ -121,3 +121,17 @@ export function resolveDocumentDate(opts: {
   }
   return { iso: rawIso ?? modelIso, matches: false, via: null };
 }
+
+/**
+ * Nebim "Mağaza Hareket Özeti" kasa zinciri: bu özetin "Önceki Günden Devir"i,
+ * bir önceki günün özetindeki "Yarına Devir"e kuruşuna eşitse bu özet o günün
+ * ertesine aittir — tarih satırı gölgede/okunaksız olsa bile (Derimod Lefkoşa
+ * 09.10.2026: alt banttaki "Başlangıç Tarihi = 9.10.2026" telefon gölgesinde
+ * kaldı, denklem ve bakiyeler kusursuzdu). Sekiz haneli bakiyeler rastgele
+ * tutmaz; 0,01 tolerans yalnız yuvarlama içindir.
+ */
+export function balancesChain(prevClosing: number | null | undefined, opening: number | null | undefined): boolean {
+  if (prevClosing == null || opening == null) return false;
+  if (!(Math.abs(prevClosing) > 0.005)) return false;
+  return Math.abs(prevClosing - opening) < 0.015; // 0,01 yuvarlama + kayan nokta payı
+}

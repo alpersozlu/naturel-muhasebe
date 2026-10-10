@@ -1,5 +1,5 @@
 import "server-only";
-import { resolveDocumentDate } from "./resolve-doc-date";
+import { balancesChain, resolveDocumentDate } from "./resolve-doc-date";
 import { missingVoucherSerials } from "@/server/services/nebim/voucher-snapshot";
 import { createHash } from "node:crypto";
 import type { Prisma, Upload } from "@prisma/client";
@@ -533,6 +533,36 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     // Normal tek gün — eski katı tarih kontrolü. The resolved date (year
     // leniency) is what gets persisted, or a "2025" misread would land in
     // the wrong year and skip the Nebim cross-check.
+    //
+    // Nebim özetinde tarih satırı en alttadır ve gölgede kalabilir (Lefkoşa
+    // 09.10.2026). Kasa zinciri deterministik bir çıpa: "Önceki Günden Devir"
+    // = önceki günün "Yarına Devir"i ise bu özet seçili güne aittir. Tarih
+    // okunamadıysa ya da seçili günle çelişiyorsa zincir tutuyorsa kabul.
+    if (parsed.report_format === "nebim" && parsed.opening_balance != null && dr) {
+      const expectedIso = dr.date.toISOString().slice(0, 10);
+      const dateOk = parsed.summary_date === expectedIso || parsed.period_end === expectedIso;
+      if (!dateOk) {
+        const prev = await prisma.dailyRecord.findFirst({
+          where: { store_id: dr.store_id, date: { lt: dr.date }, store_summary: { isNot: null } },
+          orderBy: { date: "desc" },
+          select: { date: true, store_summary: { select: { closing_balance: true } } },
+        });
+        const prevClosing = prev?.store_summary?.closing_balance?.toNumber() ?? null;
+        if (balancesChain(prevClosing, parsed.opening_balance)) {
+          const read = parsed.summary_date ?? parsed.period_start ?? null;
+          parsed.summary_date = expectedIso;
+          parsed.period_start = expectedIso;
+          parsed.period_end = expectedIso;
+          await stashRaw(upload.id, {
+            ...(raw as object),
+            date_via_chain: `Tarih kasa zincirinden: Önceki Günden Devir ${parsed.opening_balance} = ${prev!.date.toISOString().slice(0, 10)} özetinin Yarına Devri${
+              read ? ` (okunan tarih ${read} yok sayıldı)` : " (tarih okunamamıştı)"
+            }`,
+          });
+          console.info("[OCR] store summary date accepted via cash chain", { upload: upload.id, expectedIso, read });
+        }
+      }
+    }
     parsed.summary_date = await assertDateMatch(
       upload.daily_record_id,
       parsed.summary_date,
