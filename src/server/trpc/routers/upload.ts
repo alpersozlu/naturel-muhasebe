@@ -3,10 +3,13 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, protectedProcedure, adminProcedure } from "../trpc";
 import {
+  manualPosSlipSchema,
   uploadCreateSchema,
   uploadIdSchema,
   uploadsForStoreDateSchema,
 } from "@/lib/zod-schemas/upload";
+import { withAudit } from "../middleware/audit";
+import { computeDay, persistVerification } from "@/server/services/verification/compute";
 import { assertCanAccessStore } from "@/lib/auth/permissions";
 import {
   getOrCreateDailyRecord,
@@ -150,6 +153,82 @@ export const uploadRouter = router({
     }),
 
   /** List uploads for a given store+date. */
+  /**
+   * ELLE POS FİŞİ (yalnız yönetici). POS cihazından gün sonu alınamadığında
+   * (ör. 09.10.2026 Mavi Lefkoşa, İş Bankası yazar kasa POS'u) tutar bankadan
+   * öğrenilir ve buraya girilir. Gerçek bir belge gibi: Upload (tür pos_slip,
+   * durum confirmed, dosya = kaynağı yazan küçük bir SVG) + PosSlip satırı;
+   * gün doğrulaması yeniden hesaplanır. Kilitli günde de çalışır (yönetici
+   * düzeltmesi, denetim kaydıyla). Aynı gün aynı banka+terminal ikinci kez
+   * girilemez.
+   */
+  addManualPosSlip: withAudit("Upload")
+    .input(manualPosSlipSchema)
+    .mutation(async ({ ctx, input }) => {
+      const dr = await getOrCreateDailyRecord(ctx.prisma, input.store_id, input.date);
+      const terminal = input.terminal_no?.trim() || "elle giriş";
+      const dup = await ctx.prisma.posSlip.findFirst({
+        where: { daily_record_id: dr.id, bank_name: input.bank_name, terminal_no: terminal, upload: { user_meta_json: { path: ["manual_pos"], equals: true } } },
+      });
+      if (dup) throw new TRPCError({ code: "CONFLICT", message: "Bu gün için aynı banka ve terminalde elle giriş zaten var." });
+
+      const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const tl = input.amount.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const dmy = input.date.split("-").reverse().join(".");
+      const who = ctx.user.full_name ?? ctx.user.email;
+      const stamp = new Date().toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" });
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520">
+<rect width="900" height="520" fill="#fffbeb"/><rect x="24" y="24" width="852" height="472" fill="none" stroke="#d97706" stroke-width="4" stroke-dasharray="14 10"/>
+<text x="60" y="100" font-family="Helvetica, Arial, sans-serif" font-size="40" font-weight="700" fill="#92400e">ELLE GİRİLEN POS FİŞİ</text>
+<text x="60" y="150" font-family="Helvetica, Arial, sans-serif" font-size="24" fill="#78350f">POS cihazından gün sonu alınamadı — tutar bankadan öğrenildi</text>
+<text x="60" y="230" font-family="Helvetica, Arial, sans-serif" font-size="30" fill="#111827">Banka: ${esc(input.bank_name)}</text>
+<text x="60" y="280" font-family="Helvetica, Arial, sans-serif" font-size="30" fill="#111827">Terminal: ${esc(terminal)}</text>
+<text x="60" y="330" font-family="Helvetica, Arial, sans-serif" font-size="30" fill="#111827">Tarih: ${dmy}</text>
+<text x="60" y="390" font-family="Helvetica, Arial, sans-serif" font-size="44" font-weight="700" fill="#065f46">Net: ${tl} ₺</text>
+<text x="60" y="440" font-family="Helvetica, Arial, sans-serif" font-size="22" fill="#374151">Kaynak: ${esc(input.note.slice(0, 90))}</text>
+<text x="60" y="476" font-family="Helvetica, Arial, sans-serif" font-size="20" fill="#6b7280">Giren: ${esc(who)} · ${stamp}</text>
+</svg>`;
+      // Bucket yalnız fotoğraf/PDF kabul eder → SVG'yi PNG'ye çevir (sharp, yükleme yolunda zaten var).
+      const { default: sharp } = await import("sharp");
+      const buffer = await sharp(Buffer.from(svg, "utf-8"), { density: 144 }).png().toBuffer();
+      const file_hash = createHash("sha256").update(buffer).digest("hex");
+      const path = buildUploadPath({ storeId: input.store_id, dailyRecordId: dr.id, type: "pos_slip", mimeType: "image/png" });
+      await uploadBufferToStorage({ path, buffer, mimeType: "image/png" });
+
+      const day = new Date(`${input.date}T00:00:00.000Z`);
+      const fingerprint = createHash("sha256").update(`${input.bank_name}|${terminal}|${input.date}|${input.amount.toFixed(2)}|manual`).digest("hex");
+      const upload = await ctx.prisma.upload.create({
+        data: {
+          daily_record_id: dr.id,
+          type: "pos_slip",
+          file_url: path,
+          file_hash,
+          mime_type: "image/png",
+          file_size_bytes: buffer.length,
+          uploaded_by: ctx.user.id,
+          status: "confirmed",
+          user_meta_json: { manual_pos: true, reason: input.note, entered_by: ctx.user.id, entered_by_name: who },
+          parsed_data_json: { bank_name: input.bank_name, terminal_no: terminal, slip_date: input.date, net_amount: input.amount, currency: "TRY", manual: true },
+          pos_slips: {
+            create: {
+              daily_record_id: dr.id,
+              bank_name: input.bank_name,
+              terminal_no: terminal,
+              slip_date: day,
+              net_amount: input.amount,
+              currency: "TRY",
+              net_amount_try: input.amount,
+              content_fingerprint: fingerprint,
+              user_corrected: true,
+            },
+          },
+        },
+      });
+      const result = await computeDay(ctx.prisma, dr.id);
+      await persistVerification(ctx.prisma, dr.id, result);
+      return { id: upload.id, difference: result.difference, status: result.status };
+    }),
+
   listForStoreDate: protectedProcedure
     .input(uploadsForStoreDateSchema)
     .query(async ({ ctx, input }) => {

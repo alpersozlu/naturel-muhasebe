@@ -39,6 +39,10 @@ import type {
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { MoneyInput } from "@/components/ui/money-input";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   PosSlipDetails,
   StoreSummaryDetails,
@@ -236,6 +240,7 @@ type UploadRow = {
   /** Admins only (the server blanks it for everyone else). */
   authenticity_json?: unknown;
   pos_slips?: PosSlip[];
+  user_meta_json?: unknown;
   store_summary?: StoreSummary | null;
   bank_receipt?: BankReceipt | null;
   expense?: Expense | null;
@@ -283,6 +288,17 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
   // (the bridge carries documents Nebim later cancelled; see acceptNebimGap).
   const { data: me } = trpc.user.me.useQuery();
   const isAdmin = me?.role === "admin";
+  // Yönetici: POS gün sonu alınamadığında bankadan öğrenilen tutarı elle fiş olarak ekler.
+  const [manualPos, setManualPos] = useState(false);
+  const addManual = trpc.upload.addManualPosSlip.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Elle POS fişi eklendi · gün farkı ${TRY_FMT.format(r.difference)} ₺`);
+      setManualPos(false);
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+      utils.dailyRecord.reconciliation.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const acceptGap = trpc.upload.acceptNebimGap.useMutation({
     onSuccess: () => {
       toast.success("Yeniden okunuyor — Nebim farkı bilerek kabul edildi");
@@ -351,14 +367,30 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
   return (
     <Card className="mt-6">
       <CardContent className="p-0">
-        <div className="px-5 py-3 border-b">
-          <div className="font-semibold">Bu güne ait yüklemeler</div>
-          <div className="text-xs text-muted-foreground">
-            {new Date(`${date}T00:00:00.000Z`).toLocaleDateString("tr-TR", { timeZone: "UTC" })} —{" "}
-            {data?.length ?? 0} dosya
-            {entries && entries.length > 0 ? ` · ${entries.length} elle giriş` : ""}
+        <div className="flex flex-wrap items-center gap-3 px-5 py-3 border-b">
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold">Bu güne ait yüklemeler</div>
+            <div className="text-xs text-muted-foreground">
+              {new Date(`${date}T00:00:00.000Z`).toLocaleDateString("tr-TR", { timeZone: "UTC" })} —{" "}
+              {data?.length ?? 0} dosya
+              {entries && entries.length > 0 ? ` · ${entries.length} elle giriş` : ""}
+            </div>
           </div>
+          {isAdmin ? (
+            <Button size="sm" variant="outline" onClick={() => setManualPos(true)} title="POS gün sonu alınamadıysa bankadan öğrenilen tutarı fiş olarak ekle">
+              Elle POS fişi ekle
+            </Button>
+          ) : null}
         </div>
+        {manualPos ? (
+          <ManualPosDialog
+            date={date}
+            banks={Array.from(new Set((data ?? []).flatMap((u) => (u.pos_slips ?? []).map((p) => p.bank_name)).filter((b): b is string => !!b)))}
+            pending={addManual.isPending}
+            onClose={() => setManualPos(false)}
+            onSave={(v) => addManual.mutate({ store_id: storeId, date, ...v })}
+          />
+        ) : null}
 
         {isLoading ? (
           <div className="px-4 py-3 space-y-3">
@@ -594,8 +626,13 @@ function UploadRowItem({
             <Icon className="h-6 w-6" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="font-semibold text-sm text-foreground">
+            <div className="flex items-center gap-2 font-semibold text-sm text-foreground">
               {meta.label}
+              {(upload.user_meta_json as { manual_pos?: boolean } | null)?.manual_pos ? (
+                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 ring-1 ring-amber-200" title={String((upload.user_meta_json as { reason?: string }).reason ?? "")}>
+                  Elle giriş
+                </span>
+              ) : null}
             </div>
             <div className="text-xs text-muted-foreground mt-0.5">
               {(upload.file_size_bytes / 1024).toFixed(0)} KB ·{" "}
@@ -1131,3 +1168,73 @@ void PosSlipDetails;
 void StoreSummaryDetails;
 void BankReceiptDetails;
 void ExpenseDetails;
+
+/**
+ * Yönetici: POS gün sonu alınamadığında bankadan öğrenilen tutarı fiş olarak
+ * ekler. Banka listesi o günün diğer fişlerinden gelir; serbest yazılabilir.
+ */
+function ManualPosDialog({
+  date,
+  banks,
+  pending,
+  onClose,
+  onSave,
+}: {
+  date: string;
+  banks: string[];
+  pending: boolean;
+  onClose: () => void;
+  onSave: (v: { bank_name: string; terminal_no?: string; amount: number; note: string }) => void;
+}) {
+  const KNOWN = ["Türkiye İş Bankası", "Yapı Kredi", "Koopbank", "Nova Bank", "Ziraat", "Garanti", "Halkbank", "Asbank", "Limasol Türk Kooperatif Bankası"];
+  const options = Array.from(new Set([...banks, ...KNOWN]));
+  const [bank, setBank] = useState(banks[0] ?? "");
+  const [terminal, setTerminal] = useState("");
+  const [amount, setAmount] = useState<number | undefined>(undefined);
+  const [note, setNote] = useState("");
+  const ok = bank.trim().length >= 2 && !!amount && amount > 0 && note.trim().length >= 5;
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Elle POS fişi — {date.split("-").reverse().join(".")}</DialogTitle>
+          <DialogDescription>
+            POS cihazından gün sonu alınamadıysa bankadan öğrenilen net tutarı girin. Gerçek fiş gibi sayılır, &quot;Elle giriş&quot; etiketiyle görünür ve
+            gün doğrulaması yeniden hesaplanır.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2 space-y-1">
+            <Label className="text-xs text-muted-foreground">Banka</Label>
+            <Input list="manual-pos-banks" value={bank} onChange={(e) => setBank(e.target.value)} placeholder="Türkiye İş Bankası" autoFocus />
+            <datalist id="manual-pos-banks">
+              {options.map((b) => (
+                <option key={b} value={b} />
+              ))}
+            </datalist>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Terminal / cihaz</Label>
+            <Input value={terminal} onChange={(e) => setTerminal(e.target.value)} placeholder="yazar kasa POS" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Net tutar (₺)</Label>
+            <MoneyInput value={amount} onChange={setAmount} />
+          </div>
+          <div className="col-span-2 space-y-1">
+            <Label className="text-xs text-muted-foreground">Kaynak (zorunlu)</Label>
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Banka ekstresi — gün sonu alınamadı, Alp 12.10" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Vazgeç
+          </Button>
+          <Button disabled={!ok || pending} onClick={() => onSave({ bank_name: bank.trim(), terminal_no: terminal.trim() || undefined, amount: amount!, note: note.trim() })}>
+            {pending ? "Ekleniyor…" : "Fişi ekle"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
