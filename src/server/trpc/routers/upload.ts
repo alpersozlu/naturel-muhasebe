@@ -267,6 +267,7 @@ export const uploadRouter = router({
           expense: true,
           z_report: true,
           dealer_daily_report: true,
+          corporate_purchase: true,
         },
       });
       // The authenticity report explains HOW a fabricated document was

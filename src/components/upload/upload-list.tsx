@@ -35,6 +35,7 @@ import type {
   Expense,
   ZReport,
   DealerDailyReport,
+  CorporatePurchase,
 } from "@prisma/client";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -246,6 +247,8 @@ type UploadRow = {
   expense?: Expense | null;
   z_report?: ZReport | null;
   dealer_daily_report?: DealerDailyReport | null;
+  /** Kurumsal / yönetim alışverişinin bilgi fişi — tutar ve kim aldı (CorporatePurchase) */
+  corporate_purchase?: CorporatePurchase | null;
 };
 
 export function UploadList({ storeId, date }: { storeId: string; date: string }) {
@@ -949,6 +952,13 @@ function getHeroAmount(
       unit: "TRY · SAP Net Satış",
     };
   }
+  if (upload.corporate_purchase) {
+    const c = upload.corporate_purchase;
+    return {
+      value: num(c.amount),
+      unit: `${c.currency ?? "TRY"} · ${c.type === "management" ? "Yönetim" : "Kurumsal"} alışveriş`,
+    };
+  }
   return null;
 }
 
@@ -982,6 +992,17 @@ function ParsedFields({
             </div>
           );
         })}
+      </div>
+    );
+  }
+  if (upload.corporate_purchase) {
+    const c = upload.corporate_purchase;
+    return (
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 w-full">
+        <MiniField label="Kim aldı" value={c.person_name} />
+        <MiniField label="Şirket" value={c.company_name ?? (c.type === "management" ? "Yönetim" : "—")} />
+        <MiniField label="Tutar" value={`${TRY_FMT.format(num(c.amount))} ${c.currency ?? "TRY"}`} />
+        <MiniField label="Ödeme" value={c.is_paid ? "Ödendi" : "Borç (ödenmedi)"} />
       </div>
     );
   }
