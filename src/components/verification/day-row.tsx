@@ -160,11 +160,12 @@ function EmptyDayRow({ day }: { day: number; year: number; month: number }) {
       <div className="sm:col-span-3 text-sm text-muted-foreground/70 italic">
         Yüklenmedi
       </div>
-      <div className="sm:col-span-5 text-sm text-muted-foreground/60 italic flex items-center gap-2">
+      <div className="sm:col-span-4 text-sm text-muted-foreground/60 italic flex items-center gap-2">
         <AlertCircle className="h-3.5 w-3.5" />
         Bu gün için hiçbir belge yüklenmedi.
       </div>
-      <div className="sm:col-span-3 flex justify-end">
+      <div className="sm:col-span-2 text-right text-sm text-muted-foreground/60">—</div>
+      <div className="sm:col-span-2 flex justify-end">
         <Badge variant="secondary" className="bg-slate-100 text-slate-500">
           Boş
         </Badge>
@@ -273,7 +274,7 @@ function FilledDayRow({
           )}
         </div>
 
-        <div className="sm:col-span-5">
+        <div className="sm:col-span-4">
           {isGroup ? (
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-foreground/80">
               {days.map((d) => {
@@ -298,7 +299,27 @@ function FilledDayRow({
           )}
         </div>
 
-        <div className="sm:col-span-3 flex items-center justify-end gap-2">
+        {/* Kasa Farkı — kayıtlı doğrulama (belge − özet): eksi = eksik, artı = fazla.
+            Birleşik günlerde grubun özetli (son) gününün doğrulaması. */}
+        <div className="sm:col-span-2 text-right">
+          {(() => {
+            const v = (isGroup ? (summaryDay ?? record) : record).verification;
+            if (!v || !hasSummary) return <span className="text-sm text-muted-foreground/60">—</span>;
+            const diff = num(v.difference);
+            const ok = v.status === "match";
+            return (
+              <div className="text-sm tabular-nums">
+                <FarkCell diff={diff} matches={ok} />
+                <div className="text-[10px] text-muted-foreground">
+                  {Math.abs(diff) < 0.01 ? "tam" : ok ? "tolerans içinde" : diff < 0 ? "eksik" : "fazla"}
+                  {v.status === "manual_override" ? " · yönetici onayı" : ""}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+
+        <div className="sm:col-span-2 flex items-center justify-end gap-2">
           <Badge variant="secondary" className={`${badgeMeta.color} text-xs`}>
             {badgeMeta.label}
           </Badge>

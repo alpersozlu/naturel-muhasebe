@@ -117,8 +117,9 @@ function ColumnHeader() {
     <div className="hidden sm:grid grid-cols-12 gap-3 px-5 mb-2 text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
       <div className="col-span-1">Gün</div>
       <div className="col-span-3">Mağaza Özeti Miktarı</div>
-      <div className="col-span-5">Eşleştirme Belgeleri</div>
-      <div className="col-span-3 text-right">Durum</div>
+      <div className="col-span-4">Eşleştirme Belgeleri</div>
+      <div className="col-span-2 text-right">Kasa Farkı</div>
+      <div className="col-span-2 text-right">Durum</div>
     </div>
   );
 }
