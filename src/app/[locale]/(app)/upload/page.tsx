@@ -219,7 +219,7 @@ export default function UploadPage() {
           <MaviGiftVoucherCard storeId={sel.storeId} date={sel.date} />
         ) : null}
         {/* Otel Anlaşması (Merit %10) — SADECE Derimod: personel kartı fotoğrafı → fiş doğrulaması */}
-        {isDerimod && sel.storeId ? <HotelCardUpload storeId={sel.storeId} /> : null}
+        {isDerimod && sel.storeId ? <HotelCardUpload storeId={sel.storeId} date={sel.date} /> : null}
         <MasrafFaturaCard storeId={sel.storeId} date={sel.date} />
         {/* Bayi Gün Sonu (SAP) — SADECE Mavi (Derimod NEBIM kullanır, SAP yok) */}
         {isMavi ? (

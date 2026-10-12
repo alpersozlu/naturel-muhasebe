@@ -21,9 +21,12 @@ import type { StoreMatchStatus } from "@/server/services/merit/store-match";
 
 const TRY = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dmy = (iso: string) => iso.slice(0, 10).split("-").reverse().join(".");
+/** Yükleme anı Türkiye saatiyle gün (UTC gece yarısı kayması olmasın) */
+const dmyTr = (iso: string) => new Date(iso).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" });
 const TARGET_MAX = 3 * 1024 * 1024; // Vercel gövde sınırı — base64 öncesi ~3 MB
 
 const STATUS: Record<StoreMatchStatus, { label: string; cls: string; icon: React.ReactNode }> = {
+  approved: { label: "Yönetici onayladı", cls: "bg-emerald-50 text-emerald-800 ring-emerald-200", icon: <BadgeCheck className="h-3.5 w-3.5" /> },
   confirmed: { label: "Doğrulandı", cls: "bg-emerald-50 text-emerald-800 ring-emerald-200", icon: <BadgeCheck className="h-3.5 w-3.5" /> },
   extra_mismatch: { label: "Ek %10 tutmuyor", cls: "bg-amber-50 text-amber-900 ring-amber-200", icon: <TriangleAlert className="h-3.5 w-3.5" /> },
   note_pending: { label: "Yönetim onayı bekliyor", cls: "bg-sky-50 text-sky-800 ring-sky-200", icon: <Clock className="h-3.5 w-3.5" /> },
@@ -63,9 +66,9 @@ async function shrink(file: File): Promise<{ blob: Blob; mime: string }> {
   return blob ? { blob, mime: "image/jpeg" } : { blob: file, mime };
 }
 
-export function HotelCardUpload({ storeId }: { storeId: string }) {
+export function HotelCardUpload({ storeId, date }: { storeId: string; date: string }) {
   const utils = trpc.useUtils();
-  const q = trpc.merit.storeCards.useQuery({ store_id: storeId }, { enabled: !!storeId, refetchOnWindowFocus: false });
+  const q = trpc.merit.storeCards.useQuery({ store_id: storeId, date }, { enabled: !!storeId && !!date, refetchOnWindowFocus: false });
   const upload = trpc.merit.storeUpload.useMutation();
   const read = trpc.merit.storeRead.useMutation();
   const del = trpc.merit.storeDelete.useMutation({
@@ -160,7 +163,7 @@ export function HotelCardUpload({ storeId }: { storeId: string }) {
           <div className="mt-4 text-sm text-muted-foreground">Kartlar yükleniyor…</div>
         ) : cards.length === 0 ? (
           <div className="mt-4 rounded-lg border border-dashed px-4 py-5 text-center text-sm text-muted-foreground">
-            {drag ? "Bırakın — fotoğraf yüklenecek" : "Henüz kart yüklenmedi. Fotoğrafı buraya sürükleyin ya da düğmeye basın."}
+            {drag ? "Bırakın — fotoğraf yüklenecek" : `${dmy(date)} için kart yüklenmedi. Fotoğrafı buraya sürükleyin ya da düğmeye basın.`}
           </div>
         ) : (
           <ul className="mt-4 divide-y rounded-lg border">
@@ -183,11 +186,16 @@ export function HotelCardUpload({ storeId }: { storeId: string }) {
                     <div className="font-medium">{c.full_name ?? <span className="text-muted-foreground">{c.ocr_status === "pending" ? "okunuyor…" : "ad okunamadı"}</span>}</div>
                     <div className="text-xs text-muted-foreground">
                       {c.id_no ? `Sicil ${c.id_no} · ` : ""}
-                      {c.company ?? "Merit"} · yüklendi {dmy(c.uploaded_at)}
+                      {c.company ?? "Merit"} · {c.photo_date ? `çekim ${dmy(c.photo_date)}` : `yüklendi ${dmyTr(c.uploaded_at)}`}
                     </div>
                   </div>
                   <div className="min-w-[220px] flex-1 text-xs text-muted-foreground">
-                    {c.match.status === "confirmed" && inv ? (
+                    {c.match.status === "approved" && inv ? (
+                      <>
+                        Yönetici bu kartı {dmy(inv.invoice_date)} tarihli fişe bağladı · {TRY.format(inv.total)} ₺
+                        {inv.extra_rate != null ? ` · ek indirim %${(inv.extra_rate * 100).toFixed(1).replace(".", ",")}` : ""}
+                      </>
+                    ) : c.match.status === "confirmed" && inv ? (
                       <>
                         Fiş {dmy(inv.invoice_date)} · {TRY.format(inv.total)} ₺ · ek indirim %{((inv.extra_rate ?? 0) * 100).toFixed(1).replace(".", ",")} · not &quot;{inv.mgmt_note}&quot;
                       </>

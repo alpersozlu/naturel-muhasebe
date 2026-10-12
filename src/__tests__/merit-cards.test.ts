@@ -29,6 +29,8 @@ describe("Merit kartı — ad eşleştirme", () => {
   it("dosya adından çekim tarihi", () => {
     expect(photoDateFromName("IMG_20260909_192414.jpg")).toBe("2026-09-09");
     expect(photoDateFromName("ALİNA NANAEVA.jpg")).toBeNull();
+    expect(photoDateFromName("WhatsApp Image 2026-10-11 at 17.06.48.jpeg")).toBe("2026-10-11");
+    expect(photoDateFromName("kart 11.10.2026.jpg")).toBe("2026-10-11");
     expect(photoDateFromName("IMG_20261399_1.jpg")).toBeNull();
   });
 });
@@ -86,7 +88,11 @@ describe("ek %10 ve yönetim notu", () => {
 
 describe("mağaza tarafı doğrulama durumu", () => {
   const inv = (o: Partial<{ hotel: string | null; note_ok: boolean; extra_ok: boolean }>) => ({
-    invoice_ref: "1-R-7-1", invoice_date: "2026-10-09", total: 100, mgmt_note: null, hotel: null, note_ok: false, extra_rate: 0.1, extra_ok: true, ...o,
+    invoice_ref: "1-R-7-1", invoice_date: "2026-10-09", total: 100, mgmt_note: null, hotel: null, note_ok: false, extra_rate: 0.1, extra_ok: true, manual: false, ...o,
+  });
+  it("yönetici elle bağladıysa her şeyin önünde 'approved' (kart okunamasa bile)", () => {
+    expect(storeMatchStatus([{ ...inv({}), manual: true }], false)).toBe("approved");
+    expect(storeMatchStatus([{ ...inv({ hotel: "Merit", note_ok: true, extra_ok: false }), manual: true }], true)).toBe("approved");
   });
   it("okunamayan / fiş yok / not bekliyor / ek %10 tutmuyor / doğrulandı", () => {
     expect(storeMatchStatus([], false)).toBe("unreadable");

@@ -105,13 +105,23 @@ export function nameSimilarity(a: string | null | undefined, b: string | null | 
 
 /** IMG_20260909_192414.jpg → 2026-09-09; başka ad → null */
 export function photoDateFromName(name: string | null | undefined): string | null {
-  const m = name?.match(/(20\d{2})(\d{2})(\d{2})/);
-  if (!m) return null;
-  const [, y, mo, d] = m;
-  const mm = Number(mo);
-  const dd = Number(d);
-  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
-  return `${y}-${mo}-${d}`;
+  if (!name) return null;
+  const ok = (y: string, mo: string, d: string) => {
+    const mm = Number(mo);
+    const dd = Number(d);
+    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+    return `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  };
+  // IMG_20260909_192414 · PXL_20260909…
+  let m = name.match(/(20\d{2})(\d{2})(\d{2})/);
+  if (m) return ok(m[1]!, m[2]!, m[3]!);
+  // WhatsApp Image 2026-10-11 at 17.06.48 · Screenshot 2026-10-11
+  m = name.match(/(20\d{2})-(\d{2})-(\d{2})/);
+  if (m) return ok(m[1]!, m[2]!, m[3]!);
+  // 11.10.2026 / 11-10-2026 (GG.AA.YYYY)
+  m = name.match(/(?<!\d)(\d{1,2})[.\-](\d{1,2})[.\-](20\d{2})(?!\d)/);
+  if (m) return ok(m[3]!, m[2]!, m[1]!);
+  return null;
 }
 
 export const meritCardOcrSchema = z.object({

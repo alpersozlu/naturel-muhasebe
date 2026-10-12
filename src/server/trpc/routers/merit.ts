@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import { router, adminProcedure, protectedProcedure } from "../trpc";
 import { withAudit, withAuditProtected } from "../middleware/audit";
@@ -193,12 +194,23 @@ export const meritRouter = router({
 
   /** Mağazanın son kartları + canlı fiş doğrulaması. */
   storeCards: protectedProcedure
-    .input(z.object({ store_id: z.string().uuid(), days: z.number().int().min(1).max(120).default(45) }))
+    .input(z.object({ store_id: z.string().uuid(), date: dateOnly.optional(), days: z.number().int().min(1).max(120).default(45) }))
     .query(async ({ ctx, input }) => {
       await assertCanAccessStore(ctx.user, input.store_id);
-      const since = new Date(Date.now() - input.days * 86_400_000);
+      // Gün seçiliyse yalnız o günün kartları: çekim günü (dosya adından) o gün
+      // ya da çekim günü bilinmiyorsa Türkiye saatiyle o gün yüklenmiş olanlar.
+      // Seçili gün yoksa son N gün (eski davranış).
+      let where: Prisma.MeritCardWhereInput;
+      if (input.date) {
+        const dayStart = new Date(`${input.date}T00:00:00+03:00`);
+        const dayEnd = new Date(`${input.date}T23:59:59.999+03:00`);
+        const day = new Date(`${input.date}T00:00:00.000Z`);
+        where = { store_id: input.store_id, deleted_at: null, OR: [{ photo_date: day }, { photo_date: null, uploaded_at: { gte: dayStart, lte: dayEnd } }] };
+      } else {
+        where = { store_id: input.store_id, deleted_at: null, uploaded_at: { gte: new Date(Date.now() - input.days * 86_400_000) } };
+      }
       const [cards, fresh] = await Promise.all([
-        ctx.prisma.meritCard.findMany({ where: { store_id: input.store_id, deleted_at: null, uploaded_at: { gte: since } }, orderBy: { uploaded_at: "desc" }, take: 60 }),
+        ctx.prisma.meritCard.findMany({ where, orderBy: { uploaded_at: "desc" }, take: 60 }),
         ctx.prisma.nebimSaleLine.aggregate({ _max: { updated_at: true } }),
       ]);
       const rows = await Promise.all(
