@@ -300,19 +300,27 @@ const LEAVE_CAP = 100;
  * Liste en çok 100 kayıt döner ve sayfalanmaz: tam 100 gelen dilim ikiye
  * bölünüp yeniden okunur. İki dilimde de gelen izin kimliğiyle tekilleşir.
  */
-/** Tarih aralığındaki tüm işlemler (avans = type "allowance"); sayfa sayfa. */
+/**
+ * Tarih aralığındaki tüm işlemler (avans = type "allowance"), sayfa sayfa.
+ * CANLIDA ÖLÇÜLDÜ (15.10.2026): "limit" yok sayılır, sayfa başına 15 kayıt
+ * döner ve totalCount YALNIZ o sayfanın sayısını verir (Eylül+Ekim penceresi
+ * 30 kayıtken totalCount=15). Bu yüzden totalCount'a bakılmaz: sayfa boş
+ * dönene kadar okunur, kayıtlar id ile tekilleştirilir. Durum süzgeci
+ * verilmezse onaylı + bekleyen birlikte gelir.
+ */
 export async function listTransactions(fromIso: string, toIso: string): Promise<KTransaction[]> {
-  const out: KTransaction[] = [];
-  for (let page = 1; page <= 20; page++) {
-    const d = await kfetch<{ items?: KTransaction[]; totalCount?: number }>("/v2/transaction/list", {
+  const out = new Map<string, KTransaction>();
+  for (let page = 1; page <= 40; page++) {
+    const d = await kfetch<{ items?: KTransaction[] }>("/v2/transaction/list", {
       method: "POST",
       query: { startDate: fromIso, endDate: toIso, limit: 100, page },
     });
     const items = d.items ?? [];
-    out.push(...items);
-    if (items.length === 0 || (d.totalCount != null && out.length >= d.totalCount)) break;
+    let fresh = 0;
+    for (const t of items) if (!out.has(t.id)) { out.set(t.id, t); fresh += 1; }
+    if (items.length === 0 || fresh === 0) break;
   }
-  return out;
+  return Array.from(out.values());
 }
 
 export async function listLeaves(fromIso: string, toIso: string, opts: { lookbackDays?: number } = {}): Promise<KLeave[]> {
