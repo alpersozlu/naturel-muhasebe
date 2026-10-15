@@ -1,7 +1,7 @@
 import "server-only";
 import type { PrismaClient } from "@prisma/client";
 import { normalizeName } from "@/server/services/payroll/nebim-revenue";
-import { KolayikError, kolayikConfigured, leaveDaysWithin, leaveStatus, listLeaves, listOvertime, listPersons, pooled, type KPerson } from "./client";
+import { KolayikError, kolayikConfigured, leaveDaysWithin, leaveStatus, listLeaves, listOvertime, listPersons, pooled, type KPerson, listTransactions } from "./client";
 import {
   buildSundayAudit,
   isHolidayNote,
@@ -80,6 +80,29 @@ export type KolayikMonth = {
       description: string | null;
     }>;
   }>;
+  /**
+   * Kolay İK AVANS talepleri (işlem türü "allowance") ↔ DocuFlow bordro avans
+   * kayıtları. Sahibi (15.10.2026): "avans taleplerini bütün liste olarak
+   * nasıl görebilirim" — liste burada; her talebin karşısında bordroda kaydı
+   * var mı (aynı tutar / farklı tutar / yok) görünür.
+   */
+  advances: Array<{
+    id: string;
+    employee_id: string | null;
+    person_name: string;
+    amount: number;
+    date: string;
+    status: string;
+    paid: boolean;
+    affect_payroll: boolean;
+    description: string | null;
+    match: "exact" | "amount_diff" | "none";
+    payroll_amount: number | null;
+    payroll_channel: string | null;
+    payroll_date: string | null;
+  }>;
+  /** Bordroda avans kaydı var ama Kolay İK'da talebi yok */
+  advances_only_in_payroll: Array<{ employee_id: string; full_name: string; amount: number; date: string; channel: string | null }>;
   leaves: Array<{
     employee_id: string | null;
     person_name: string;
@@ -118,6 +141,45 @@ export function matchEmployee(person: { name: string }, employees: Emp[]): Emp |
   return hits.length === 1 ? hits[0]! : null;
 }
 
+/**
+ * Kolay İK avans talepleri ↔ bordro avans kayıtları (saf; test edilir).
+ * Aynı personelde önce aynı tutar (±1 ₺) eşlenir; kalanlar en yakın tutarla
+ * "farklı tutar" olarak; eşleşmeyen talep "kayıt yok". Artan bordro kayıtları
+ * "yalnız bordroda" listesine düşer.
+ */
+export function matchAdvances(
+  kAdv: Array<{ id: string; employee_id: string | null; person_name: string; amount: number; date: string; status: string; paid: boolean; affect_payroll: boolean; description: string | null }>,
+  payrollAdv: Array<{ id: string; employee_id: string; full_name: string; amount: number; date: string; channel: string | null }>
+): { advances: KolayikMonth["advances"]; only_in_payroll: KolayikMonth["advances_only_in_payroll"] } {
+  const used = new Set<string>();
+  const out: KolayikMonth["advances"] = [];
+  const pick = (empId: string | null, amount: number, exact: boolean) => {
+    if (!empId) return null;
+    const cands = payrollAdv.filter((p) => p.employee_id === empId && !used.has(p.id));
+    if (cands.length === 0) return null;
+    const hit = exact ? cands.find((p) => Math.abs(p.amount - amount) <= 1) : cands.sort((a, b) => Math.abs(a.amount - amount) - Math.abs(b.amount - amount))[0];
+    if (hit) used.add(hit.id);
+    return hit ?? null;
+  };
+  // 1. tur: tam tutar
+  const pending: Array<[(typeof kAdv)[number], ReturnType<typeof pick>]> = kAdv.map((k) => [k, pick(k.employee_id, k.amount, true)]);
+  // 2. tur: kalanlara en yakın tutar
+  for (const row of pending) if (!row[1]) row[1] = pick(row[0].employee_id, row[0].amount, false);
+  for (const [k, p] of pending) {
+    out.push({
+      ...k,
+      match: p ? (Math.abs(p.amount - k.amount) <= 1 ? "exact" : "amount_diff") : "none",
+      payroll_amount: p?.amount ?? null,
+      payroll_channel: p?.channel ?? null,
+      payroll_date: p?.date ?? null,
+    });
+  }
+  const only_in_payroll = payrollAdv.filter((p) => !used.has(p.id)).map((p) => ({ employee_id: p.employee_id, full_name: p.full_name, amount: p.amount, date: p.date, channel: p.channel }));
+  out.sort((a, b) => a.date.localeCompare(b.date) || a.person_name.localeCompare(b.person_name, "tr"));
+  only_in_payroll.sort((a, b) => a.date.localeCompare(b.date));
+  return { advances: out, only_in_payroll };
+}
+
 const personName = (p: KPerson) => `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim();
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
@@ -137,6 +199,8 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
     unmatched_persons: [],
     unmatched_employees: [],
     overtime: [],
+    advances: [],
+    advances_only_in_payroll: [],
     leaves: [],
   };
   if (!base.configured) return { ...base, error: "Kolay İK anahtarı tanımlı değil (KOLAYIK_API_TOKEN)." };
@@ -147,7 +211,7 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
 
   try {
     // Bir liste hata verse de diğerleri görünsün — her bölüm ayrı raporlanır.
-    const [pRes, oRes, lRes] = await Promise.allSettled([listPersons("active"), listOvertime(from, to), listLeaves(from, to)]);
+    const [pRes, oRes, lRes, tRes] = await Promise.allSettled([listPersons("active"), listOvertime(from, to), listLeaves(from, to), listTransactions(from, to)]);
     if (pRes.status === "rejected") throw pRes.reason;
     const persons = pRes.value;
     const errText = (r: PromiseRejectedResult) => (r.reason instanceof Error ? r.reason.message : String(r.reason));
@@ -155,6 +219,8 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
     const leaves = lRes.status === "fulfilled" ? lRes.value : [];
     if (oRes.status === "rejected") base.warnings.push(`Mesai kayıtları okunamadı — ${errText(oRes)}`);
     if (lRes.status === "rejected") base.warnings.push(`İzin kayıtları okunamadı — ${errText(lRes)}`);
+    const transactions = tRes.status === "fulfilled" ? tRes.value : [];
+    if (tRes.status === "rejected") base.warnings.push(`Avans talepleri okunamadı — ${errText(tRes)}`);
     const employees: Emp[] = await prisma.payrollEmployee.findMany({
       where: { deleted_at: null },
       select: { id: true, full_name: true, aliases: true, bank_account_name: true, status: true },
@@ -246,6 +312,27 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
         : "";
     }
     base.overtime = Array.from(ot.values()).sort((a, b) => a.person_name.localeCompare(b.person_name, "tr"));
+
+    // Avans talepleri ↔ bordro avans kayıtları
+    if (period) {
+      const payrollAdv = await prisma.payrollEntry.findMany({
+        where: { period_id: period.id, kind: "advance", voided_at: null, OR: [{ batch_id: null }, { batch: { status: "sent" } }] },
+        select: { id: true, employee_id: true, amount: true, entry_date: true, channel: true, employee: { select: { full_name: true } } },
+      });
+      const kAdv = transactions
+        .filter((t) => t.type === "allowance" && t.status !== "rejected" && t.status !== "cancelled")
+        .map((t) => {
+          const name = t.person ? `${t.person.firstName ?? ""} ${t.person.lastName ?? ""}`.trim() : (nameById.get(t.personId) ?? `kişi ${t.personId.slice(0, 6)}`);
+          const emp = empFor(t.personId, name);
+          return { id: t.id, employee_id: emp?.id ?? null, person_name: name, amount: Number(t.amount), date: t.date.slice(0, 10), status: t.status, paid: !!t.paid, affect_payroll: !!t.affectPayroll, description: t.description ?? null };
+        });
+      const m = matchAdvances(
+        kAdv,
+        payrollAdv.map((e) => ({ id: e.id, employee_id: e.employee_id, full_name: e.employee.full_name, amount: Number(e.amount), date: e.entry_date.toISOString().slice(0, 10), channel: e.channel }))
+      );
+      base.advances = m.advances;
+      base.advances_only_in_payroll = m.only_in_payroll;
+    }
 
     // İzinler
     const lv = new Map<string, KolayikMonth["leaves"][number]>();

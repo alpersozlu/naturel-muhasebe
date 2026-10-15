@@ -165,6 +165,27 @@ async function kfetch<T>(
 }
 
 export type KPerson = { id: string; firstName: string; lastName: string };
+/**
+ * Kolay İK "işlem" kaydı — AVANS talepleri burada, type = "allowance" (canlıda
+ * ölçüldü 15.10.2026: Eylül 15 talep, hepsi approved/paid=false). Sayfalama
+ * totalCount ile; limit 100 kabul ediliyor.
+ */
+export type KTransaction = {
+  id: string;
+  type: string; // "allowance" = avans
+  amount: number;
+  currency: string;
+  date: string; // YYYY-MM-DD
+  installmentPlan: number | null;
+  personId: string;
+  description: string | null;
+  status: string; // approved | waiting | rejected | cancelled
+  paid: boolean;
+  isGross: boolean;
+  affectPayroll: boolean;
+  createdAt: string;
+  person?: { id: string; firstName: string; lastName: string } | null;
+};
 export type KLeave = {
   id: string;
   startDate: string;
@@ -279,6 +300,21 @@ const LEAVE_CAP = 100;
  * Liste en çok 100 kayıt döner ve sayfalanmaz: tam 100 gelen dilim ikiye
  * bölünüp yeniden okunur. İki dilimde de gelen izin kimliğiyle tekilleşir.
  */
+/** Tarih aralığındaki tüm işlemler (avans = type "allowance"); sayfa sayfa. */
+export async function listTransactions(fromIso: string, toIso: string): Promise<KTransaction[]> {
+  const out: KTransaction[] = [];
+  for (let page = 1; page <= 20; page++) {
+    const d = await kfetch<{ items?: KTransaction[]; totalCount?: number }>("/v2/transaction/list", {
+      method: "POST",
+      query: { startDate: fromIso, endDate: toIso, limit: 100, page },
+    });
+    const items = d.items ?? [];
+    out.push(...items);
+    if (items.length === 0 || (d.totalCount != null && out.length >= d.totalCount)) break;
+  }
+  return out;
+}
+
 export async function listLeaves(fromIso: string, toIso: string, opts: { lookbackDays?: number } = {}): Promise<KLeave[]> {
   // "status" ZORUNLU (canlıda HTTP 422: "The status field is required", 03.10.2026).
   // include_inactive_employees: "true" metni reddedilir (HTTP 422 "must be true or
