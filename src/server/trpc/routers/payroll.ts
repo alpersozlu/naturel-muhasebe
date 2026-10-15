@@ -45,7 +45,7 @@ import { batchChannelError, batchTitle, inBatchList, periodLabel } from "@/serve
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
 import { carryForwardCore } from "@/server/services/payroll/carry";
 import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
-import { kolayikLeaveStatus, kolayikMonth, kolayikSundayAudit } from "@/server/services/kolayik/payroll-sync";
+import { kolayikAdvanceRequests, kolayikLeaveStatus, kolayikMonth, kolayikSundayAudit } from "@/server/services/kolayik/payroll-sync";
 import {
   biPdfPagesOf,
   buildPerformanceCheck,
@@ -753,7 +753,14 @@ export const payrollRouter = router({
         /** Aynı tür için hazırlanmış, gönderilmemiş talimattaki tutar (çift ödeme uyarısı) */
         pending_prepared: number;
         pending_note: string | null;
+        /** Avans: Kolay İK'da onaylı, bordroda henüz kayıtsız talep tutarı (ön doldurma) */
+        kolayik_request: number | null;
+        kolayik_date: string | null;
+        /** bordroda farklı tutarla zaten kayıtlıysa o tutar (uyarı) */
+        kolayik_recorded: number | null;
       }> = [];
+      // Avans talimatı: Kolay İK'daki onaylı talepler satırlara dolu gelsin (sahibi, 15.10.2026).
+      const kolayAdv = input.kind === "advance" ? await kolayikAdvanceRequests(ctx.prisma, view.period.year, view.period.month) : null;
       const pendingOf = (entries: EntryLike[]) => {
         const p = pendingPrepared(entries, input.kind);
         if (p.amount <= 0) return { pending_prepared: 0, pending_note: null };
@@ -791,6 +798,9 @@ export const payrollRouter = router({
           note: l.calc.flags.find((f) => f.level !== "info")?.text ?? null,
           for_next_month: false,
           ...pendingOf(l.calc.entries),
+          kolayik_request: kolayAdv?.by_employee[l.employee_id]?.amount ?? null,
+          kolayik_date: kolayAdv?.by_employee[l.employee_id]?.date ?? null,
+          kolayik_recorded: kolayAdv?.by_employee[l.employee_id]?.recorded_amount ?? null,
         });
       }
       if (input.kind === "payment1") {
@@ -821,11 +831,14 @@ export const payrollRouter = router({
               note: `${periodLabel(nk.year, nk.month)} maaşı — bir ay önceden ödenir`,
               for_next_month: true,
               ...pendingOf(c.calc.entries),
+              kolayik_request: null,
+              kolayik_date: null,
+              kolayik_recorded: null,
             });
           }
         }
       }
-      return { id: input.period_id, rows };
+      return { id: input.period_id, rows, kolayik_error: kolayAdv && !kolayAdv.ok ? kolayAdv.error : null };
     }),
 
     create: batchAudited.input(batchCreateSchema).mutation(async ({ ctx, input }) => {

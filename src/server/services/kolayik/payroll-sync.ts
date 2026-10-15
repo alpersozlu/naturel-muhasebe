@@ -562,3 +562,69 @@ export async function kolayikSundayAudit(prisma: PrismaClient, year: number, mon
     return { ...base, error: e instanceof KolayikError ? e.message : `Beklenmeyen hata: ${e instanceof Error ? e.message : String(e)}` };
   }
 }
+
+/**
+ * AVANS TALİMATI ÖN DOLDURMA (sahibi, 15.10.2026): "Kolay İK'da onaylanmış
+ * avanslar bizim sistemde avans kısmında otomatik görünsün, ben ödendi'ye
+ * basayım ya da rakamı değiştireyim." Yalnız kişi listesi + işlemler okunur
+ * (mesai/izin değil — hızlı). Bordroda zaten aynı tutarla kayıtlı talepler
+ * (örn. nakit ödenip girilmiş) listeye girmez; farklı tutarla kayıtlı ya da
+ * hiç kayıtsız olanlar döner.
+ */
+export type KolayikAdvanceRequest = {
+  employee_id: string;
+  amount: number;
+  date: string;
+  status: string;
+  description: string | null;
+  /** bordroda aynı kişide farklı tutarlı avans kaydı varsa o tutar */
+  recorded_amount: number | null;
+};
+export async function kolayikAdvanceRequests(
+  prisma: PrismaClient,
+  year: number,
+  month: number
+): Promise<{ ok: boolean; error: string | null; by_employee: Record<string, KolayikAdvanceRequest> }> {
+  if (!kolayikConfigured()) return { ok: false, error: "Kolay İK anahtarı tanımlı değil", by_employee: {} };
+  const from = `${year}-${String(month).padStart(2, "0")}-01`;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const to = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  try {
+    const [persons, transactions, employees, period] = await Promise.all([
+      listPersons("active"),
+      listTransactions(from, to),
+      prisma.payrollEmployee.findMany({ where: { deleted_at: null }, select: { id: true, full_name: true, aliases: true, bank_account_name: true, status: true } }),
+      prisma.payrollPeriod.findUnique({ where: { year_month: { year, month } } }),
+    ]);
+    const nameById = new Map(persons.map((p) => [p.id, personName(p)]));
+    const payrollAdv = period
+      ? await prisma.payrollEntry.findMany({
+          where: { period_id: period.id, kind: "advance", voided_at: null, OR: [{ batch_id: null }, { batch: { status: "sent" } }] },
+          select: { id: true, employee_id: true, amount: true, entry_date: true, channel: true, employee: { select: { full_name: true } } },
+        })
+      : [];
+    const kAdv = transactions
+      .filter((t) => t.type === "allowance" && t.status === "approved")
+      .map((t) => {
+        const name = t.person ? `${t.person.firstName ?? ""} ${t.person.lastName ?? ""}`.trim() : (nameById.get(t.personId) ?? "");
+        const emp = matchEmployee({ name }, employees);
+        return { id: t.id, employee_id: emp?.id ?? null, person_name: name, amount: Number(t.amount), date: t.date.slice(0, 10), status: t.status, paid: !!t.paid, affect_payroll: !!t.affectPayroll, description: t.description ?? null };
+      });
+    const m = matchAdvances(
+      kAdv,
+      payrollAdv.map((e) => ({ id: e.id, employee_id: e.employee_id, full_name: e.employee.full_name, amount: Number(e.amount), date: e.entry_date.toISOString().slice(0, 10), channel: e.channel }))
+    );
+    const by_employee: Record<string, KolayikAdvanceRequest> = {};
+    for (const a of m.advances) {
+      if (!a.employee_id || a.match === "exact") continue;
+      const cur = by_employee[a.employee_id];
+      // aynı kişide birden çok açık talep: toplanır
+      by_employee[a.employee_id] = cur
+        ? { ...cur, amount: Math.round((cur.amount + a.amount) * 100) / 100, date: a.date > cur.date ? a.date : cur.date }
+        : { employee_id: a.employee_id, amount: a.amount, date: a.date, status: a.status, description: a.description, recorded_amount: a.match === "amount_diff" ? a.payroll_amount : null };
+    }
+    return { ok: true, error: null, by_employee };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e), by_employee: {} };
+  }
+}

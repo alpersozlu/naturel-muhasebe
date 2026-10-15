@@ -34,6 +34,9 @@ type Row = {
   for_next_month: boolean;
   pending_prepared: number;
   pending_note: string | null;
+  kolayik_request?: number | null;
+  kolayik_date?: string | null;
+  kolayik_recorded?: number | null;
 };
 
 export function BatchDialog({
@@ -67,12 +70,19 @@ export function BatchDialog({
       const ck: Record<string, boolean> = {};
       const am: Record<string, number | undefined> = {};
       for (const row of r.rows) {
-        // Hazırlanmış, gönderilmemiş talimatı olan kişi seçili gelmez (çift ödeme olmasın)
-        ck[row.line_id] = choice.kind !== "advance" && !row.pending_note;
-        am[row.line_id] = choice.kind === "advance" ? undefined : row.due;
+        // Hazırlanmış, gönderilmemiş talimatı olan kişi seçili gelmez (çift ödeme olmasın).
+        // Avans: Kolay İK'da onaylı talebi olanlar seçili ve tutarı dolu gelir; tutar değiştirilebilir.
+        const req = choice.kind === "advance" ? (row.kolayik_request ?? null) : null;
+        ck[row.line_id] = !row.pending_note && (choice.kind !== "advance" || req != null);
+        am[row.line_id] = choice.kind === "advance" ? (req ?? undefined) : row.due;
       }
       setChecked(ck);
       setAmounts(am);
+      if ("kolayik_error" in r && r.kolayik_error) toast.warning(`Kolay İK talepleri okunamadı: ${r.kolayik_error}`);
+      else if (choice.kind === "advance") {
+        const n = r.rows.filter((x) => x.kolayik_request != null).length;
+        if (n) toast.success(`Kolay İK'dan ${n} onaylı avans talebi dolu geldi`);
+      }
     },
     onError: (e) => toast.error(e.message),
   });
@@ -166,6 +176,13 @@ export function BatchDialog({
           </div>
           {r.note ? <div className="text-[11px] text-amber-800">{r.note}</div> : null}
           {r.pending_note ? <div className="text-[11px] text-rose-700">{r.pending_note}</div> : null}
+          {choice.kind === "advance" && r.kolayik_request != null ? (
+            <div className={cn("text-[11px]", amounts[r.line_id] != null && Math.abs((amounts[r.line_id] ?? 0) - r.kolayik_request) > 0.5 ? "text-amber-800" : "text-sky-800")}>
+              Kolay İK talebi {money(r.kolayik_request)}{r.kolayik_date ? ` · ${r.kolayik_date.split("-").reverse().join(".")}` : ""}
+              {amounts[r.line_id] != null && Math.abs((amounts[r.line_id] ?? 0) - r.kolayik_request) > 0.5 ? ` → ${money(amounts[r.line_id]!)} ödenecek (farklı tutar)` : ""}
+              {r.kolayik_recorded != null ? ` · bordroda zaten ${money(r.kolayik_recorded)} avans var` : ""}
+            </div>
+          ) : null}
         </td>
         <td className="py-2 text-right tabular-nums">{money(isPayment2 ? r.extras : r.base)}</td>
         {!isPayment2 ? <td className="py-2 text-right tabular-nums text-amber-800">{r.advances ? money(r.advances) : "—"}</td> : null}
