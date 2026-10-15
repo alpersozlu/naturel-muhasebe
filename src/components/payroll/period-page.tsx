@@ -255,9 +255,10 @@ export function PayrollPeriodPage() {
             <ActionCard
               icon={<Wallet className="h-4 w-4" />}
               title="Avans"
-              description="Ay ortası avans talimatı ve nakit avans listesi."
+              description="Ay ortası avans: Garanti talimatı, Ziraat listesi ve nakit listesi. Kolay İK'daki onaylı talepler dolu gelir."
               buttons={[
                 { label: "Garanti talimatı", onClick: () => setBatch({ kind: "advance", channel: "garanti" }) },
+                { label: "Ziraat", onClick: () => setBatch({ kind: "advance", channel: "ziraat" }) },
                 { label: "Nakit listesi", onClick: () => setBatch({ kind: "advance", channel: "cash" }) },
               ]}
               disabled={isClosed}
