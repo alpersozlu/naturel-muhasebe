@@ -509,6 +509,9 @@ model Expense {
 
   category     ExpenseCategory
   vendor       String?
+  /// Fatura / fiş seri-sıra numarası (OCR, basılı). Mükerrer kontrolünde aynı
+  /// satıcı+tarih+tutarlı iki faturayı ayırır (Mavi Mağusa 16.10.2026: 1418 ↔ 1419).
+  document_no  String?
   amount       Decimal         @db.Decimal(14, 2)
   currency     Currency        @default(TRY)
   amount_try   Decimal         @db.Decimal(14, 2)

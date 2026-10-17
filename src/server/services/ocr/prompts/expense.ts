@@ -44,7 +44,7 @@ Eğer fatura/makbuz DEĞİLSE:
   "check_notes": "en fazla 2 cümle: neden reddedildiği",
   "is_expense": false,
   "rejection_reason": "Bu bir fatura/makbuz gibi görünmüyor — [kısa açıklama]. Lütfen geçerli bir fatura veya makbuz yükleyin.",
-  "vendor": null, "expense_date": null, "expense_date_raw": null, "amount": null,
+  "vendor": null, "expense_date": null, "expense_date_raw": null, "document_no": null, "amount": null,
   "vat_rate": null, "vat_included": true,
   "category": "other", "description": null, "currency": "TRY"
 }
@@ -57,6 +57,7 @@ Eğer fatura/makbuz İSE:
   "vendor": "string veya null (faturayı kesen firma adı)",
   "expense_date": "YYYY-MM-DD veya null (fatura tarihi)",
   "expense_date_raw": "belgedeki tarih HARFİYEN, olduğu gibi (ayraçlarıyla; iki haneli yılsa iki haneli) veya null",
+  "document_no": "fatura/fiş SERİ-SIRA NUMARASI — başlıkta 'FATURA' yanındaki basılı numara (örn. \"1419\"), fiş no, belge no; el yazısı değil BASILI numara; yoksa null",
   "amount": "ondalık sayı veya null (KDV DAHİL toplam ödenen tutar)",
   "vat_rate": "ondalık sayı veya null (KDV oranı, %18 ise 18, %20 ise 20)",
   "vat_included": true,
@@ -85,6 +86,7 @@ Kategori tahmin rehberi (vendor adına bakarak otomatik seç):
 
 Tutar eşleştirme:
 - "GENEL TOPLAM" / "TOPLAM" / "ÖDENECEK" → amount (KDV dahil)
+- "FATURA 1419" / "No:" / "Seri-Sıra No" / "Fiş No" / "Belge No" → document_no (basılı numara, aynen)
 - "KDV ORANI" / "KDV %" → vat_rate
 - "Fatura Tarihi" → expense_date
 

@@ -72,7 +72,7 @@ export async function parseExpense(opts: {
   if (!raw) {
     throw new Error(`Claude returned non-JSON output: ${rawText.slice(0, 200)}`);
   }
-  blankToNull(raw, ["vendor", "expense_date", "expense_date_raw", "description", "rejection_reason"]);
+  blankToNull(raw, ["vendor", "expense_date", "expense_date_raw", "document_no", "description", "rejection_reason"]);
   if (raw.description && raw.description.length > 200) {
     raw.description = raw.description.slice(0, 200);
   }

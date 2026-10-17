@@ -1,3 +1,4 @@
+import { downloadFromStorage } from "@/server/services/storage";
 import "server-only";
 import { balancesChain, resolveDocumentDate } from "./resolve-doc-date";
 import { missingVoucherSerials } from "@/server/services/nebim/voucher-snapshot";
@@ -126,6 +127,34 @@ async function dupScope(upload: Upload): Promise<DupScope> {
  * the anchor; an identity field only SEPARATES documents when both readings
  * have it and they disagree.
  */
+/** Basılı belge numarası normalize: "No: 1419" / "1419" / "A-001419" → rakam+harf, baştaki sıfırlar atılır. */
+export function normalizeDocumentNo(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const s = v.toLocaleUpperCase("tr").replace(/^(NO|NR|SERI|SERİ|SIRA|SERİ-SIRA|FATURA|FİŞ|BELGE)[\s.:#-]*/i, "").replace(/[^A-Z0-9]/g, "").replace(/^0+(?=\d)/, "");
+  return s.length >= 2 ? s : null;
+}
+/** İki okumada da numara var ve farklı → ayrı belgeler. Biri yoksa karar verilemez (false). */
+export function distinctDocumentNo(a: string | null | undefined, b: string | null | undefined): boolean {
+  const x = normalizeDocumentNo(a);
+  const y = normalizeDocumentNo(b);
+  return !!x && !!y && x !== y;
+}
+/** Eski masraf kaydının fotoğrafını yeniden okuyup belge numarasını tamamlar (yalnız numara). */
+async function backfillExpenseDocumentNo(expenseId: string, uploadId: string): Promise<string | null> {
+  try {
+    const u = await prisma.upload.findUnique({ where: { id: uploadId }, select: { file_url: true, mime_type: true } });
+    if (!u) return null;
+    const buf = await downloadFromStorage(u.file_url);
+    const { parsed } = await parseExpense({ buffer: buf, mimeType: u.mime_type });
+    const no = parsed.document_no ?? null;
+    await prisma.expense.update({ where: { id: expenseId }, data: { document_no: no ?? "?" } }); // "?" = okundu ama numara yok
+    return no;
+  } catch (e) {
+    console.error("[OCR] expense document_no backfill failed", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
 function sameIdentity(a: string | null | undefined, b: string | null | undefined): boolean {
   const norm = (v: string) => v.toLocaleUpperCase("tr").replace(/[^A-Z0-9ÇĞİÖŞÜ]/g, "");
   if (!a || !b) return true;
@@ -983,6 +1012,7 @@ async function runExpense(upload: Upload, buffer: Buffer): Promise<void> {
   const fields = {
     category: finalCategory,
     vendor: parsed.vendor,
+    document_no: parsed.document_no ?? null,
     amount: parsed.amount,
     currency: parsed.currency,
     amount_try,
@@ -994,7 +1024,11 @@ async function runExpense(upload: Upload, buffer: Buffer): Promise<void> {
     user_corrected: !!(userMeta?.expense_category || userMeta?.expense_description),
   };
   // Same receipt (vendor + date + amount) already on file in this store —
-  // a second photo of the same fatura must not count twice.
+  // a second photo of the same fatura must not count twice. Sahibi (17.10.2026):
+  // aynı satıcıdan aynı gün aynı tutarlı İKİ AYRI fatura olabilir (Mavi Mağusa
+  // 16.10: Erdal Fındık 940 ₺, No 1418 ve 1419). Ayırt edici: basılı fatura
+  // numarası. İki okumada da numara varsa ve FARKLIYSA ayrı belgedir. Eski
+  // kayıtta numara yoksa o fotoğraf bir kez daha okunup numarası tamamlanır.
   if (!duplicateCheckSkipped(upload)) {
     const scope = await dupScope(upload);
     const candidates = await prisma.expense.findMany({
@@ -1004,11 +1038,25 @@ async function runExpense(upload: Upload, buffer: Buffer): Promise<void> {
         amount_try,
         NOT: { upload_id: upload.id },
       },
-      select: { upload_id: true, vendor: true },
+      select: { id: true, upload_id: true, vendor: true, document_no: true },
     });
-    const dup = candidates.find((c) => sameIdentity(c.vendor, parsed.vendor));
+    let dup: (typeof candidates)[number] | null = null;
+    for (const c of candidates) {
+      if (!sameIdentity(c.vendor, parsed.vendor)) continue;
+      let theirs = c.document_no;
+      if (!theirs && parsed.document_no && c.upload_id) {
+        theirs = await backfillExpenseDocumentNo(c.id, c.upload_id);
+      }
+      if (distinctDocumentNo(parsed.document_no, theirs)) continue; // farklı numaralı iki fatura
+      dup = c;
+      break;
+    }
     if (dup?.upload_id) {
-      await failAsDuplicate(upload, dup.upload_id, `Bu fatura/makbuz (${parsed.vendor ?? "satıcı okunamadı"}, ${fmtDateTr(parsed.expense_date)}, ${amount_try} ₺)`);
+      await failAsDuplicate(
+        upload,
+        dup.upload_id,
+        `Bu fatura/makbuz (${parsed.vendor ?? "satıcı okunamadı"}, ${fmtDateTr(parsed.expense_date)}, ${amount_try} ₺${parsed.document_no ? `, No ${parsed.document_no}` : ""})`
+      );
       return;
     }
   }

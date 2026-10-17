@@ -30,6 +30,9 @@ export const expenseOcrSchema = z.object({
   /** Belgedeki tarih HARFİYEN ("24,8,26", "24/08/2026") — sunucu bunu
    *  GG-AA-YY sırasıyla kendisi çözer; modelin ISO yorumuna güvenmez. */
   expense_date_raw: z.string().max(40).nullable().optional(),
+  /** Fatura / fiş seri-sıra numarası (başlıktaki basılı numara, "1419"). Aynı
+   *  satıcıdan aynı gün aynı tutarlı iki ayrı faturayı ayırt eder (17.10.2026). */
+  document_no: z.string().max(40).nullable().optional().default(null),
   amount: z.number().min(0).nullable(),
   vat_rate: z.number().min(0).max(100).nullable(),
   vat_included: z.boolean().default(true),
@@ -48,6 +51,7 @@ export const expenseOutputSchema = z.object({
   vendor: z.string().nullable(),
   expense_date: z.string().nullable(),
   expense_date_raw: z.string().nullable(),
+  document_no: z.string().nullable(),
   amount: z.number().nullable(),
   vat_rate: z.number().nullable(),
   vat_included: z.boolean(),

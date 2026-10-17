@@ -1048,6 +1048,7 @@ function ParsedFields({
       <div className="grid grid-cols-3 gap-4 w-full">
         <MiniField label="Tarih" value={dateStr} />
         <MiniField label="Kategori" value={e.category} />
+        <MiniField label="Belge no" value={e.document_no && e.document_no !== "?" ? e.document_no : "—"} />
         <MiniField label="Açıklama" value={e.description ?? "—"} />
       </div>
     );
