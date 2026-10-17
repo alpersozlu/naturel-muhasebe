@@ -890,7 +890,18 @@ async function runBankReceipt(upload: Upload, buffer: Buffer): Promise<void> {
         "Bu bir İban dekontu gibi görünmüyor. Lütfen IBAN'lı bir banka transferi/havale dekontu yükleyin."
     );
   }
-  parsed.deposit_date = await assertDateMatch(upload.daily_record_id, parsed.deposit_date, "İban dekontu");
+  // LOCAL PAY (sahibi, 17.10.2026): KKTC hesaptan ödeme uygulaması; havaledir, IBAN
+  // dekontu gibi sayılır. IBAN yerine "Local Pay No" referanstır; yalnız "Ödeme
+  // Gerçekleşti" ekranı kabul edilir. Banka adı "Local Pay", referans iban alanında.
+  const localPay = parsed.kind === "local_pay" || /local\s*pay/i.test(parsed.bank_name ?? "");
+  if (localPay) {
+    if (parsed.success === false) throw new Error("Local Pay ekranında 'Ödeme Gerçekleşti' görünmüyor — ödeme tamamlanmamış olabilir. Onay ekranını yükleyin.");
+    const ref = (parsed.reference_no ?? "").replace(/[^0-9A-Za-z]/g, "");
+    if (!ref) throw new Error("Local Pay No okunamadı — referans numarası görünen bir ekran yükleyin.");
+    parsed.bank_name = "Local Pay";
+    parsed.iban = `Local Pay No ${ref}`;
+  }
+  parsed.deposit_date = await assertDateMatch(upload.daily_record_id, parsed.deposit_date, localPay ? "Local Pay ödemesi" : "İban dekontu");
   if (parsed.amount === null) {
     throw new Error(
       "İban dekontundan tutar okunamadı — manuel düzenleme gerekli"

@@ -3,6 +3,13 @@ import { z } from "zod";
 export const bankReceiptOcrSchema = z.object({
   is_bank_receipt: z.boolean(),
   rejection_reason: z.string().nullable(),
+  /** IBAN'lı banka dekontu mu, Local Pay (KKTC hesaptan ödeme uygulaması) onayı mı (17.10.2026) */
+  kind: z.enum(["iban_transfer", "local_pay"]).nullable().optional().default(null),
+  /** Local Pay No — IBAN'ın yerine geçen referans */
+  reference_no: z.string().nullable().optional().default(null),
+  payer_name: z.string().nullable().optional().default(null),
+  /** Local Pay: "Ödeme Gerçekleşti" görünüyor mu */
+  success: z.boolean().nullable().optional().default(null),
   bank_name: z.string().min(1).nullable(),
   iban: z.string().min(1).nullable(),
   amount: z.number().min(0).nullable(),

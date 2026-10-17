@@ -1035,7 +1035,7 @@ function ParsedFields({
       <div className="grid grid-cols-3 gap-4 w-full">
         <MiniField label="Banka" value={b.bank_name ?? "—"} />
         <MiniField label="Tarih" value={dateStr} />
-        <MiniField label="IBAN" value={b.iban ?? "—"} />
+        <MiniField label={b.iban?.startsWith("Local Pay") ? "Referans" : "IBAN"} value={b.iban ?? "—"} />
       </div>
     );
   }
