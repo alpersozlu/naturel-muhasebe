@@ -17,6 +17,7 @@ import {
   persistVerification,
 } from "@/server/services/verification/compute";
 import { computeNebimDaySummary } from "@/server/services/nebim/day-summary";
+import { loadInvoiceNets, matchCorporateToInvoices, type CorporateNebimCheck } from "@/server/services/nebim/corporate-check";
 
 const dailyAdmin = withAudit("DailyRecord");
 // Kilitleme mağaza kullanıcılarına da açık — yetki kontrolü prosedürün içinde
@@ -505,6 +506,7 @@ export const dailyRecordRouter = router({
             include: { created_by_user: { select: { full_name: true, email: true } } },
           },
           corporate_purchases: { where: { upload_id: null }, orderBy: { created_at: "desc" } },
+          store: { select: { brand: { select: { name: true } } } },
         },
       });
       if (!dr) return [];
@@ -519,6 +521,8 @@ export const dailyRecordRouter = router({
           | "corporate_purchase";
         amount_try: number;
         note: string | null;
+        /** Derimod kurumsal/yönetim alışverişi: NEBİM fişiyle karşılaştırma (Mavi'de yok) */
+        nebim?: CorporateNebimCheck | null;
         who: string | null;
         at: Date;
       };
@@ -573,6 +577,10 @@ export const dailyRecordRouter = router({
           at: m.created_at,
         });
       }
+      // Derimod: fiş fotoğrafı istenmez, satış NEBİM'den gelir → elle girilen tutar
+      // o günün fişleriyle (isim + net toplam) karşılaştırılır (sahibi, 17.10.2026).
+      const isDerimod = /derimod/i.test(dr.store.brand.name);
+      const nets = isDerimod && dr.corporate_purchases.length > 0 ? await loadInvoiceNets(ctx.prisma, input.store_id, day) : null;
       for (const c of dr.corporate_purchases) {
         out.push({
           id: `corp-${c.id}`,
@@ -581,6 +589,7 @@ export const dailyRecordRouter = router({
           note: [c.type === "corporate" ? "Kurumsal" : "Yönetim", c.person_name, c.company_name ? `(${c.company_name})` : null, c.is_paid ? "ödendi" : "borç"].filter(Boolean).join(" · "),
           who: null,
           at: c.created_at,
+          nebim: nets ? matchCorporateToInvoices({ person_name: c.person_name, company_name: c.company_name, amount_try: c.amount_try.toNumber() }, nets) : null,
         });
       }
       return out.sort((a, b) => b.at.getTime() - a.at.getTime());

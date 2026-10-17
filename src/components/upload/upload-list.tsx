@@ -145,7 +145,35 @@ type EntryRow = {
   note: string | null;
   who: string | null;
   at: Date;
+  nebim?: {
+    status: "match" | "amount_mismatch" | "not_found";
+    invoice_refs: string[];
+    customer_name: string | null;
+    nebim_net: number | null;
+    amount_only_ref: string | null;
+  } | null;
 };
+
+/** Derimod kurumsal/yönetim alışverişi ↔ NEBİM fişi sonucu (tek satır). */
+function NebimCheckLine({ n, amount }: { n: NonNullable<EntryRow["nebim"]>; amount: number }) {
+  if (n.status === "match")
+    return (
+      <div className="mt-1 text-[11px] text-emerald-700">
+        ✓ Nebim&apos;de var: {n.invoice_refs.join(" + ")} · {n.customer_name} · net {TRY_FMT.format(n.nebim_net ?? 0)} ₺
+      </div>
+    );
+  if (n.status === "amount_mismatch")
+    return (
+      <div className="mt-1 text-[11px] text-amber-800">
+        Nebim&apos;de {n.customer_name} adına fiş var ({n.invoice_refs.join(" + ")}) ama net {TRY_FMT.format(n.nebim_net ?? 0)} ₺, girilen {TRY_FMT.format(amount)} ₺ — tutarı kontrol edin.
+      </div>
+    );
+  return (
+    <div className="mt-1 text-[11px] text-rose-700">
+      Nebim&apos;de bu isimde fiş yok{n.amount_only_ref ? ` (aynı tutarda isimsiz fiş: ${n.amount_only_ref})` : ""} — aktarım saatlik; satış girilmediyse ya da ad farklıysa kontrol edin.
+    </div>
+  );
+}
 
 function EntryRowItem({ entry }: { entry: EntryRow }) {
   const meta = ENTRY_META[entry.kind];
@@ -173,14 +201,17 @@ function EntryRowItem({ entry }: { entry: EntryRow }) {
           </div>
         </div>
         <div className="hidden lg:flex items-center border-l border-r border-border/60 px-5 flex-1 min-w-0">
-          {entry.note ? (
-            <div className="min-w-0">
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Not</div>
-              <div className="text-sm text-foreground truncate">{entry.note}</div>
-            </div>
-          ) : (
-            <div className="text-xs text-muted-foreground">Not girilmedi</div>
-          )}
+          <div className="min-w-0">
+            {entry.note ? (
+              <>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Not</div>
+                <div className="text-sm text-foreground truncate">{entry.note}</div>
+              </>
+            ) : (
+              <div className="text-xs text-muted-foreground">Not girilmedi</div>
+            )}
+            {entry.nebim ? <NebimCheckLine n={entry.nebim} amount={entry.amount_try} /> : null}
+          </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <div className="text-right pr-2">
@@ -195,6 +226,7 @@ function EntryRowItem({ entry }: { entry: EntryRow }) {
       {entry.note ? (
         <div className="lg:hidden mt-2 text-xs text-muted-foreground">{entry.note}</div>
       ) : null}
+      {entry.nebim ? <div className="lg:hidden"><NebimCheckLine n={entry.nebim} amount={entry.amount_try} /></div> : null}
     </div>
   );
 }
