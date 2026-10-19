@@ -48,7 +48,6 @@ const STATUS: Record<MeritStatus, { label: string; cls: string; icon: React.Reac
 };
 const ORDER: Record<MeritStatus, number> = { missing: 0, rejected: 1, ok_no_card: 2, ok_card: 3, not_required: 4 };
 
-type Tab = "all" | "missing" | "extra" | "ok" | "other";
 const pct = (r: number | null) => (r == null ? "—" : `%${(r * 100).toFixed(1).replace(".", ",")}`);
 
 function fileToBase64(f: File): Promise<string> {
@@ -63,7 +62,11 @@ const MIME_OK = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", 
 
 export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
   const utils = trpc.useUtils();
-  const input = { store_id: filters.storeId || undefined, date_from: filters.dateFrom || undefined, date_to: filters.dateTo || undefined };
+  // Sahibi (19.10.2026): önce "kartı var + fişi var (onaylı)", sonra "kartı var fişi yok",
+  // sonra "fişi var kartı yok" — HEPSİ listelensin. Bu yüzden Merit sekmesi varsayılan
+  // olarak TÜM DÖNEMİ (Ocak 2026'dan beri) okur; sayfadaki tarih aralığı isteğe bağlı.
+  const [useDates, setUseDates] = useState(false);
+  const input = { store_id: filters.storeId || undefined, date_from: useDates ? filters.dateFrom || undefined : undefined, date_to: useDates ? filters.dateTo || undefined : undefined };
   const q = trpc.merit.check.useQuery(input, { refetchOnWindowFocus: false });
   const refresh = () => void utils.merit.check.invalidate();
   const confirm = useConfirm();
@@ -76,13 +79,11 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
   const del = trpc.merit.deleteCard.useMutation({ onSuccess: () => { toast.success("Kart kaldırıldı"); refresh(); }, onError: (e) => toast.error(e.message) });
   const update = trpc.merit.updateCard.useMutation({ onSuccess: () => { toast.success("Kart güncellendi"); refresh(); }, onError: (e) => toast.error(e.message) });
 
-  const [tab, setTab] = useState<Tab>("all");
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [drag, setDrag] = useState(false);
   const [picker, setPicker] = useState<MeritInvoiceView | null>(null);
   const [decision, setDecision] = useState<{ inv: MeritInvoiceView; kind: "no_card_ok" | "rejected" } | null>(null);
   const [editing, setEditing] = useState<MeritCardView | null>(null);
-  const [cardsOpen, setCardsOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const ingest = async (list: FileList | File[]) => {
@@ -115,15 +116,19 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
   };
 
   const data = q.data;
-  const rows = useMemo(() => {
-    if (!data) return [] as MeritInvoiceView[];
-    const list = [...data.invoices].sort((a, b) => ORDER[a.status] - ORDER[b.status] || b.invoice_date.localeCompare(a.invoice_date));
-    if (tab === "missing") return list.filter((i) => i.status === "missing");
-    if (tab === "extra") return list.filter((i) => i.hotel === "Merit" && (!i.extra_ok || !i.note_ok));
-    if (tab === "ok") return list.filter((i) => i.status === "ok_card");
-    if (tab === "other") return list.filter((i) => i.status === "ok_no_card" || i.status === "rejected" || i.status === "not_required");
-    return list;
-  }, [data, tab]);
+  const groups = useMemo(() => {
+    const empty = { matched: [] as MeritInvoiceView[], cardsNoInvoice: [] as MeritCardView[], invoicesNoCard: [] as MeritInvoiceView[], others: [] as MeritInvoiceView[], badCards: [] as MeritCardView[] };
+    if (!data) return empty;
+    const byDate = (a: MeritInvoiceView, b: MeritInvoiceView) => b.invoice_date.localeCompare(a.invoice_date);
+    const merit = data.invoices.filter((i) => i.hotel === "Merit");
+    const matched = merit.filter((i) => i.status === "ok_card" && i.card).sort(byDate);
+    const noCard = merit.filter((i) => !(i.status === "ok_card" && i.card)).sort((a, b) => ORDER[a.status] - ORDER[b.status] || byDate(a, b));
+    const usable = data.cards.filter((c) => c.is_card && c.ocr_status === "done" && !!c.full_name);
+    const cardsNoInvoice = usable.filter((c) => c.linked === 0).sort((a, b) => (b.photo_date ?? b.uploaded_at).localeCompare(a.photo_date ?? a.uploaded_at));
+    const badCards = data.cards.filter((c) => !(c.is_card && c.ocr_status === "done" && !!c.full_name));
+    const others = data.invoices.filter((i) => i.hotel !== "Merit").sort(byDate);
+    return { matched, cardsNoInvoice, invoicesNoCard: noCard, others, badCards };
+  }, [data]);
 
   if (q.isLoading || !data) {
     return (
@@ -137,6 +142,28 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
   }
   const k = data.kpi;
   const busy = !!progress;
+  const sum = (list: MeritInvoiceView[]) => list.reduce((s, i) => s + i.total, 0);
+  const missingCount = groups.invoicesNoCard.filter((i) => i.status === "missing").length;
+  const rowProps = (inv: MeritInvoiceView) => ({
+    inv,
+    onPick: () => setPicker(inv),
+    onAccept: () => setDecision({ inv, kind: "no_card_ok" as const }),
+    onReject: () => setDecision({ inv, kind: "rejected" as const }),
+    onClear: async () => {
+      if (await confirm({ title: "Karar geri alınsın mı?", description: `${inv.invoice_ref} yeniden otomatik eşleşmeye döner.`, confirmLabel: "Geri al" })) clear.mutate({ invoice_ref: inv.invoice_ref });
+    },
+  });
+  const cardTile = (c: MeritCardView) => (
+    <CardTile
+      key={c.id}
+      c={c}
+      onRead={() => read.mutate({ id: c.id }, { onSuccess: refresh })}
+      onEdit={() => setEditing(c)}
+      onDelete={async () => {
+        if (await confirm({ title: "Kart kaldırılsın mı?", description: `${c.full_name ?? c.source_name ?? "Kart"} listeden çıkar; ona bağlı elle kararlar silinir.`, confirmLabel: "Kaldır" })) del.mutate({ id: c.id });
+      }}
+    />
+  );
 
   return (
     <Card
@@ -156,8 +183,12 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               Üç kontrol: yönetim notunda otel adı (&quot;merit&quot;) yazılı mı (sahibi işler) · fişte ek %10 gerçekten uygulanmış mı (dip iskonto) · fişteki ad
-              mağazanın çektiği personel kartıyla tutuyor mu. Kart zorunlu: Girne baştan beri · Lefkoşa 08.10.2026'dan itibaren.
+              mağazanın çektiği personel kartıyla tutuyor mu. Kart zorunlu: Girne baştan beri · Lefkoşa 08.10.2026&apos;dan itibaren.
             </p>
+            <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+              <input type="checkbox" className="h-3.5 w-3.5" checked={useDates} onChange={(e) => setUseDates(e.target.checked)} />
+              Sayfadaki tarih aralığını uygula {useDates ? "" : "(şu an tüm dönem — Ocak 2026'dan beri)"}
+            </label>
           </div>
           <div className="flex items-center gap-2">
             <input ref={fileInput} type="file" accept="image/*,.heic" multiple hidden onChange={(e) => e.target.files && void ingest(e.target.files)} />
@@ -171,89 +202,60 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
         {/* KPI */}
         <div className="grid grid-cols-2 gap-px border-b bg-border sm:grid-cols-3 lg:grid-cols-6">
           <Kpi label="Merit fişi" value={String(k.invoices)} sub={`${money(k.total)} ₺ satış`} />
-          <Kpi label="Kartı olmayan" value={String(k.missing)} tone={k.missing ? "text-rose-700" : "text-emerald-700"} sub={k.missing ? "kontrol edilmeli" : "temiz"} />
+          <Kpi label="Kartı var · fişi var" value={String(groups.matched.length)} tone="text-emerald-700" sub={`${money(sum(groups.matched))} ₺`} />
+          <Kpi label="Kartı var · fişi yok" value={String(groups.cardsNoInvoice.length)} tone={groups.cardsNoInvoice.length ? "text-amber-700" : "text-emerald-700"} sub="kart yüklü, Merit fişi yok" />
+          <Kpi label="Fişi var · kartı yok" value={String(groups.invoicesNoCard.length)} tone={missingCount ? "text-rose-700" : "text-emerald-700"} sub={missingCount ? `${missingCount} tanesi kontrol edilmeli` : "hepsi karara bağlı"} />
           <Kpi label="Ek %10 değil" value={String(k.extra_mismatch)} tone={k.extra_mismatch ? "text-amber-700" : "text-emerald-700"} sub={k.note_incomplete ? `${k.note_incomplete} fişte yönetim notu eksik` : "dip iskonto ≈ %10"} />
-          <Kpi label="Kartlı" value={String(k.with_card)} tone="text-emerald-700" />
-          <Kpi label="Kartsız kabul" value={String(k.accepted_no_card)} />
-          <Kpi
-            label="Diğer anlaşmalı"
-            value={String(Object.values(k.other_hotels).reduce((a, b) => a + b, 0))}
-            sub={Object.entries(k.other_hotels).map(([h, n]) => `${h} ${n}`).join(" · ") || "kart programı yok"}
-          />
           <Kpi label="İndirim toplamı" value={`${money(k.discount_total)} ₺`} sub="satır + dip iskonto" />
         </div>
 
-        {/* Sekmeler */}
-        <div className="flex flex-wrap items-center gap-1 border-b px-5 py-2 text-sm">
-          {(
-            [
-              ["all", `Hepsi (${k.invoices})`],
-              ["missing", `Kart yok (${k.missing})`],
-              ["extra", `Ek %10 / not sorunlu (${k.extra_mismatch + k.note_incomplete})`],
-              ["ok", `Kart var (${k.with_card})`],
-              ["other", `Diğer (${k.accepted_no_card + k.rejected + k.not_required + Object.values(k.other_hotels).reduce((a, b) => a + b, 0)})`],
-            ] as Array<[Tab, string]>
-          ).map(([t, label]) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className={cn("rounded-full px-3 py-1 transition-colors", tab === t ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted", t === "missing" && tab !== t && k.missing > 0 && "text-rose-700")}
-            >
-              {label}
-            </button>
-          ))}
-          <div className="flex-1" />
-          <span className="text-xs text-muted-foreground">{drag ? "Bırakın — kartlar yüklenecek" : "Fotoğrafları bu kutuya sürükleyip bırakabilirsiniz"}</span>
-        </div>
+        {/* 1) Kartı var + fişi var */}
+        <Section
+          tone="emerald"
+          title="1 · Kartı var, fişi var — onaylı"
+          count={groups.matched.length}
+          sub={`${money(sum(groups.matched))} ₺ satış · fişteki ad karttaki adla tutuyor`}
+        >
+          {groups.matched.length === 0 ? <Empty text="Henüz kartla eşleşmiş Merit fişi yok." /> : <ul className="divide-y">{groups.matched.map((inv) => <InvoiceRow key={inv.invoice_ref} {...rowProps(inv)} />)}</ul>}
+        </Section>
 
-        {/* Fişler */}
-        {rows.length === 0 ? (
-          <div className="px-5 py-10 text-center text-sm text-muted-foreground">
-            {tab === "missing" ? "Kartı olmayan Merit fişi yok." : "Bu dönemde Merit indirimli fiş yok."}
-          </div>
-        ) : (
-          <ul className="divide-y">
-            {rows.map((inv) => (
-              <InvoiceRow
-                key={inv.invoice_ref}
-                inv={inv}
-                onPick={() => setPicker(inv)}
-                onAccept={() => setDecision({ inv, kind: "no_card_ok" })}
-                onReject={() => setDecision({ inv, kind: "rejected" })}
-                onClear={async () => {
-                  if (await confirm({ title: "Karar geri alınsın mı?", description: `${inv.invoice_ref} yeniden otomatik eşleşmeye döner.`, confirmLabel: "Geri al" })) clear.mutate({ invoice_ref: inv.invoice_ref });
-                }}
-              />
-            ))}
-          </ul>
-        )}
-
-        {/* Kartlar */}
-        <div className="border-t">
-          <button type="button" onClick={() => setCardsOpen((o) => !o)} className="flex w-full items-center gap-2 px-5 py-3 text-left text-sm font-medium hover:bg-muted/40">
-            {cardsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-            Yüklü kartlar ({data.cards.length})
-            <span className="ml-2 text-xs font-normal text-muted-foreground">
-              {data.cards.filter((c) => c.linked === 0 && c.is_card && c.ocr_status === "done").length} tanesi hiçbir fişle eşleşmedi
-              {data.cards.some((c) => c.ocr_status !== "done" || !c.is_card) ? ` · ${data.cards.filter((c) => c.ocr_status !== "done" || !c.is_card).length} okunamadı` : ""}
-            </span>
-          </button>
-          {cardsOpen ? (
-            <div className="grid grid-cols-2 gap-3 px-5 pb-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-              {data.cards.map((c) => (
-                <CardTile
-                  key={c.id}
-                  c={c}
-                  onRead={() => read.mutate({ id: c.id }, { onSuccess: refresh })}
-                  onEdit={() => setEditing(c)}
-                  onDelete={async () => {
-                    if (await confirm({ title: "Kart kaldırılsın mı?", description: `${c.full_name ?? c.source_name ?? "Kart"} listeden çıkar; ona bağlı elle kararlar silinir.`, confirmLabel: "Kaldır" })) del.mutate({ id: c.id });
-                  }}
-                />
-              ))}
+        {/* 2) Kartı var, fişi yok */}
+        <Section
+          tone="amber"
+          title="2 · Kartı var, fişi yok"
+          count={groups.cardsNoInvoice.length}
+          sub="kart yüklenmiş ama bu adla Merit notlu fiş bulunamadı — kişi almamış ya da ad farklı yazılmış olabilir"
+        >
+          {groups.cardsNoInvoice.length === 0 && groups.badCards.length === 0 ? (
+            <Empty text="Fişsiz kart yok." />
+          ) : (
+            <div className="grid grid-cols-1 gap-3 px-5 py-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {groups.cardsNoInvoice.map(cardTile)}
+              {groups.badCards.map(cardTile)}
             </div>
-          ) : null}
+          )}
+        </Section>
+
+        {/* 3) Fişi var, kartı yok */}
+        <Section
+          tone="rose"
+          title="3 · Fişi var, kartı yok"
+          count={groups.invoicesNoCard.length}
+          sub={`${money(sum(groups.invoicesNoCard))} ₺ satış · ${missingCount} kontrol bekliyor · kartsız kabul / red / kural öncesi olanlar da burada`}
+        >
+          {groups.invoicesNoCard.length === 0 ? <Empty text="Kartsız Merit fişi yok." /> : <ul className="divide-y">{groups.invoicesNoCard.map((inv) => <InvoiceRow key={inv.invoice_ref} {...rowProps(inv)} />)}</ul>}
+        </Section>
+
+        {/* 4) Diğer anlaşmalı kurumlar */}
+        {groups.others.length > 0 ? (
+          <Section tone="slate" title="Diğer anlaşmalı kurumlar" count={groups.others.length} sub={Object.entries(k.other_hotels).map(([h, n]) => `${h} ${n}`).join(" · ") + " · kart programı yok"}>
+            <ul className="divide-y">{groups.others.map((inv) => <InvoiceRow key={inv.invoice_ref} {...rowProps(inv)} />)}</ul>
+          </Section>
+        ) : null}
+
+        {/* Eşleşmiş kartlar (küçük) */}
+        <div className="border-t px-5 py-3 text-xs text-muted-foreground">
+          Yüklü kart: {data.cards.length} · fişle eşleşen: {data.cards.filter((c) => c.linked > 0).length} · {drag ? "Bırakın — kartlar yüklenecek" : "Fotoğrafları bu kutuya sürükleyip bırakabilirsiniz"}
         </div>
       </CardContent>
 
@@ -282,6 +284,33 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
       ) : null}
     </Card>
   );
+}
+
+const SECTION_TONE: Record<string, { bar: string; head: string; badge: string }> = {
+  emerald: { bar: "border-l-emerald-500", head: "bg-emerald-50/60", badge: "bg-emerald-600 text-white" },
+  amber: { bar: "border-l-amber-500", head: "bg-amber-50/60", badge: "bg-amber-500 text-white" },
+  rose: { bar: "border-l-rose-500", head: "bg-rose-50/60", badge: "bg-rose-600 text-white" },
+  slate: { bar: "border-l-slate-400", head: "bg-muted/40", badge: "bg-slate-500 text-white" },
+};
+
+function Section({ tone, title, count, sub, children }: { tone: keyof typeof SECTION_TONE; title: string; count: number; sub?: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(true);
+  const t = SECTION_TONE[tone]!;
+  return (
+    <div className={cn("border-b border-l-4", t.bar)}>
+      <button type="button" onClick={() => setOpen((o) => !o)} className={cn("flex w-full flex-wrap items-center gap-3 px-5 py-3 text-left", t.head)}>
+        {open ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+        <span className="font-semibold">{title}</span>
+        <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums", t.badge)}>{count}</span>
+        {sub ? <span className="text-xs text-muted-foreground">{sub}</span> : null}
+      </button>
+      {open ? children : null}
+    </div>
+  );
+}
+
+function Empty({ text }: { text: string }) {
+  return <div className="px-5 py-6 text-center text-sm text-muted-foreground">{text}</div>;
 }
 
 function Kpi({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: string }) {
