@@ -1060,12 +1060,16 @@ async function runExpense(upload: Upload, buffer: Buffer): Promise<void> {
       return;
     }
   }
-  await prisma.expense.upsert({
+  const saved = await prisma.expense.upsert({
     where: { upload_id: upload.id },
     update: fields,
     create: { upload_id: upload.id, daily_record_id: upload.daily_record_id, ...fields },
   });
   await markParsed(upload.id, raw, parsed);
+  // Sahibi bu faturanın fotoğrafını daha önce "şirket faturası" saydıysa şimdi
+  // mağaza faturasına döner (masraf muhasebesi, 19.10.2026). Hata yüklemeyi bozmaz.
+  const { relinkInvoicesForExpense } = await import("@/server/services/masraf/invoices");
+  await relinkInvoicesForExpense(prisma, saved.id);
 }
 
 async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {

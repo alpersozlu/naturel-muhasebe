@@ -1,14 +1,21 @@
 /**
- * MASRAF MARKA REGİSTRY (Faz 6) — tek kaynak.
+ * MASRAF MARKA REGİSTRY (Faz 6, Faz 7'de satır düzeni sahibinin Excel'ine göre) — tek kaynak.
  *
  * Masraf muhasebe motoru iki markayı destekler: Mavi (4 mağaza) ve Derimod (3 mağaza).
- * Şirket kartı "Faturalı Masraflar" her iki markayı kapsar: aylık kategori toplamı
- * ÷7 (toplam mağaza) → her mağazaya eşit pay. "Mavi Masraflar" çıktısı 4 Mavi payını,
- * "Derimod Masraflar" çıktısı 3 Derimod payını (3/7) gösterir.
+ * Şirket faturaları (kart Excel'i ya da sahibinin fatura fotoğrafları) her iki markayı
+ * kapsar: aylık kategori toplamı ÷7 (toplam mağaza) → her mağazaya eşit pay.
+ * "Mavi Masraflar" çıktısı 4 Mavi payını, "Derimod Masraflar" çıktısı 3 Derimod payını gösterir.
  *
  * Bu dosya pure data — hem server (dağıtım/rapor/Excel) hem client (UI) import eder.
  * Mağaza kodları burada TANIMLI (Store tablosunda saklanmaz; ad/şehirden eşleşir).
  * Kategori sözlüğü + kurallar: docs/MASRAF-MUHASEBE-PLANI.md
+ *
+ * SATIR DÜZENİ = sahibinin "MAVI MASRAFLAR 2026.xlsx" dosyası (19.10.2026):
+ *   KİRA → Kira, Kira (stopaj/KDV)
+ *   PERSONEL → Çalışma Ücreti, Yemek, SSK, Yol, Prim, Personel stopajı, Tazminat, Mesai
+ *   DİĞER GİDERLER → Muhasebe, Terzi, Telefon/İnternet, POS gideri, Kırtasiye, Temizlik,
+ *                    Seyahat, Kargo, Elektrik, Banka, Sigorta, Diğer, Defolu
+ *   OFİS → Kira, Maaş, SSK, Diğer, Mazot, Sigorta
  */
 
 export type MasrafBrandKey = "mavi" | "derimod";
@@ -22,10 +29,20 @@ export type BrandStore = {
   match: string[];
 };
 
+export type MasrafGroupKey = "KIRA" | "PERSONEL" | "DIGER" | "OFIS";
+
+export const MASRAF_GROUPS: { key: MasrafGroupKey; label: string }[] = [
+  { key: "KIRA", label: "KİRA" },
+  { key: "PERSONEL", label: "PERSONEL" },
+  { key: "DIGER", label: "DİĞER GİDERLER" },
+  { key: "OFIS", label: "OFİS" },
+];
+
 export type MasrafRow = {
   key: string;
   label: string;
-  /** true = sistem doldurur (faturalı/kasa/POS/defolu), false = manuel bekliyor */
+  group: MasrafGroupKey;
+  /** true = sistemin otomatik kaynakları var (fatura/kasa/POS/defolu/bordro); false = yalnız elle */
   auto: boolean;
   note?: string;
 };
@@ -39,41 +56,56 @@ export type MasrafBrand = {
   /** Excel dosya adı öneki */
   fileTag: string;
   stores: BrandStore[];
-  /** KİRA tüm tutarın yazıldığı tek mağaza kodu; null ise KİRA manuel */
+  /** KİRA (kart/fotoğraf: orange mall + ortak alan) tüm tutarın yazıldığı tek mağaza kodu; null ise KİRA yalnız elle */
   kiraStoreCode: string | null;
   rows: MasrafRow[];
 };
 
 /** Satır sırasını markaya göre kur (KİRA ve DEFOLU marka davranışı farklı). */
-function buildRows(opts: {
-  kiraAuto: boolean;
-  kiraLabel: string;
-  defoluAuto: boolean;
-  defoluNote: string;
-}): MasrafRow[] {
+function buildRows(opts: { kiraAuto: boolean; kiraNote: string; defoluAuto: boolean; defoluNote: string }): MasrafRow[] {
   return [
-    // ── Sistemin otomatik dolduracağı kategoriler ──────────────────────────
-    { key: "ISCI", label: "İşçi", auto: true },
-    { key: "YEMEK", label: "Yemek", auto: true },
-    { key: "TEMIZLIK", label: "Temizlik", auto: true },
-    { key: "TERZI", label: "Terzi / Tamir", auto: true },
-    { key: "KIRTASIYE", label: "Kırtasiye", auto: true },
-    { key: "MAZOT", label: "Mazot / Benzin", auto: true },
-    { key: "SEYAHAT", label: "Seyahat", auto: true },
-    { key: "KIRA", label: opts.kiraLabel, auto: opts.kiraAuto, note: opts.kiraAuto ? undefined : "marka kira düzeni manuel" },
-    { key: "DIGER", label: "Diğer Giderler", auto: true },
-    { key: "POS", label: "POS Gideri (%5)", auto: true },
-    { key: "DEFOLU", label: "Defolu", auto: opts.defoluAuto, note: opts.defoluNote },
-    // ── Kullanıcının manuel gireceği kategoriler (manuel bekliyor) ─────────
-    { key: "CALISMA_UCRETI", label: "Çalışma Ücreti", auto: false, note: "maaş/SSK/yol/prim/mesai + pazar parası" },
-    { key: "ELEKTRIK", label: "Elektrik (ana fatura)", auto: false, note: "kasadaki küçük elektrik DİĞER'e gider" },
-    { key: "TELEFON_INTERNET", label: "Telefon / İnternet (ana)", auto: false, note: "karttaki bilişim DİĞER'e gider" },
-    { key: "KARGO", label: "Kargo", auto: false },
-    { key: "BANKA", label: "Banka Masrafı", auto: false },
-    { key: "MUHASEBE", label: "Muhasebe", auto: false },
-    { key: "SIGORTA", label: "Sigorta", auto: false },
-    { key: "MAGAZA_KIRA", label: "Diğer Mağaza Kiraları", auto: false, note: "ortak giderler" },
+    // ── KİRA ───────────────────────────────────────────────────────────────
+    { key: "KIRA", label: "Kira", group: "KIRA", auto: opts.kiraAuto, note: opts.kiraNote },
+    { key: "KIRA_STOPAJ", label: "Kira (Stopaj / KDV)", group: "KIRA", auto: false },
+    // ── PERSONEL ───────────────────────────────────────────────────────────
+    { key: "CALISMA_UCRETI", label: "Çalışma Ücreti", group: "PERSONEL", auto: true, note: "bordro baz maaş + kasadan işçi parası" },
+    { key: "YEMEK", label: "Yemek", group: "PERSONEL", auto: true, note: "yemek + su + market'in yarısı" },
+    { key: "SSK", label: "SSK", group: "PERSONEL", auto: false },
+    { key: "YOL", label: "Yol", group: "PERSONEL", auto: false },
+    { key: "PRIM", label: "Prim", group: "PERSONEL", auto: true, note: "bordro komisyon + primler (top seller, giysi, parfüm, ek prim)" },
+    { key: "PERSONEL_STOPAJ", label: "Personel Stopajı (var ise)", group: "PERSONEL", auto: false },
+    { key: "TAZMINAT", label: "Tazminat", group: "PERSONEL", auto: true, note: "bordro izin / çıkış ödemesi; elle de girilir" },
+    { key: "MESAI", label: "Mesai", group: "PERSONEL", auto: true, note: "bordro ek mesai ücreti" },
+    // ── DİĞER GİDERLER ─────────────────────────────────────────────────────
+    { key: "MUHASEBE", label: "Muhasebe", group: "DIGER", auto: true },
+    { key: "TERZI", label: "Terzi", group: "DIGER", auto: true, note: "terzi + tamir" },
+    { key: "TELEFON_INTERNET", label: "Telefon / İnternet", group: "DIGER", auto: true },
+    { key: "POS", label: "POS Gideri", group: "DIGER", auto: true, note: "aylık Visa (kredi kartı) toplamının %5'i" },
+    { key: "KIRTASIYE", label: "Kırtasiye", group: "DIGER", auto: true },
+    { key: "TEMIZLIK", label: "Temizlik", group: "DIGER", auto: true, note: "temizlik + market'in yarısı" },
+    { key: "SEYAHAT", label: "Seyahat Gideri", group: "DIGER", auto: true },
+    { key: "KARGO", label: "Kargo", group: "DIGER", auto: true },
+    { key: "ELEKTRIK", label: "Elektrik", group: "DIGER", auto: true, note: "ana fatura; küçük elektrik işleri Diğer'de" },
+    { key: "BANKA", label: "Banka Masrafı", group: "DIGER", auto: true },
+    { key: "SIGORTA", label: "Sigorta Giderleri", group: "DIGER", auto: true },
+    { key: "DIGER", label: "Diğer Giderler (camcı, cms, bilgisayar…)", group: "DIGER", auto: true, note: "kategorisi bulunamayan her şey" },
+    { key: "DEFOLU", label: "Defolu", group: "DIGER", auto: opts.defoluAuto, note: opts.defoluNote },
+    // ── OFİS ───────────────────────────────────────────────────────────────
+    { key: "OFIS_KIRA", label: "Kira", group: "OFIS", auto: false },
+    { key: "OFIS_MAAS", label: "Maaş", group: "OFIS", auto: false },
+    { key: "OFIS_SSK", label: "SSK", group: "OFIS", auto: false },
+    { key: "OFIS_DIGER", label: "Diğer Giderler", group: "OFIS", auto: false },
+    { key: "MAZOT", label: "Mazot", group: "OFIS", auto: true, note: "benzin / mazot (÷7)" },
+    { key: "OFIS_SIGORTA", label: "Sigorta", group: "OFIS", auto: false },
   ];
+}
+
+/** Masraf kategorisi (categorize.ts) → tablo satırı. Burada olmayan kategori kendi adıyla satırdır. */
+export const KATEGORI_TO_ROW: Record<string, string> = {
+  ISCI: "CALISMA_UCRETI",
+};
+export function rowKeyOf(category: string): string {
+  return KATEGORI_TO_ROW[category] ?? category;
 }
 
 export const MASRAF_BRANDS: Record<MasrafBrandKey, MasrafBrand> = {
@@ -88,10 +120,10 @@ export const MASRAF_BRANDS: Record<MasrafBrandKey, MasrafBrand> = {
       { code: "9402", label: "Mağusa", match: ["magusa", "mağusa"] },
       { code: "9403", label: "Güzelyurt", match: ["guzelyurt", "güzelyurt"] },
     ],
-    kiraStoreCode: "9403", // tüm kira Güzelyurt'a (orange mall + ortak alan)
+    kiraStoreCode: "9403", // kart/fotoğraf kirası (orange mall + ortak alan) Güzelyurt'a; diğer mağazalar elle
     rows: buildRows({
       kiraAuto: true,
-      kiraLabel: "Kira (Güzelyurt)",
+      kiraNote: "Güzelyurt: Orange Mall + ortak alan otomatik; diğer mağazalar elle",
       defoluAuto: true,
       defoluNote: "İndirim Kontrol → otomatik push",
     }),
@@ -102,17 +134,16 @@ export const MASRAF_BRANDS: Record<MasrafBrandKey, MasrafBrand> = {
     title: "Derimod Masraflar",
     fileTag: "Derimod_Masraflar",
     // NEBIM mağaza kodları (S01 Lefkoşa / S02 Mağusa / S03 Girne).
-    // Muhasebe farklı kod kullanıyorsa burada değiştir — tek kaynak.
     stores: [
       { code: "S01", label: "Lefkoşa", match: ["lefko"] },
       { code: "S03", label: "Girne", match: ["girne"] },
       { code: "S02", label: "Mağusa", match: ["magusa", "mağusa"] },
     ],
-    kiraStoreCode: null, // Derimod kira: manuel bekliyor (mutabakat — Faz 6)
+    kiraStoreCode: null, // Derimod kira: elle
     rows: buildRows({
       kiraAuto: false,
-      kiraLabel: "Kira",
-      defoluAuto: false, // İndirim Kontrol Mavi'ye özel; Derimod defolu gelirse auto'ya çevir
+      kiraNote: "elle girilir",
+      defoluAuto: false,
       defoluNote: "İndirim Kontrol Mavi'ye özel — gerekirse açılır",
     }),
   },
@@ -128,9 +159,7 @@ export function getMasrafBrand(key: string): MasrafBrand {
 
 /** Tüm markaların kod→marka eşlemesi (DEFOLU route global çözümleme için). */
 export const ALL_STORE_CODES: Record<string, MasrafBrandKey> = Object.fromEntries(
-  MASRAF_BRAND_KEYS.flatMap((k) =>
-    MASRAF_BRANDS[k].stores.map((s) => [s.code, k] as const)
-  )
+  MASRAF_BRAND_KEYS.flatMap((k) => MASRAF_BRANDS[k].stores.map((s) => [s.code, k] as const))
 );
 
 function normalize(s: string): string {

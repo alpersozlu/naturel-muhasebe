@@ -5,7 +5,7 @@
 > kaydediyor) + şirket kartı "Faturalı Masraflar" (kullanıcı her ay yükler) +
 > Defolu (İndirim Kontrol programından push). Çıktı: "Mavi Masraflar" Excel.
 
-**Durum:** Faz 0-6 BİTTİ — 2026-06-19. Motor artık marka-parametrik (Mavi + Derimod). Kullanıcı: Alper.
+**Durum:** Faz 0-6 BİTTİ — 2026-06-19. **Faz 7 (19.10.2026): fatura FOTOĞRAFI otomasyonu + bordro + elle hücreler; satır düzeni sahibinin Excel'i.** Kullanıcı: Alper.
 
 ## Kaynak dosyalar (2025, örnek)
 1. **Naturel Ticaret Muhasebe 2025.xlsx** — KASADAN çıkan masraflar. 7 mağaza sayfası,
@@ -94,3 +94,46 @@ Yapılacaklar:
 Not: kasa/POS gerçek veri gelince dolacak; şu an çoğunlukla faturalı görünür.
 
 Her faz: kendi içinde build (npm run build) + preview test + commit + deploy doğrula.
+
+## FAZ 7 — Fatura fotoğrafı otomasyonu (19.10.2026, Ekim'den itibaren)
+
+Sahibi: "Ekim ayı ve itibaren bütün faturalı ve faturasız masrafları otomasyona çeviriyorum… bütün
+masraf faturalarını tek tek fotoğraf çekeceğim… sistem analiz edecek… hangi fatura şirket faturası hangi
+fatura mağaza faturası ayırt edebilecek… daha evvel mağaza tarafından yüklenmediyse şirket faturasıdır…
+7'ye böleriz… yemek = yemek + market'in yarısı; temizlik = temizlik + market'in yarısı; others =
+kategorisi bulunamayan; işçi parası → çalışma ücreti; POS gideri = %5 toplam Visa."
+
+### Kaynaklar → satır
+| Kaynak | Model | Satır | Dağıtım |
+|---|---|---|---|
+| Fatura fotoğrafı (sahibi) | `MasrafInvoice` (classification=company) | kategori (OCR+satıcı+açıklama → `categorizeExpense`) | ÷7 (toplam mağaza), market ½/½, kira → Güzelyurt |
+| Fatura fotoğrafı ↔ mağaza fişi | `MasrafInvoice` (classification=store, `matched_expense_id`) | sayılmaz (kasada zaten var) | — |
+| Kart Excel'i (eski) | `InvoicedExpenseItem` (onaylı) | kategori | ÷7 |
+| Mağaza masraf fişi | `Expense` (+ `masraf_category` düzeltmesi) | kategori+satıcı+açıklama | mağazanın kendisine |
+| Faturasız peşin ödeme | `CashAdvance` (bonus hariç, + `masraf_category`) | kategori+açıklama | mağazanın kendisine; işçi → ÇALIŞMA ÜCRETİ |
+| POS | `StoreSummary.credit_card_total_try` (kilitli günler) | POS GİDERİ | Visa × %5 |
+| Defolu | `DefoluEntry` | DEFOLU | push |
+| Bordro | `PayrollLine` (computeFromLine) | ÇALIŞMA ÜCRETİ (baz + diğer ek hak ediş), PRİM (komisyon+primler+bonus), MESAİ, TAZMİNAT (izin/çıkış ödemesi) | mağazanın kendisine |
+| Elle | `MasrafManualEntry` (marka/yıl/ay/mağaza/satır) | her satır | hücreye eklenir; 0 → silinir |
+
+### Eşleştirme (`services/masraf/invoice-match.ts`, saf; `invoices.ts` DB)
+1. Aynı dosya (SHA-256) — mağaza aynı fotoğrafı yüklediyse OCR'sız bağlanır.
+2. Basılı belge no aynı + tutar aynı.
+3. Tutar aynı (±0,02) + tarih ±3 gün + satıcı benzerliği ≥ 0,6 (`nameSimilarity`); iki tarafta da belge no var ve FARKLIYSA eşleşmez.
+Aynı faturanın ikinci fotoğrafı → `duplicate`. Yönetici kararı (`decided_by`) otomatik yeniden eşleştirmede ezilmez.
+Mağaza sonradan fiş yüklerse `process-upload` → `relinkInvoicesForExpense` şirket faturasını mağaza faturasına çevirir; ayrıca "Yeniden eşleştir" düğmesi.
+
+### Satır düzeni (brands.ts = sahibinin MAVI MASRAFLAR 2026.xlsx)
+KİRA → Kira, Kira (Stopaj/KDV) · PERSONEL → Çalışma Ücreti, Yemek, SSK, Yol, Prim, Personel Stopajı, Tazminat, Mesai ·
+DİĞER GİDERLER → Muhasebe, Terzi, Telefon/İnternet, POS Gideri, Kırtasiye, Temizlik, Seyahat, Kargo, Elektrik, Banka, Sigorta, Diğer, Defolu ·
+OFİS → Kira, Maaş, SSK, Diğer, Mazot, Sigorta. Excel'de grup başlıkları SUM formülü; GENEL TOPLAM = grupların toplamı.
+
+### Ekran (`/tr/invoiced-expense` "Masraflar")
+Dönem/marka seçici → Fatura fotoğrafları (sürükle-bırak, OCR tek tek, durum rozetleri, kategori/sınıf/ay/tutar düzeltme, mağaza kaydına elle bağlama, mükerrer, okunamayan → yeniden oku) →
+Masraf matrisi (gruplu; ay seçiliyken hücreye tıkla → elle tutar; "Kasa kalemleri" penceresi: mağaza fişleri + faturasız ödemeler satır düzeltme; kaynak rozetleri: Şirket ÷7 / Kasa / POS %5 / Defolu / Bordro / Elle) →
+Kart Excel'i (eski yöntem, katlanır).
+
+### Kalibrasyon (19.10, sahibinin Excel'i ↔ sistem)
+PRİM ve MESAİ Ağustos/Eylül dört mağazada kuruşuna tutuyor (ör. Lefkoşa Eylül prim 64.500 ↔ 64.499,31; mesai 9.605 ↔ 9.604,30).
+ÇALIŞMA ÜCRETİ: Mağusa/Güzelyurt tutuyor; Lefkoşa Excel'de ~49–53.000 ₺ FAZLA (Ağu 745.270 ↔ 692.269,63; Eyl 775.270 ↔ 726.269,63) — sahibine soruldu (bordro dışı bir kişi?). Girne Eylül Excel 560.000 ↔ sistem 559.672,44 (izin/çıkış ödemesi artık TAZMİNAT satırında).
+POS: Ekim Lefkoşa 1–18 Visa 5.742.760,24 (POS fişleriyle gün gün tutuyor) × %5 = 287.138,01.

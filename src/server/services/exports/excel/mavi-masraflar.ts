@@ -4,24 +4,36 @@ import { newWorkbook, workbookToBase64, COLORS, TRY_FORMAT } from "./_workbook";
 import type { MaviReport } from "@/server/services/masraf/mavi-report";
 
 /**
- * "Mavi Masraflar" Excel (Faz 4) — Dosya 3 formatı.
+ * "Mavi Masraflar" Excel — sahibinin "MAVI MASRAFLAR 2026.xlsx" düzeni (19.10.2026).
  *
- * Sayfa 1 "Mavi Masraflar": satır = kategori, sütun = ay × 4 mağaza
- *   (her ay altında 9400/9401/9402/9403 tekrarı) + YIL TOPLAM kolonu, alt TOPLAM satırı.
- *   Manuel kategoriler boş gelir (kullanıcı doldurur) ve hafif sarı tonla işaretlenir.
- * Sayfa 2 "Kaynak & Özet": her kategorinin yıl toplamı + faturalı/kasa/POS ayrımı + durum.
- *
- * Kaynak: docs/MASRAF-MUHASEBE-PLANI.md (Faz 4)
+ * Sayfa 1 "<yıl>": satır 1 ay adı (her mağaza sütununda tekrar), satır 2 mağaza
+ *   kodu (9400/9401/9402/9403), A sütunu kategori. Grup başlıkları (KİRA, PERSONEL,
+ *   DİĞER GİDERLER, OFİS) alt satırlarının SUM formülüdür; sahibinin dosyasıyla
+ *   birebir aynı okunur. Sonda YIL TOPLAM sütunu ve GENEL TOPLAM satırı.
+ * Sayfa 2 "Kaynak & Özet": her satırın yıl toplamı + kaynak kırılımı
+ *   (şirket faturası ÷7 / kasa / POS / defolu / bordro / elle).
  */
 
 const TITLE_FONT = { name: "Inter", size: 16, bold: true, color: { argb: COLORS.text } };
 const SUB_FONT = { name: "Inter", size: 10, color: { argb: COLORS.textMuted } };
+const SOURCE_LABEL: Record<string, string> = { invoiced: "Şirket faturası (÷7)", cash: "Kasa", pos: "POS %5", defolu: "Defolu", payroll: "Bordro", manual: "Elle" };
+
+function colLetter(col: number): string {
+  let s = "";
+  let n = col;
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
 
 function blankIfZero(n: number): number | null {
   return n === 0 ? null : Math.round(n * 100) / 100;
 }
 
-function moneyCell(ws: Worksheet, row: number, col: number, value: number | null): void {
+function moneyCell(ws: Worksheet, row: number, col: number, value: number | null | { formula: string }): void {
   const cell = ws.getRow(row).getCell(col);
   if (value !== null) {
     cell.value = value;
@@ -35,166 +47,109 @@ function moneyCell(ws: Worksheet, row: number, col: number, value: number | null
   };
 }
 
-export async function buildMaviMasraflarExcel(opts: {
-  report: MaviReport;
-}): Promise<{ base64: string; filename: string }> {
+export async function buildMaviMasraflarExcel(opts: { report: MaviReport }): Promise<{ base64: string; filename: string }> {
   const { report } = opts;
   const codes = report.storeCodes;
   const nStores = codes.length;
   const wb = newWorkbook({ title: `${report.title} ${report.year}` });
 
-  // ── Sayfa 1: matris ─────────────────────────────────────────────────────
-  const ws = wb.addWorksheet(report.title, {
-    views: [{ state: "frozen", xSplit: 1, ySplit: 5 }],
-  });
-
+  // ── Sayfa 1: sahibinin düzeni ─────────────────────────────────────────
+  const ws = wb.addWorksheet(String(report.year), { views: [{ state: "frozen", xSplit: 1, ySplit: 2 }] });
   const firstDataCol = 2; // A = kategori
-  const totalCol = firstDataCol + report.months.length * nStores; // YIL TOPLAM kolonu
-  const lastCol = totalCol;
+  const totalCol = firstDataCol + report.months.length * nStores; // YIL TOPLAM
 
-  // Satır 1: başlık
-  ws.mergeCells(1, 1, 1, Math.min(lastCol, 8));
-  const t = ws.getCell(1, 1);
-  t.value = `${report.title} — ${report.year}`;
-  t.font = TITLE_FONT;
-  ws.getRow(1).height = 26;
-
-  // Satır 2: altbaşlık + kaynak notu
-  ws.mergeCells(2, 1, 2, Math.min(lastCol, 12));
-  const s = ws.getCell(2, 1);
-  s.value = `Genel toplam ${report.grandTotal.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺  ·  kaynak: faturalı (÷${report.store_count}) + kasa + POS %5  ·  manuel kategoriler boştur, elle doldurulur`;
-  s.font = SUB_FONT;
-  ws.getRow(2).height = 16;
-
-  // Satır 4-5: başlık (ay × mağaza)
-  const headRow1 = 4;
-  const headRow2 = 5;
-
-  // A sütunu "KATEGORİ" (4-5 birleşik)
-  ws.mergeCells(headRow1, 1, headRow2, 1);
-  const catHead = ws.getCell(headRow1, 1);
-  catHead.value = "KATEGORİ";
-  catHead.font = { name: "Inter", size: 10, bold: true, color: { argb: COLORS.text } };
-  catHead.alignment = { horizontal: "left", vertical: "middle" };
-  catHead.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.primaryLight } };
-
-  // Her ay: 4 mağaza kolonu
+  // Satır 1: ay adı (her mağaza sütununda), Satır 2: mağaza kodu
   report.months.forEach((mo, i) => {
-    const start = firstDataCol + i * nStores;
-    const end = start + nStores - 1;
-    ws.mergeCells(headRow1, start, headRow1, end);
-    const mc = ws.getCell(headRow1, start);
-    mc.value = mo.label;
-    mc.font = { name: "Inter", size: 10, bold: true, color: { argb: COLORS.primary } };
-    mc.alignment = { horizontal: "center", vertical: "middle" };
-    mc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.primaryLight } };
-    mc.border = { left: { style: "thin", color: { argb: COLORS.borderLight } } };
-
     codes.forEach((code, j) => {
-      const col = start + j;
-      const hc = ws.getCell(headRow2, col);
-      hc.value = `${code} ${report.storeNames[code] ?? ""}`.trim();
-      hc.font = { name: "Inter", size: 8, bold: true, color: { argb: COLORS.textMuted } };
-      hc.alignment = { horizontal: "right", vertical: "middle", wrapText: true };
-      hc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.altRow } };
-      hc.border = {
-        bottom: { style: "thin", color: { argb: COLORS.borderLight } },
-        right: { style: "thin", color: { argb: COLORS.borderLight } },
-        left: j === 0 ? { style: "thin", color: { argb: COLORS.borderLight } } : undefined,
-      };
+      const col = firstDataCol + i * nStores + j;
+      const c1 = ws.getCell(1, col);
+      c1.value = mo.label.toLocaleUpperCase("tr");
+      c1.font = { name: "Inter", size: 9, bold: true, color: { argb: COLORS.primary } };
+      c1.alignment = { horizontal: "center", vertical: "middle" };
+      c1.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.primaryLight } };
+      c1.border = { left: j === 0 ? { style: "thin", color: { argb: COLORS.borderLight } } : undefined };
+      const c2 = ws.getCell(2, col);
+      c2.value = code;
+      c2.font = { name: "Inter", size: 9, bold: true, color: { argb: COLORS.textMuted } };
+      c2.alignment = { horizontal: "center", vertical: "middle" };
+      c2.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.altRow } };
+      c2.border = { bottom: { style: "thin", color: { argb: COLORS.borderLight } }, right: { style: "thin", color: { argb: COLORS.borderLight } } };
       ws.getColumn(col).width = 13;
     });
   });
-
-  // YIL TOPLAM kolonu (4-5 birleşik)
-  ws.mergeCells(headRow1, totalCol, headRow2, totalCol);
-  const ytHead = ws.getCell(headRow1, totalCol);
-  ytHead.value = "YIL TOPLAM";
-  ytHead.font = { name: "Inter", size: 9, bold: true, color: { argb: COLORS.text } };
-  ytHead.alignment = { horizontal: "right", vertical: "middle", wrapText: true };
-  ytHead.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.primaryLight } };
+  const yt = ws.getCell(1, totalCol);
+  yt.value = "YIL TOPLAM";
+  yt.font = { name: "Inter", size: 9, bold: true, color: { argb: COLORS.text } };
+  yt.alignment = { horizontal: "center", vertical: "middle" };
+  yt.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.primaryLight } };
+  ws.mergeCells(1, totalCol, 2, totalCol);
   ws.getColumn(totalCol).width = 15;
-  ws.getColumn(1).width = 26;
-  ws.getRow(headRow1).height = 20;
-  ws.getRow(headRow2).height = 26;
+  const a1 = ws.getCell(1, 1);
+  a1.value = report.title;
+  a1.font = { name: "Inter", size: 11, bold: true, color: { argb: COLORS.text } };
+  ws.getCell(2, 1).value = `${report.year} · ${report.storeCodes.map((c) => `${c} ${report.storeNames[c]}`).join(" · ")}`;
+  ws.getCell(2, 1).font = SUB_FONT;
+  ws.getColumn(1).width = 34;
 
-  // ── Gövde: kategori satırları ──────────────────────────────────────────
-  let row = headRow2 + 1;
-  for (const r of report.rows) {
-    const cat = ws.getRow(row).getCell(1);
-    cat.value = r.auto ? r.label : `${r.label}  (manuel)`;
-    cat.font = {
-      name: "Inter",
-      size: 10,
-      bold: r.auto,
-      color: { argb: r.auto ? COLORS.text : COLORS.textMuted },
-      italic: !r.auto,
-    };
-    cat.alignment = { horizontal: "left", vertical: "middle" };
-    cat.border = {
-      bottom: { style: "thin", color: { argb: COLORS.borderLight } },
-      right: { style: "thin", color: { argb: COLORS.borderLight } },
-    };
-    if (!r.auto) {
-      cat.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.amberLight } };
-    }
-
-    // ay × mağaza hücreleri
-    report.months.forEach((mo, i) => {
-      const start = firstDataCol + i * nStores;
-      codes.forEach((code, j) => {
-        const col = start + j;
-        const val = r.auto ? r.cells[mo.num]?.[code]?.total ?? 0 : 0;
-        moneyCell(ws, row, col, r.auto ? blankIfZero(val) : null);
-        if (!r.auto) {
-          ws.getRow(row).getCell(col).fill = {
-            type: "pattern",
-            pattern: "solid",
-            fgColor: { argb: COLORS.amberLight },
-          };
-        }
-      });
-    });
-
-    // YIL TOPLAM
-    moneyCell(ws, row, totalCol, r.auto ? blankIfZero(r.rowTotal) : null);
-    const ytc = ws.getRow(row).getCell(totalCol);
-    ytc.font = { name: "Inter", size: 9, bold: true, color: { argb: COLORS.text } };
-    if (!r.auto) {
-      ytc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.amberLight } };
+  // ── Gövde: grup başlığı (SUM formülü) + alt satırlar ─────────────────
+  let row = 3;
+  const groupRows: number[] = [];
+  for (const g of report.groups) {
+    const rows = report.rows.filter((r) => r.group === g.key);
+    const headRow = row;
+    const first = row + 1;
+    const last = row + rows.length;
+    groupRows.push(headRow);
+    const hc = ws.getRow(headRow).getCell(1);
+    hc.value = g.label;
+    hc.font = { name: "Inter", size: 10, bold: true, color: { argb: COLORS.text } };
+    hc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.primaryLight } };
+    hc.alignment = { horizontal: "left", vertical: "middle" };
+    for (let col = firstDataCol; col <= totalCol; col++) {
+      const L = colLetter(col);
+      moneyCell(ws, headRow, col, { formula: `SUM(${L}${first}:${L}${last})` });
+      const c = ws.getRow(headRow).getCell(col);
+      c.font = { name: "Inter", size: 9, bold: true, color: { argb: COLORS.text } };
+      c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.primaryLight } };
     }
     row += 1;
+    for (const r of rows) {
+      const cat = ws.getRow(row).getCell(1);
+      cat.value = `  ${r.label}`;
+      cat.font = { name: "Inter", size: 9, color: { argb: r.auto ? COLORS.text : COLORS.textMuted }, italic: !r.auto && !r.hasData };
+      cat.alignment = { horizontal: "left", vertical: "middle" };
+      cat.border = { bottom: { style: "thin", color: { argb: COLORS.borderLight } }, right: { style: "thin", color: { argb: COLORS.borderLight } } };
+      if (!r.auto && !r.hasData) cat.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.amberLight } };
+      report.months.forEach((mo, i) => {
+        codes.forEach((code, j) => {
+          const col = firstDataCol + i * nStores + j;
+          moneyCell(ws, row, col, blankIfZero(r.cells[mo.num]?.[code]?.total ?? 0));
+        });
+      });
+      const L = colLetter(firstDataCol);
+      const R = colLetter(totalCol - 1);
+      moneyCell(ws, row, totalCol, { formula: `SUM(${L}${row}:${R}${row})` });
+      ws.getRow(row).getCell(totalCol).font = { name: "Inter", size: 9, bold: true, color: { argb: COLORS.text } };
+      row += 1;
+    }
+    row += 1; // gruplar arası boşluk (sahibinin dosyasındaki gibi)
   }
 
-  // ── Alt TOPLAM satırı (sadece otomatik veriler) ────────────────────────
+  // ── GENEL TOPLAM = grup başlıklarının toplamı ───────────────────────────
   const totRow = row;
   const tc = ws.getRow(totRow).getCell(1);
-  tc.value = "TOPLAM (otomatik)";
+  tc.value = "GENEL TOPLAM";
   tc.font = { name: "Inter", size: 10, bold: true, color: { argb: COLORS.text } };
   tc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.primaryLight } };
-  tc.alignment = { horizontal: "left", vertical: "middle" };
   tc.border = { top: { style: "medium", color: { argb: COLORS.primary } } };
-
-  report.months.forEach((mo, i) => {
-    const start = firstDataCol + i * nStores;
-    codes.forEach((code, j) => {
-      const col = start + j;
-      const val = report.columnTotals[mo.num]?.[code] ?? 0;
-      moneyCell(ws, totRow, col, blankIfZero(val));
-      const cell = ws.getRow(totRow).getCell(col);
-      cell.font = { name: "Inter", size: 9, bold: true, color: { argb: COLORS.text } };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.primaryLight } };
-      cell.border = {
-        top: { style: "medium", color: { argb: COLORS.primary } },
-        right: { style: "thin", color: { argb: COLORS.borderLight } },
-      };
-    });
-  });
-  moneyCell(ws, totRow, totalCol, blankIfZero(report.autoTotal));
-  const gtc = ws.getRow(totRow).getCell(totalCol);
-  gtc.font = { name: "Inter", size: 10, bold: true, color: { argb: COLORS.primary } };
-  gtc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.primaryLight } };
-  gtc.border = { top: { style: "medium", color: { argb: COLORS.primary } } };
+  for (let col = firstDataCol; col <= totalCol; col++) {
+    const L = colLetter(col);
+    moneyCell(ws, totRow, col, { formula: groupRows.map((gr) => `${L}${gr}`).join("+") });
+    const c = ws.getRow(totRow).getCell(col);
+    c.font = { name: "Inter", size: 9, bold: true, color: { argb: col === totalCol ? COLORS.primary : COLORS.text } };
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.primaryLight } };
+    c.border = { top: { style: "medium", color: { argb: COLORS.primary } }, right: { style: "thin", color: { argb: COLORS.borderLight } } };
+  }
   ws.getRow(totRow).height = 22;
 
   // ── Sayfa 2: kaynak & özet ──────────────────────────────────────────────
@@ -204,51 +159,36 @@ export async function buildMaviMasraflarExcel(opts: {
   return { base64, filename: `${report.fileTag}_${report.year}.xlsx` };
 }
 
-/** Sayfa 2 — her kategorinin yıl toplamı + faturalı/kasa/POS ayrımı + durum. */
+/** Sayfa 2 — her satırın yıl toplamı + kaynak kırılımı + durum. */
 function buildSummarySheet(ws: Worksheet, report: MaviReport): void {
   const t = ws.getCell(1, 1);
-  t.value = `Kaynak & Özet — ${report.year}`;
+  t.value = `Kaynak & Özet — ${report.title} ${report.year}`;
   t.font = TITLE_FONT;
-  ws.mergeCells(1, 1, 1, 6);
+  ws.mergeCells(1, 1, 1, 8);
   ws.getRow(1).height = 24;
+  const sub = ws.getCell(2, 1);
+  sub.value = `Şirket faturaları ÷${report.store_count} mağazaya eşit dağıtılır · Market ½ temizlik + ½ yemek · POS = Visa %5 · Bordro: Maaşlar modülü`;
+  sub.font = SUB_FONT;
 
-  const headers = ["Kategori", "Yıl Toplam (₺)", "Faturalı", "Kasa", "POS", "Defolu", "Durum"];
-  const statusCol = headers.length; // "Durum" sütunu (1 tabanlı)
-  const headRow = 3;
+  const sources = ["invoiced", "cash", "pos", "defolu", "payroll", "manual"] as const;
+  const headers = ["Grup", "Kategori", "Yıl Toplam (₺)", ...sources.map((s) => SOURCE_LABEL[s]), "Durum"];
+  const headRow = 4;
   headers.forEach((h, i) => {
     const c = ws.getCell(headRow, i + 1);
     c.value = h;
     c.font = { name: "Inter", size: 10, bold: true, color: { argb: COLORS.text } };
     c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.primaryLight } };
-    c.alignment = {
-      horizontal: i === 0 || i === statusCol - 1 ? "left" : "right",
-      vertical: "middle",
-    };
+    c.alignment = { horizontal: i <= 1 || i === headers.length - 1 ? "left" : "right", vertical: "middle" };
   });
-  ws.getColumn(1).width = 26;
-  ws.getColumn(2).width = 16;
-  ws.getColumn(3).width = 14;
-  ws.getColumn(4).width = 14;
-  ws.getColumn(5).width = 14;
-  ws.getColumn(6).width = 14;
-  ws.getColumn(7).width = 24;
-  ws.getRow(headRow).height = 20;
+  ws.getColumn(1).width = 18;
+  ws.getColumn(2).width = 34;
+  for (let i = 3; i <= headers.length - 1; i++) ws.getColumn(i).width = 17;
+  ws.getColumn(headers.length).width = 26;
 
   let row = headRow + 1;
   for (const r of report.rows) {
-    // kaynak alt toplamları
-    let inv = 0;
-    let cash = 0;
-    let pos = 0;
-    let defolu = 0;
-    for (const byStore of Object.values(r.cells)) {
-      for (const cell of Object.values(byStore)) {
-        inv += cell.invoiced;
-        cash += cell.cash;
-        pos += cell.pos;
-        defolu += cell.defolu;
-      }
-    }
+    const acc: Record<string, number> = {};
+    for (const byStore of Object.values(r.cells)) for (const cell of Object.values(byStore)) for (const s of sources) acc[s] = (acc[s] ?? 0) + cell[s];
     const money = (col: number, val: number) => {
       const c = ws.getCell(row, col);
       if (val !== 0) {
@@ -258,34 +198,23 @@ function buildSummarySheet(ws: Worksheet, report: MaviReport): void {
       c.font = { name: "Inter", size: 10, color: { argb: COLORS.text } };
       c.alignment = { horizontal: "right", vertical: "middle" };
     };
-
-    const nameCell = ws.getCell(row, 1);
-    nameCell.value = r.label;
-    nameCell.font = { name: "Inter", size: 10, color: { argb: COLORS.text } };
-    money(2, r.rowTotal);
-    money(3, inv);
-    money(4, cash);
-    money(5, pos);
-    money(6, defolu);
-
-    const status = ws.getCell(row, statusCol);
-    status.value = r.auto ? (r.hasData ? "Otomatik" : "Otomatik — veri bekleniyor") : "Manuel bekliyor";
-    status.font = {
-      name: "Inter",
-      size: 9,
-      color: { argb: r.auto ? (r.hasData ? COLORS.emerald : COLORS.textMuted) : COLORS.amber },
-    };
-    status.alignment = { horizontal: "left", vertical: "middle" };
+    ws.getCell(row, 1).value = report.groups.find((g) => g.key === r.group)?.label ?? r.group;
+    ws.getCell(row, 1).font = { name: "Inter", size: 9, color: { argb: COLORS.textMuted } };
+    ws.getCell(row, 2).value = r.label;
+    ws.getCell(row, 2).font = { name: "Inter", size: 10, color: { argb: COLORS.text } };
+    money(3, r.rowTotal);
+    sources.forEach((s, i) => money(4 + i, acc[s] ?? 0));
+    const status = ws.getCell(row, headers.length);
+    status.value = r.hasData ? (r.auto ? "Otomatik" : "Elle girildi") : r.auto ? "Veri bekleniyor" : "Elle girilir";
+    status.font = { name: "Inter", size: 9, color: { argb: r.hasData ? COLORS.emerald : r.auto ? COLORS.textMuted : COLORS.amber } };
     row += 1;
   }
-
-  // genel toplam
-  const gt = ws.getCell(row, 1);
-  gt.value = "GENEL TOPLAM (otomatik)";
+  const gt = ws.getCell(row, 2);
+  gt.value = "GENEL TOPLAM";
   gt.font = { name: "Inter", size: 10, bold: true, color: { argb: COLORS.text } };
   gt.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLORS.primaryLight } };
-  const gtv = ws.getCell(row, 2);
-  gtv.value = report.autoTotal;
+  const gtv = ws.getCell(row, 3);
+  gtv.value = report.grandTotal;
   gtv.numFmt = TRY_FORMAT;
   gtv.font = { name: "Inter", size: 10, bold: true, color: { argb: COLORS.primary } };
   gtv.alignment = { horizontal: "right", vertical: "middle" };

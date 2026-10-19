@@ -507,25 +507,30 @@ model Expense {
   daily_record_id String
   daily_record    DailyRecord @relation(fields: [daily_record_id], references: [id])
 
-  category     ExpenseCategory
-  vendor       String?
+  category        ExpenseCategory
+  vendor          String?
   /// Fatura / fiş seri-sıra numarası (OCR, basılı). Mükerrer kontrolünde aynı
   /// satıcı+tarih+tutarlı iki faturayı ayırır (Mavi Mağusa 16.10.2026: 1418 ↔ 1419).
-  document_no  String?
-  amount       Decimal         @db.Decimal(14, 2)
-  currency     Currency        @default(TRY)
-  amount_try   Decimal         @db.Decimal(14, 2)
-  fx_rate_used Decimal?        @db.Decimal(10, 4)
-  expense_date DateTime        @db.Date
-  description  String?
-  employee_id  String?
-  employee     User?           @relation(fields: [employee_id], references: [id])
-  vat_rate     Decimal?        @db.Decimal(5, 2)
-  vat_included Boolean         @default(true)
+  document_no     String?
+  amount          Decimal         @db.Decimal(14, 2)
+  currency        Currency        @default(TRY)
+  amount_try      Decimal         @db.Decimal(14, 2)
+  fx_rate_used    Decimal?        @db.Decimal(10, 4)
+  expense_date    DateTime        @db.Date
+  description     String?
+  employee_id     String?
+  employee        User?           @relation(fields: [employee_id], references: [id])
+  vat_rate        Decimal?        @db.Decimal(5, 2)
+  vat_included    Boolean         @default(true)
+  /// Masraf muhasebesi satırı (yönetici düzeltmesi; boşsa kategori+satıcı+açıklamadan
+  /// otomatik çözülür — src/lib/masraf/categorize.ts).
+  masraf_category String?
 
   user_corrected Boolean  @default(false)
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
+
+  masraf_invoices MasrafInvoice[]
 
   @@index([daily_record_id])
   @@index([category])
@@ -550,13 +555,15 @@ model CashAdvance {
   staff_role StaffRole?
   staff_name String?
 
-  amount       Decimal         @db.Decimal(14, 2)
-  currency     Currency        @default(TRY)
-  amount_try   Decimal         @db.Decimal(14, 2)
-  fx_rate_used Decimal?        @db.Decimal(10, 4)
-  category     ExpenseCategory
-  description  String?
-  receipt_url  String? // Opsiyonel fiş
+  amount          Decimal         @db.Decimal(14, 2)
+  currency        Currency        @default(TRY)
+  amount_try      Decimal         @db.Decimal(14, 2)
+  fx_rate_used    Decimal?        @db.Decimal(10, 4)
+  category        ExpenseCategory
+  description     String?
+  receipt_url     String? // Opsiyonel fiş
+  /// Masraf muhasebesi satırı (yönetici düzeltmesi; boşsa otomatik çözülür)
+  masraf_category String?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -1043,6 +1050,84 @@ model InvoicedExpenseItem {
 
   @@index([batch_id])
   @@index([category])
+}
+
+// ─────────────────────────────────────────────────────────────
+// MASRAF FATURA FOTOĞRAFLARI (Ekim 2026'dan itibaren) — sahibi tüm masraf
+// faturalarını tek tek fotoğraflar ve Faturalı Masraf sayfasına yükler.
+// Sistem her faturayı okur (OCR), mağazanın "Yükle ve Analiz Et"te yüklediği
+// masraf kayıtlarıyla eşleştirir: eşleşen → MAĞAZA FATURASI (mağazanın
+// kasasında zaten sayılmıştır, ikinci kez sayılmaz); eşleşmeyen → ŞİRKET
+// FATURASI (kategorisinde aylık toplanır ÷7 mağazaya eşit dağıtılır).
+// Detay: docs/MASRAF-MUHASEBE-PLANI.md (Faz 7)
+
+model MasrafInvoice {
+  id              String   @id @default(uuid())
+  period_year     Int
+  period_month    Int // 1-12 — dağıtımın yapılacağı ay (belge tarihinden; yönetici değiştirebilir)
+  storage_path    String
+  mime_type       String
+  file_hash       String   @unique // SHA-256 — aynı fotoğraf ikinci kez alınmaz
+  file_size_bytes Int
+  source_name     String?
+  uploaded_by     String
+  uploaded_at     DateTime @default(now())
+
+  ocr_status String  @default("pending") // pending | done | failed
+  ocr_error  String?
+  ocr_json   Json?
+
+  vendor          String?
+  document_no     String? // basılı fatura/fiş numarası
+  expense_date    DateTime? @db.Date
+  amount_original Decimal?  @db.Decimal(14, 2)
+  currency        Currency  @default(TRY)
+  fx_rate         Decimal?  @db.Decimal(14, 5)
+  amount_try      Decimal?  @db.Decimal(14, 2)
+  vat_rate        Decimal?  @db.Decimal(5, 2)
+  description     String?
+  ocr_category    String? // ExpenseCategory (modelin tahmini)
+
+  category      String? // MasrafKategori (dağıtım satırı)
+  auto_category String? // sistemin ilk önerisi
+  needs_review  Boolean @default(false)
+  belongs_month Int? // KİRA: ait olduğu ay
+
+  /// pending | store | company | duplicate | excluded
+  classification     String    @default("pending")
+  decided_by         String? // null = otomatik karar; dolu = yönetici
+  decision_note      String?
+  matched_expense_id String?
+  matched_expense    Expense?  @relation(fields: [matched_expense_id], references: [id], onDelete: SetNull)
+  match_method       String? // file_hash | document_no | vendor_amount | manual
+  match_score        Decimal?  @db.Decimal(4, 3)
+  duplicate_of_id    String?
+  deleted_at         DateTime?
+
+  @@index([period_year, period_month])
+  @@index([classification])
+  @@index([matched_expense_id])
+  @@index([deleted_at])
+}
+
+// Masraf matrisinin elle doldurulan hücreleri (SSK, yol, elektrik ana fatura,
+// telefon/internet, kargo, banka, muhasebe, sigorta, mağaza kiraları, ofis…).
+// Otomatik kaynakların ÜSTÜNE eklenir; Excel'de aynı hücrede toplanır.
+model MasrafManualEntry {
+  id           String   @id @default(uuid())
+  brand        String // mavi | derimod
+  period_year  Int
+  period_month Int
+  store_code   String // 9400-9403 / S01-S03
+  row_key      String // MasrafRow.key
+  amount_try   Decimal  @db.Decimal(14, 2)
+  note         String?
+  updated_by   String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@unique([brand, period_year, period_month, store_code, row_key])
+  @@index([brand, period_year])
 }
 
 // ─────────────────────────────────────────────────────────────
