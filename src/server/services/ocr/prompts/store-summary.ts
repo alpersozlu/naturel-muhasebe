@@ -121,7 +121,7 @@ Eğer mağaza özet raporu İSE:
   "credit_voucher_total": "ondalık sayı veya null — SADECE Nebim/Derimod: Ödemeler tablosundaki 'Kredi Çeki' satırının en sağdaki Toplam'ı (kullanım − aynı gün düzenlenen; çoğu gün 0,00). Satır yoksa 0. IT POS/Mavi'de null.",
   "it_pos_labels": ["IT POS: AÇIKLAMA sütunu yukarıdan aşağıya, başlık hariç — Nebim'de boş dizi"],
   "it_pos_amounts": ["IT POS: TRY TUTAR sütunu yukarıdan aşağıya, başlık hariç, sayı/null — Nebim'de boş dizi"],
-  "nebim_pay_types": ["Nebim: Ödemeler tablosu, her satır 'Ödeme Tipi | Kredi Kartı Tipi Açıklaması' (örn 'Nakit | ', 'Kredi Kartı | KOOP BANK', 'Kredi Çeki | '), başlık ve Genel Toplam hariç — IT POS'ta boş dizi"],
+  "nebim_pay_types": ["Nebim: Ödemeler tablosu, her satır 'Ödeme Tipi | Kredi Kartı Tipi Açıklaması' (örn 'Nakit | ', 'Kredi Kartı | KOOP BANK', 'Kredi Çeki | ', 'Hediye Çeki | '), başlık ve Genel Toplam hariç; Hediye Çeki satırının açıklamasındaki tutarı YAZMA — IT POS'ta boş dizi"],
   "nebim_pay_totals": ["Nebim: EN SAĞDAKİ Toplam sütunu yukarıdan aşağıya, aynı satırlar — IT POS'ta boş dizi"],
   "opening_balance": "ondalık sayı veya null (Devir Bakiye)",
   "closing_balance": "ondalık sayı veya null (Kapanış Toplam)",
@@ -149,6 +149,10 @@ DOĞRU bölümün DOĞRU satırından al:
    sütunlar Miktar · Tutar (VD) · İskonto (VD) · Vergi Matrahı · Vergi · Net Tutar.
    - sales_total = "Toplam" (= "Genel Toplam") satırının **Net Tutar** hücresi.
    - "Normal" satırı iadeler DÜŞÜLMEMİŞ rakamdır → sales_total olarak ALMA.
+   - "Hediye Çeki" satırı (varsa) müşterinin kullandığı hediye çeki
+     İNDİRİMİDİR: İskonto sütununda çek tutarı, Net Tutar'da eksi yazar.
+     "Toplam" satırı onu ZATEN düşmüştür → sales_total yine Toplam'ın Net
+     Tutar'ı; Hediye Çeki satırını ayrıca ekleme/çıkarma.
    - "Tutar (VD)" liste fiyatı/brüt sütunudur (indirim düşülmemiş) → ALMA.
    - İade satırı eksi (−) yazar; Toplam = Normal + İade zaten hesaplanmıştır.
    - period_start / period_end = en alttaki "Başlangıç Tarihi = …, Bitiş
@@ -164,6 +168,13 @@ DOĞRU bölümün DOĞRU satırından al:
    - credit_card_total = bütün "Kredi Kartı" satırlarının Toplam'larının TOPLAMI.
    - credit_voucher_total = "Kredi Çeki" satırının Toplam'ı (çoğu gün 0,00 —
      kullanılan çekle aynı gün düzenlenen çek birbirini götürür). Satır yoksa 0.
+   - "Hediye Çeki" satırı (varsa, Kredi Çeki'nin altında) BİLGİ satırıdır:
+     Kredi Kartı Tipi Açıklaması sütununda "1.750,00 TL (indirim olarak
+     düşüldü)" gibi bir yazı, bütün tutar hücrelerinde 0,00 vardır. ÖDEME
+     DEĞİLDİR → cash_sales / credit_card_total / credit_voucher_total'a
+     EKLEME; açıklamadaki tutar banka adı da değildir. nebim_pay_types'a
+     'Hediye Çeki | ', nebim_pay_totals'a 0 yaz. Kredi Çeki ile karıştırma:
+     Kredi Çeki gerçek ödemedir, Hediye Çeki indirimdir.
    - SÜTUN SÜTUN YAZ (nebim_pay_types / nebim_pay_totals): iki liste AYNI
      UZUNLUKTA, satır sırası aynı, başlık ve "Genel Toplam" HARİÇ; 0,00
      hücrelerini de yaz (atlama), eksi değeri eksi yaz. Fotoğraf eğik

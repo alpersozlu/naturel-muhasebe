@@ -230,6 +230,13 @@ function solveItPosByEquation(
  * Only the Toplam column is used: a Peşinat/İade transcription alongside it
  * was measured and was the sloppy part (the Kredi Çeki row's 7.486,50 moved
  * between rows in 3 of 6 reads, while Toplam was right in all 6).
+ *
+ * "Hediye Çeki" (19.10.2026, Nebim YUKLE20): the gift voucher is a DISCOUNT,
+ * not a payment, but the store's report prints an information row under
+ * Kredi Çeki — "Hediye Çeki | 1.750,00 TL (indirim olarak düşüldü)" with every
+ * amount 0,00. Its description column holds text, so the bank test below
+ * would call it a card row; it is skipped instead, whatever total was read
+ * for it (a value lifted from the description must not move money).
  */
 export function deriveNebimPayments(
   types: string[] | undefined,
@@ -240,18 +247,19 @@ export function deriveNebimPayments(
   if (!types || !totals || salesTotal == null || types.length === 0) return null;
   if (totals.length !== types.length || totals.some((v) => v == null)) return null;
   const values = totals as number[];
-  const kinds: Array<"cash" | "card" | "voucher"> = [];
+  const kinds: Array<"cash" | "card" | "voucher" | "info"> = [];
   for (const t of types) {
     const [typePart, ...rest] = t.split("|");
     const type = norm(typePart ?? "");
     const bank = norm(rest.join(" "));
-    if (bank.length > 1 || /kredi kart/.test(type)) kinds.push("card");
+    if (/hediye cek/.test(type)) kinds.push("info");
+    else if (bank.length > 1 || /kredi kart/.test(type)) kinds.push("card");
     else if (/nakit/.test(type)) kinds.push("cash");
     else if (/kredi cek/.test(type)) kinds.push("voucher");
     else return null;
   }
   const sum = (v: number[]) => v.reduce((a, b) => a + b, 0);
-  if (Math.abs(sum(values) - salesTotal) > 1) return null;
+  if (Math.abs(sum(values.filter((_, i) => kinds[i] !== "info")) - salesTotal) > 1) return null;
   const pick = (k: (typeof kinds)[number]) =>
     Math.round(sum(values.filter((_, i) => kinds[i] === k)) * 100) / 100;
   const out = { cash_sales: pick("cash"), credit_card_total: pick("card"), credit_voucher_total: pick("voucher") };
