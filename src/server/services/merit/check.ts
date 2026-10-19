@@ -116,7 +116,8 @@ export type MeritCardView = {
    * beri): "kart var, eşleşme yok" ne demek — kişi hiç gelmemiş mi, yoksa
    * indirimsiz / notsuz mu almış? Yalnız eşleşmeyen kartlar için doldurulur.
    */
-  other: { count: number; last_date: string | null; customer_name: string | null } | null;
+  /** Eşleşmeyen kart: aynı adla Nebim'de fiş var mı (tüm tarihler). merit_count = yönetim notunda Merit yazan fişler (tarih filtresi dışında kalmış olabilir) */
+  other: { count: number; last_date: string | null; customer_name: string | null; merit_count: number; merit_last: string | null } | null;
 };
 
 export type MeritInvoiceView = {
@@ -340,11 +341,19 @@ export async function buildMeritCheck(
     for (const c of orphans) {
       const best = all.map((n) => ({ n, s: nameSimilarity(c.full_name, n) })).filter((x) => x.s >= AUTO_MATCH_MIN).sort((a, b) => b.s - a.s)[0];
       if (!best) {
-        c.other = { count: 0, last_date: null, customer_name: null };
+        c.other = { count: 0, last_date: null, customer_name: null, merit_count: 0, merit_last: null };
         continue;
       }
-      const inv = await prisma.nebimSaleLine.findMany({ where: { customer_name: best.n, is_return: false }, select: { invoice_ref: true, invoice_date: true }, distinct: ["invoice_ref"], orderBy: { invoice_date: "desc" } });
-      c.other = { count: inv.length, last_date: inv[0]?.invoice_date.toISOString().slice(0, 10) ?? null, customer_name: best.n };
+      const inv = await prisma.nebimSaleLine.findMany({ where: { customer_name: best.n, is_return: false }, select: { invoice_ref: true, invoice_date: true, mgmt_note: true, invoice_note: true, discount_reason: true, campaign: true }, orderBy: { invoice_date: "desc" } });
+      const refs = new Map<string, { date: Date; merit: boolean }>();
+      for (const l of inv) {
+        const r = refs.get(l.invoice_ref) ?? { date: l.invoice_date, merit: false };
+        if (hotelOf([l.mgmt_note, l.invoice_note, l.discount_reason, l.campaign].filter(Boolean).join(" | ")) === "Merit") r.merit = true;
+        refs.set(l.invoice_ref, r);
+      }
+      const refList = Array.from(refs.values());
+      const merit = refList.filter((r) => r.merit);
+      c.other = { count: refList.length, last_date: refList[0]?.date.toISOString().slice(0, 10) ?? null, customer_name: best.n, merit_count: merit.length, merit_last: merit[0]?.date.toISOString().slice(0, 10) ?? null };
     }
   }
 

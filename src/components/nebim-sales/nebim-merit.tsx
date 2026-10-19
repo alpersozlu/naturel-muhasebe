@@ -436,7 +436,9 @@ function CardTile({ c, onRead, onEdit, onDelete }: { c: MeritCardView; onRead: (
                 ? "eşleşme yok"
                 : c.other.count === 0
                   ? "Merit fişi yok · bu adla hiç alışveriş yok (Ocak 2026'dan beri)"
-                  : `Merit fişi yok · bu adla ${c.other.count} fiş var, Merit notu yazılmamış (son ${dmy(c.other.last_date!)})`}
+                  : c.other.merit_count > 0
+                    ? `Merit fişi var ama seçili tarih aralığının dışında (${c.other.merit_count} fiş, son ${dmy(c.other.merit_last!)}) — tarihi genişlet`
+                    : `Merit fişi yok · bu adla ${c.other.count} fiş var, Merit notu yazılmamış (son ${dmy(c.other.last_date!)})`}
           </div>
           {bad ? <div className="mt-0.5 text-amber-800">{c.ocr_error ?? "okuma bekliyor"}</div> : null}
         </div>
