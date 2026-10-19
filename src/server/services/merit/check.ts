@@ -119,6 +119,8 @@ export type MeritCardView = {
    */
   /** Eşleşmeyen kart: aynı adla Nebim'de fiş var mı (tüm tarihler). merit_count = yönetim notunda Merit yazan fişler (tarih filtresi dışında kalmış olabilir) */
   other: { count: number; last_date: string | null; customer_name: string | null; merit_count: number; merit_last: string | null } | null;
+  /** aynı kişinin fişle eşleşmiş başka bir kartı var (mükerrer yükleme) */
+  duplicate_of?: { id: string; full_name: string | null; store_name: string | null } | null;
 };
 
 export type MeritInvoiceView = {
@@ -291,6 +293,7 @@ export async function buildMeritCheck(
     url: urls.get(c.id) ?? null,
     linked: 0,
     other: null,
+    duplicate_of: null,
   }));
   const cardById = new Map(cards.map((c) => [c.id, c]));
   const reviewByRef = new Map(reviews.map((r) => [r.invoice_ref, r]));
@@ -336,6 +339,13 @@ export async function buildMeritCheck(
 
   // Eşleşmeyen kartlar: aynı adla Merit notsuz fiş var mı? (tüm Nebim)
   const orphans = cards.filter((c) => c.linked === 0 && c.is_card && c.ocr_status === "done" && c.full_name);
+  // Aynı adlı başka bir kart zaten fişle eşleştiyse bu kart mükerrerdir (yönetici + mağaza
+  // aynı kişiyi yüklemiş) — "fişi yok" değil.
+  const linkedCards = cards.filter((c) => c.linked > 0 && c.full_name);
+  for (const c of orphans) {
+    const twin = linkedCards.find((l) => nameSimilarity(c.full_name, l.full_name) >= AUTO_MATCH_MIN);
+    if (twin) c.duplicate_of = { id: twin.id, full_name: twin.full_name, store_name: twin.store_name };
+  }
   if (orphans.length > 0) {
     const names = await prisma.nebimSaleLine.findMany({ where: { customer_name: { not: null } }, distinct: ["customer_name"], select: { customer_name: true } });
     const all = names.map((n) => n.customer_name!);

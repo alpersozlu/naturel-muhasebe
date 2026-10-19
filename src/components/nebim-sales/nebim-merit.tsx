@@ -461,6 +461,8 @@ function CardTile({ c, onRead, onEdit, onDelete }: { c: MeritCardView; onRead: (
           <div className={cn("mt-0.5", c.linked ? "text-emerald-700" : "text-muted-foreground")}>
             {c.linked
               ? `${c.linked} fişle eşleşti`
+              : c.duplicate_of
+                ? `Mükerrer kart — aynı kişinin ${c.duplicate_of.store_name ? `${c.duplicate_of.store_name} yüklemesi` : "diğer kartı"} fişle eşleşti; bu kopya kaldırılabilir`
               : c.other == null
                 ? "eşleşme yok"
                 : c.other.count === 0
