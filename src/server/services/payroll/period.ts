@@ -382,6 +382,19 @@ export async function ensureLines(prisma: PrismaClient, periodId: string): Promi
     )
   );
   const missing = employees.filter((e) => !existing.has(e.id));
+  // Ayrılmış personelin, ayrılış ayından SONRAKİ dönemlerde boş kalan satırı
+  // (kayıt yok) kaldırılır — sahibi 20.10.2026: "eski çalışanları kaldır,
+  // görünmesin" (Şenol Erdoğan 31.08 ayrıldı, Ekim'de 70.893 bekliyor görünüyordu).
+  // Kaydı olan satıra dokunulmaz (ödeme / kesinti izi).
+  if (period.status === "open") {
+    await prisma.payrollLine.deleteMany({
+      where: {
+        period_id: periodId,
+        entries: { none: {} },
+        employee: { status: "left", OR: [{ end_date: null }, { end_date: { lt: periodStart } }] },
+      },
+    });
+  }
   if (missing.length > 0) {
     await prisma.payrollLine.createMany({
       data: missing.map((e) => ({
