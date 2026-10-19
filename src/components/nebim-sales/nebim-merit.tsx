@@ -155,7 +155,7 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
               Merit %10 Kontrolü
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Üç kontrol: yönetim notunda &quot;%10 + otel&quot; yazılı mı (sahibi işler) · fişte ek %10 gerçekten uygulanmış mı (dip iskonto) · fişteki ad
+              Üç kontrol: yönetim notunda otel adı (&quot;merit&quot;) yazılı mı (sahibi işler) · fişte ek %10 gerçekten uygulanmış mı (dip iskonto) · fişteki ad
               mağazanın çektiği personel kartıyla tutuyor mu. Kart zorunlu: Girne baştan beri · Lefkoşa 08.10.2026'dan itibaren.
             </p>
           </div>
@@ -380,7 +380,7 @@ function InvoiceRow({ inv, onPick, onAccept, onReject, onClear }: { inv: MeritIn
         )}
       </div>
       <div className="flex w-44 shrink-0 flex-col gap-0.5 text-[11px]">
-        <Check ok={inv.note_ok} label={inv.note_ok ? "Yönetim notu %10 + otel" : inv.mgmt_note ? `Not: "${inv.mgmt_note.slice(0, 22)}"` : "Yönetim notu yok"} />
+        <Check ok={inv.note_ok} label={inv.note_ok ? "Yönetim notu: Merit" : inv.mgmt_note ? `Not: "${inv.mgmt_note.slice(0, 22)}"` : "Yönetim notu yok"} />
         <Check ok={inv.extra_ok} label={`Ek indirim ${pct(inv.extra_rate)}${inv.extra_ok ? "" : " — %10 değil"}`} warn={!inv.extra_ok} />
         <StatusBadge s={inv.status} />
       </div>

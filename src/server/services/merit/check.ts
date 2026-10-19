@@ -44,9 +44,10 @@ export function isExtraOk(rate: number | null): boolean {
   return rate != null && rate >= EXTRA_OK_RANGE[0] && rate <= EXTRA_OK_RANGE[1];
 }
 /** Yönetim notu (sahibi yazar) hem "10" hem otel adı içeriyor mu. */
+/** Yönetim notunda otel adı geçmesi yeter (sahibi, 19.10.2026: "merit yazması yeter"; önce "%10" da aranıyordu). */
 export function noteApproves(mgmtNote: string | null | undefined): boolean {
   if (!mgmtNote) return false;
-  return !!hotelOf(mgmtNote) && /10/.test(mgmtNote);
+  return !!hotelOf(mgmtNote);
 }
 
 export function meritRuleApplies(storeCode: string | null, dateIso: string): boolean {
@@ -137,7 +138,7 @@ export type MeritInvoiceView = {
   note: string | null; // merit geçen not (yönetim / fiş)
   /** yönetim notu (sahibi yazar) — "%10 Merit" */
   mgmt_note: string | null;
-  /** yönetim notunda %10 + otel adı var (sahibinin onayı) */
+  /** yönetim notunda otel adı var (sahibinin onayı; 'merit' yazması yeter) */
   note_ok: boolean;
   /** ek indirim oranı = Σ dip iskonto ÷ Σ (fiyat×adet − satır iskontosu); null = hesaplanamadı */
   extra_rate: number | null;

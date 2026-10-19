@@ -77,10 +77,11 @@ describe("ek %10 ve yönetim notu", () => {
     expect(extraRateOf(0, 0)).toBeNull();
     expect(isExtraOk(0.0987)).toBe(true); // Zekeriya 17.09 — blink dahil küsurat
   });
-  it("yönetim notu: %10 + otel adı birlikte", () => {
+  it("yönetim notu: otel adı yeter (sahibi 19.10.2026: 'merit yazması yeter')", () => {
     expect(noteApproves("%10 Merit")).toBe(true);
     expect(noteApproves("merıt %10")).toBe(true);
-    expect(noteApproves("merit peronel")).toBe(false); // 10 yok
+    expect(noteApproves("merit peronel")).toBe(true);
+    expect(noteApproves("mrt")).toBe(true);
     expect(noteApproves("%10 arkadas indirimi")).toBe(false); // otel yok
     expect(noteApproves(null)).toBe(false);
   });

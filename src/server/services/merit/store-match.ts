@@ -1,7 +1,7 @@
 /**
  * Mağaza tarafı doğrulama (Yükle ve Analiz Et › Otel Anlaşması): mağaza bir
  * personel kartı yükledikten sonra, NEBİM'de o adla kesilmiş fiş var mı; sahibi
- * yönetim notuna "%10 + otel" yazmış mı; fişte gerçekten EK %10 (dip iskonto)
+ * yönetim notuna otel adını ("merit") yazmış mı; fişte gerçekten EK %10 (dip iskonto)
  * uygulanmış mı? Köprü saatlik çalışır; satıştan hemen sonra "henüz fiş yok"
  * normaldir. Yönetim notunu sahibi sonradan işler — "onay bekliyor" da normaldir.
  */
@@ -18,7 +18,7 @@ export type StoreMatchInvoice = {
   /** yönetim notu (sahibi yazar) */
   mgmt_note: string | null;
   hotel: string | null;
-  /** yönetim notunda %10 + otel adı var */
+  /** yönetim notunda otel adı var ('merit' yeter) */
   note_ok: boolean;
   /** ek indirim oranı (dip iskonto ÷ kampanya sonrası tutar), null = hesaplanamadı */
   extra_rate: number | null;
