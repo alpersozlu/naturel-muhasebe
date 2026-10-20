@@ -59,6 +59,11 @@ describe("anlaşmalı kurum tanıma (yönetim notu)", () => {
   });
   it("diğer kurumlar ve ilgisiz notlar", () => {
     expect(hotelOf("CRATOS PERSONEL")).toBe("Cratos");
+    expect(hotelOf("CRATTOS %10 INDIRIM")).toBe("Cratos");
+    expect(hotelOf("Les %10 indirim")).toBe("Les Ambassadeurs");
+    expect(hotelOf("les ambassadeurs personeli")).toBe("Les Ambassadeurs");
+    expect(hotelOf("lords palance")).toBe("Lord's Palace");
+    expect(hotelOf("outlet 3lü 3900")).toBeNull();
     expect(hotelOf("lORDS %10")).toBe("Lord's Palace");
     expect(hotelOf("Tip-is yetkilisi %10 indirim")).toBe("Tip-İş");
     expect(hotelOf("tıp ıs")).toBe("Tip-İş");

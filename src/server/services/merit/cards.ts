@@ -137,7 +137,7 @@ export const meritCardOcrSchema = z.object({
 });
 export type MeritCardOcr = z.infer<typeof meritCardOcrSchema>;
 
-const SYSTEM = `Sen bir otel / kurum personel kimlik kartı okuyucususun. Fotoğrafta Kuzey Kıbrıs'taki anlaşmalı otel ve kurumların (Merit Park, Merit Royal, Merit Crystal Cove, Merit Cyprus Gardens, Cratos Premium, Lord's Palace, Acapulco, Elexus, Kaya Palazzo, Concorde, Chamada, Tip-İş…) "PERSONEL KİMLİK KARTI / PERSONAL ID CARD / STAFF CARD" kartı olabilir. Yalnız JSON döndür, başka metin yazma.`;
+const SYSTEM = `Sen bir otel / kurum personel kimlik kartı okuyucususun. Fotoğrafta Kuzey Kıbrıs'taki anlaşmalı otel ve kurumların (Merit Park, Merit Royal, Merit Crystal Cove, Merit Cyprus Gardens, Cratos Premium, Lord's Palace, Acapulco, Elexus, Kaya Palazzo, Concorde, Chamada, Tip-İş…) "PERSONEL KİMLİK KARTI / PERSONAL ID CARD / STAFF CARD" kartı olabilir. Cratos'un kartı farklıdır: üstte CRATOS + DERİMOD logosu, "DERIMOD %10 İNDİRİM KARTI" başlığı, "AD SOYAD: …", "DEPARTMAN: …" satırları ve İnsan Kaynakları kaşesi — sicil numarası yoktur; bu da geçerli bir personel kartıdır (is_card=true, hotel="Cratos"). Yalnız JSON döndür, başka metin yazma.`;
 
 const USER = `Bu fotoğrafı oku ve şu JSON'u döndür:
 {

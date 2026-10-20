@@ -76,8 +76,10 @@ export function meritStatus(input: {
  */
 export const HOTEL_PATTERNS: Array<{ hotel: string; re: RegExp; needles: string[] }> = [
   { hotel: "Merit", re: /m\s*e\s*r\s*[iı]\s*t|\bmrt\b/i, needles: ["merit", "merıt", "mrt"] },
-  { hotel: "Cratos", re: /cratos/i, needles: ["cratos"] },
+  { hotel: "Cratos", re: /crat+os/i, needles: ["cratos", "crattos"] },
   { hotel: "Lord's Palace", re: /lord/i, needles: ["lord"] },
+  // Les Ambassadeurs (Girne) — notta "Les %10" ya da "ambassadeur" (20.10.2026, personel listesi geldi)
+  { hotel: "Les Ambassadeurs", re: /ambas+ad|(^|[^a-zçğıöşü])les([^a-zçğıöşü]|$)/i, needles: ["ambassad", "ambasad", "les "] },
   { hotel: "Acapulco", re: /acapulco/i, needles: ["acapulco"] },
   { hotel: "Tip-İş", re: /t[iı]p[- ]?[iı][sş]/i, needles: ["tip-is", "tip is", "tıp ıs", "tip-iş", "tipis"] },
 ];
