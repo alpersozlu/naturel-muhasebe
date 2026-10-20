@@ -182,7 +182,7 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
               Otel Anlaşması %10 Kontrolü
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Anlaşmalı kurumlar: Merit, Cratos, Lord&apos;s Palace, Acapulco, Tip-İş. Üç kontrol: yönetim notunda kurum adı yazılı mı (sahibi işler) · fişte ek %10 gerçekten
+              Anlaşmalı kurumlar: Merit, Cratos, Lord&apos;s Palace, Les Ambassadeurs, Acapulco (Tip-İş kart programı dışı, burada yok). Üç kontrol: yönetim notunda kurum adı yazılı mı (sahibi işler) · fişte ek %10 gerçekten
               uygulanmış mı (dip iskonto) · fişteki ad mağazanın çektiği personel kartıyla tutuyor mu. Kart zorunlu: Girne baştan beri · Lefkoşa 08.10.2026&apos;dan itibaren.
             </p>
             <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">

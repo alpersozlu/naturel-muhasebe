@@ -84,6 +84,8 @@ export const HOTEL_PATTERNS: Array<{ hotel: string; re: RegExp; needles: string[
   { hotel: "Tip-İş", re: /t[iı]p[- ]?[iı][sş]/i, needles: ["tip-is", "tip is", "tıp ıs", "tip-iş", "tipis"] },
 ];
 const NOTE_FIELDS = ["mgmt_note", "invoice_note", "discount_reason", "campaign"] as const;
+/** Kart programı olmayan anlaşmalı kurumlar — Otel %10 kontrolünde listelenmez (sahibi 20.10.2026: "Tip-İş'leri çıkar"). */
+export const NO_CARD_PROGRAMS = new Set<string>(["Tip-İş"]);
 
 export function hotelOf(text: string): string | null {
   const t = text.toLocaleLowerCase("tr");
@@ -228,6 +230,7 @@ export async function buildMeritCheck(
       const noteText = [l.mgmt_note, l.invoice_note, l.discount_reason, l.campaign].filter(Boolean).join(" | ");
       const hotel = hotelOf(noteText);
       if (!hotel) continue; // satır başka nedenle gelmiş olabilir (kampanya adı vb.)
+      if (NO_CARD_PROGRAMS.has(hotel)) continue; // Tip-İş: kart programı yok, bu kontrolün dışında (sahibi 20.10.2026)
       const merit = [l.mgmt_note, l.invoice_note, l.discount_reason].find((n) => n && hotelOf(n)) ?? null;
       inv = {
         invoice_ref: l.invoice_ref,
