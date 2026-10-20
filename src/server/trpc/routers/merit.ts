@@ -9,6 +9,7 @@ import { buildMeritCheck } from "@/server/services/merit/check";
 import { normalizeName, ocrMeritCard, photoDateFromName } from "@/server/services/merit/cards";
 import { assertCanAccessStore, getAccessibleStoreIds, isAdmin } from "@/lib/auth/permissions";
 import { matchCardToSales } from "@/server/services/merit/store-match";
+import { parseStaffXlsx, replaceStaffList, STAFF_LIST_HOTELS } from "@/server/services/merit/staff";
 import { createSignedReadUrl } from "@/server/services/storage";
 
 /**
@@ -21,6 +22,7 @@ import { createSignedReadUrl } from "@/server/services/storage";
 const cardAudited = withAudit("MeritCard");
 const reviewAudited = withAudit("MeritInvoiceReview");
 const storeCardAudited = withAuditProtected("MeritCard");
+const staffAudited = withAudit("HotelStaff");
 
 const MIME = z.enum(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
 const EXT: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic", "image/heif": "heif" };
@@ -95,6 +97,32 @@ async function applyOcr(prisma: Parameters<typeof buildMeritCheck>[0], id: strin
 }
 
 export const meritRouter = router({
+  // ── Personel listeleri (kart yerine liste; sahibi 20.10.2026) ────────────────
+  /** Kurumun personel listesini yükle (.xlsx: tek sütun "ADI SOYADI" ya da "Adı | Soyadı"). Eski liste değişir. */
+  staffUpload: staffAudited
+    .input(z.object({ hotel: z.enum(STAFF_LIST_HOTELS), file_name: z.string().max(200), base64: z.string().min(16).max(12_000_000) }))
+    .mutation(async ({ ctx, input }) => {
+      let names: string[];
+      try {
+        names = await parseStaffXlsx(Buffer.from(input.base64, "base64"));
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Excel okunamadı (.xlsx olmalı; eski .xls ise Excel'de 'Farklı kaydet' → .xlsx): ${e instanceof Error ? e.message : ""}` });
+      }
+      if (names.length < 3) throw new TRPCError({ code: "BAD_REQUEST", message: "Listede isim bulunamadı. İlk sayfa, A sütunu 'ADI SOYADI' ya da A/B 'Adı | Soyadı' olmalı." });
+      const count = await replaceStaffList(ctx.prisma, input.hotel, names, ctx.user.id, input.file_name);
+      return { id: input.hotel, hotel: input.hotel, count };
+    }),
+  /** Kurumun listesini kaldır. */
+  staffDelete: staffAudited.input(z.object({ hotel: z.enum(STAFF_LIST_HOTELS) })).mutation(async ({ ctx, input }) => {
+    const r = await ctx.prisma.hotelStaff.updateMany({ where: { hotel: input.hotel, deleted_at: null }, data: { deleted_at: new Date() } });
+    return { id: input.hotel, removed: r.count };
+  }),
+  /** Listedeki adlar (arama). */
+  staffNames: adminProcedure.input(z.object({ hotel: z.enum(STAFF_LIST_HOTELS), q: z.string().max(80).optional() })).query(async ({ ctx, input }) => {
+    const rows = await ctx.prisma.hotelStaff.findMany({ where: { hotel: input.hotel, deleted_at: null, ...(input.q ? { full_name: { contains: input.q, mode: "insensitive" } } : {}) }, select: { full_name: true }, orderBy: { full_name: "asc" }, take: 50 });
+    return rows.map((r) => r.full_name);
+  }),
+
   /** Fişler + kartlar + durumlar. Mağaza yetkisi: admin hepsi, diğerleri erişebildiği mağazalar. */
   check: adminProcedure.input(filterSchema).query(async ({ ctx, input }) => {
     let storeIds: string[] | null = null;

@@ -50,6 +50,10 @@ describe("Merit %10 — kart zorunluluğu ve durum", () => {
     expect(meritStatus({ decision: null, autoScore: 0.9, required: true })).toBe("ok_card");
     expect(meritStatus({ decision: null, autoScore: 0.5, required: true })).toBe("missing");
     expect(meritStatus({ decision: null, autoScore: 0.5, required: false })).toBe("not_required");
+    // personel listesi (20.10.2026): listede ad tutuyorsa kart aranmaz
+    expect(meritStatus({ decision: null, autoScore: 0.5, required: true, listScore: 0.85 })).toBe("ok_list");
+    expect(meritStatus({ decision: null, autoScore: 0.9, required: true, listScore: 0.85 })).toBe("ok_card");
+    expect(meritStatus({ decision: "rejected", autoScore: 0, required: true, listScore: 1 })).toBe("rejected");
   });
 });
 

@@ -14,6 +14,7 @@
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createSignedReadUrl } from "@/server/services/storage";
+import { loadStaffIndex, matchStaff } from "./staff";
 import { nameSimilarity } from "./cards";
 
 /** NEBİM mağaza kodu → kartın zorunlu olduğu ilk gün */
@@ -24,7 +25,7 @@ export const MERIT_RULE_START: Record<string, string> = {
 export const AUTO_MATCH_MIN = 0.8;
 export const SUGGEST_MIN = 0.4;
 
-export type MeritStatus = "ok_card" | "ok_no_card" | "missing" | "not_required" | "rejected";
+export type MeritStatus = "ok_card" | "ok_list" | "ok_no_card" | "missing" | "not_required" | "rejected";
 
 /**
  * EK %10 nasıl görünür (09.10.2026, ham satırlardan): kampanya indirimi satır
@@ -60,11 +61,14 @@ export function meritStatus(input: {
   decision: "card" | "no_card_ok" | "rejected" | null;
   autoScore: number;
   required: boolean;
+  /** kurumun personel listesinde ad eşleşmesi (0–1); liste yoksa 0 */
+  listScore?: number;
 }): MeritStatus {
   if (input.decision === "card") return "ok_card";
   if (input.decision === "no_card_ok") return "ok_no_card";
   if (input.decision === "rejected") return "rejected";
   if (input.autoScore >= AUTO_MATCH_MIN) return "ok_card";
+  if ((input.listScore ?? 0) >= AUTO_MATCH_MIN) return "ok_list"; // sahibi 20.10.2026: listedeki isimle tutması yeter
   return input.required ? "missing" : "not_required";
 }
 
@@ -154,6 +158,8 @@ export type MeritInvoiceView = {
   status: MeritStatus;
   match: "manual" | "auto" | null;
   card: { id: string; full_name: string | null; id_no: string | null; company: string | null; url: string | null; score: number | null } | null;
+  /** kurumun personel listesinde eşleşen ad (kart yerine geçer) */
+  list_match: { full_name: string; score: number } | null;
   suggestions: Array<{ id: string; full_name: string | null; id_no: string | null; score: number }>;
   review_note: string | null;
 };
@@ -168,6 +174,8 @@ export type MeritCheck = {
     extra_mismatch: number;
     note_incomplete: number;
     with_card: number;
+    /** personel listesiyle onaylı */
+    with_list: number;
     missing: number;
     not_required: number;
     accepted_no_card: number;
@@ -178,6 +186,8 @@ export type MeritCheck = {
   invoices: MeritInvoiceView[];
   cards: MeritCardView[];
   rule: Array<{ store_code: string; start: string }>;
+  /** yüklü personel listeleri: kurum → kişi sayısı */
+  staff_lists: Array<{ hotel: string; count: number; uploaded_at: string | null; source_name: string | null }>;
 };
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -194,7 +204,7 @@ export async function buildMeritCheck(
   if (filter.date_to) dateFilter.lte = new Date(`${filter.date_to}T00:00:00.000Z`);
   if (dateFilter.gte || dateFilter.lte) where.invoice_date = dateFilter;
 
-  const [lines, cardsRaw, reviews] = await Promise.all([
+  const [lines, cardsRaw, reviews, staffIndex, staffMeta] = await Promise.all([
     prisma.nebimSaleLine.findMany({
       where,
       select: {
@@ -220,6 +230,8 @@ export async function buildMeritCheck(
     }),
     prisma.meritCard.findMany({ where: { deleted_at: null }, orderBy: { uploaded_at: "desc" }, include: { store: { select: { name: true } } } }),
     prisma.meritInvoiceReview.findMany(),
+    loadStaffIndex(prisma),
+    prisma.hotelStaff.groupBy({ by: ["hotel"], where: { deleted_at: null }, _count: { _all: true }, _max: { uploaded_at: true, source_name: true } }),
   ]);
 
   // fiş bazında topla
@@ -254,6 +266,7 @@ export async function buildMeritCheck(
         status: "not_required",
         match: null,
         card: null,
+        list_match: null,
         suggestions: [],
         review_note: null,
         _base: 0,
@@ -324,7 +337,8 @@ export async function buildMeritCheck(
       .sort((a, b) => b.s - a.s);
     const best = scored[0] ?? null;
     const decision = (review?.decision as "card" | "no_card_ok" | "rejected" | undefined) ?? null;
-    v.status = meritStatus({ decision, autoScore: best?.s ?? 0, required: v.required });
+    v.list_match = matchStaff(staffIndex, v.hotel, v.customer_name);
+    v.status = meritStatus({ decision, autoScore: best?.s ?? 0, required: v.required, listScore: v.list_match?.score ?? 0 });
     if (decision === "card" && review?.card_id && cardById.has(review.card_id)) {
       const c = cardById.get(review.card_id)!;
       v.match = "manual";
@@ -332,7 +346,7 @@ export async function buildMeritCheck(
       c.linked += 1;
     } else if (decision === "card") {
       // kart silinmiş — karar geçersiz
-      v.status = meritStatus({ decision: null, autoScore: best?.s ?? 0, required: v.required });
+      v.status = meritStatus({ decision: null, autoScore: best?.s ?? 0, required: v.required, listScore: v.list_match?.score ?? 0 });
     }
     if (!v.card && v.status === "ok_card" && best) {
       v.match = "auto";
@@ -383,6 +397,7 @@ export async function buildMeritCheck(
     extra_mismatch: meritInv.filter((i) => !i.extra_ok).length,
     note_incomplete: meritInv.filter((i) => !i.note_ok).length,
     with_card: invoices.filter((i) => i.status === "ok_card").length,
+    with_list: invoices.filter((i) => i.status === "ok_list").length,
     missing: invoices.filter((i) => i.status === "missing").length,
     not_required: meritInv.filter((i) => i.status === "not_required").length,
     accepted_no_card: invoices.filter((i) => i.status === "ok_no_card").length,
@@ -395,5 +410,6 @@ export async function buildMeritCheck(
     invoices,
     cards,
     rule: Object.entries(MERIT_RULE_START).map(([store_code, start]) => ({ store_code, start })),
+    staff_lists: staffMeta.map((s) => ({ hotel: s.hotel, count: s._count._all, uploaded_at: s._max.uploaded_at?.toISOString() ?? null, source_name: s._max.source_name ?? null })),
   };
 }

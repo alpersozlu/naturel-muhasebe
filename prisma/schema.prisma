@@ -1552,6 +1552,23 @@ model DealerDailyRep {
 /// kartın fotoğrafını çeker. Bu tablo o fotoğrafları ve OCR'dan okunan
 /// ad / sicil / kurum bilgisini tutar; "Merit %10 Kontrolü" fişleri bu
 /// kartlarla eşler (09.10.2026). Fotoğraf `uploads` bucket'ında merit-cards/… altında.
+// Anlaşmalı kurum PERSONEL LİSTESİ (sahibi, 20.10.2026: "Lord's ve Les'in listesi var,
+// kart yüklemelerine gerek yok; listedeki isimle alışveriş yapanın ismi tutsun yeter").
+// Kurum bazında yüklenir; fişteki müşteri adı listeyle eşleşirse kart aranmaz ("Listede").
+model HotelStaff {
+  id          String    @id @default(uuid())
+  hotel       String // "Lord's Palace" | "Les Ambassadeurs" | "Cratos" | "Merit" | "Acapulco"
+  full_name   String
+  name_key    String // normalize ad (aksansız, büyük, tek boşluk)
+  source_name String?
+  uploaded_by String?
+  uploaded_at DateTime  @default(now())
+  deleted_at  DateTime?
+
+  @@index([hotel, deleted_at])
+  @@index([name_key])
+}
+
 model MeritCard {
   id           String    @id @default(uuid())
   hotel        String    @default("Merit")

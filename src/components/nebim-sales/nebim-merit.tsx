@@ -9,6 +9,7 @@ import {
   ChevronRight,
   IdCard,
   ImageOff,
+  ListChecks,
   Loader2,
   RotateCcw,
   ScanLine,
@@ -42,11 +43,13 @@ const dmy = (iso: string) => iso.slice(0, 10).split("-").reverse().join(".");
 const STATUS: Record<MeritStatus, { label: string; cls: string; icon: React.ReactNode }> = {
   missing: { label: "Kart yok", cls: "bg-rose-50 text-rose-800 ring-rose-200", icon: <ShieldAlert className="h-3.5 w-3.5" /> },
   ok_card: { label: "Kart var", cls: "bg-emerald-50 text-emerald-800 ring-emerald-200", icon: <BadgeCheck className="h-3.5 w-3.5" /> },
+  ok_list: { label: "Listede", cls: "bg-emerald-50 text-emerald-800 ring-emerald-200", icon: <ListChecks className="h-3.5 w-3.5" /> },
   ok_no_card: { label: "Kartsız kabul", cls: "bg-sky-50 text-sky-800 ring-sky-200", icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
   rejected: { label: "Reddedildi", cls: "bg-slate-100 text-slate-700 ring-slate-200", icon: <XCircle className="h-3.5 w-3.5" /> },
   not_required: { label: "Kart aranmaz", cls: "bg-muted text-muted-foreground ring-border", icon: null },
 };
-const ORDER: Record<MeritStatus, number> = { missing: 0, rejected: 1, ok_no_card: 2, ok_card: 3, not_required: 4 };
+const ORDER: Record<MeritStatus, number> = { missing: 0, rejected: 1, ok_no_card: 2, ok_card: 3, ok_list: 3, not_required: 4 };
+const APPROVED = (i: MeritInvoiceView) => (i.status === "ok_card" && !!i.card) || i.status === "ok_list";
 
 const pct = (r: number | null) => (r == null ? "—" : `%${(r * 100).toFixed(1).replace(".", ",")}`);
 
@@ -121,8 +124,8 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
     if (!data) return empty;
     const byDate = (a: MeritInvoiceView, b: MeritInvoiceView) => b.invoice_date.localeCompare(a.invoice_date);
     const merit = data.invoices; // tüm anlaşmalı kurumlar
-    const matched = merit.filter((i) => i.status === "ok_card" && i.card).sort(byDate);
-    const noCard = merit.filter((i) => !(i.status === "ok_card" && i.card)).sort((a, b) => ORDER[a.status] - ORDER[b.status] || byDate(a, b));
+    const matched = merit.filter(APPROVED).sort(byDate);
+    const noCard = merit.filter((i) => !APPROVED(i)).sort((a, b) => ORDER[a.status] - ORDER[b.status] || byDate(a, b));
     const usable = data.cards.filter((c) => c.is_card && c.ocr_status === "done" && !!c.full_name);
     const cardsNoInvoice = usable.filter((c) => c.linked === 0).sort((a, b) => (b.photo_date ?? b.uploaded_at).localeCompare(a.photo_date ?? a.uploaded_at));
     const badCards = data.cards.filter((c) => !(c.is_card && c.ocr_status === "done" && !!c.full_name));
@@ -202,7 +205,7 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
         {/* KPI */}
         <div className="grid grid-cols-2 gap-px border-b bg-border sm:grid-cols-3 lg:grid-cols-6">
           <Kpi label="Anlaşmalı fiş" value={String(k.invoices)} sub={`${money(k.total)} ₺ · ${Object.entries(k.other_hotels).map(([h, n]) => `${h} ${n}`).join(" · ")}`} />
-          <Kpi label="Kartı var · fişi var" value={String(groups.matched.length)} tone="text-emerald-700" sub={`${money(sum(groups.matched))} ₺`} />
+          <Kpi label="Kart / liste ile onaylı" value={String(groups.matched.length)} tone="text-emerald-700" sub={`${money(sum(groups.matched))} ₺ · kart ${k.with_card} · liste ${k.with_list}`} />
           <Kpi label="Kartı var · fişi yok" value={String(groups.cardsNoInvoice.length)} tone={groups.cardsNoInvoice.length ? "text-amber-700" : "text-emerald-700"} sub="kart yüklü, Merit fişi yok" />
           <Kpi label="Fişi var · kartı yok" value={String(groups.invoicesNoCard.length)} tone={missingCount ? "text-rose-700" : "text-emerald-700"} sub={missingCount ? `${missingCount} tanesi kontrol edilmeli` : "hepsi karara bağlı"} />
           <Kpi label="Ek %10 değil" value={String(k.extra_mismatch)} tone={k.extra_mismatch ? "text-amber-700" : "text-emerald-700"} sub={k.note_incomplete ? `${k.note_incomplete} fişte yönetim notu eksik` : "dip iskonto ≈ %10"} />
@@ -212,9 +215,9 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
         {/* 1) Kartı var + fişi var */}
         <Section
           tone="emerald"
-          title="1 · Kartı var, fişi var — onaylı"
+          title="1 · Kartı var ya da listede, fişi var — onaylı"
           count={groups.matched.length}
-          sub={`${money(sum(groups.matched))} ₺ satış · fişteki ad karttaki adla tutuyor`}
+          sub={`${money(sum(groups.matched))} ₺ satış · fişteki ad karttaki adla ya da kurumun personel listesiyle tutuyor`}
         >
           {groups.matched.length === 0 ? <Empty text="Henüz kartla eşleşmiş Merit fişi yok." /> : <ul className="divide-y">{groups.matched.map((inv) => <InvoiceRow key={inv.invoice_ref} {...rowProps(inv)} />)}</ul>}
         </Section>
@@ -246,6 +249,9 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
           {groups.invoicesNoCard.length === 0 ? <Empty text="Kartsız Merit fişi yok." /> : <ul className="divide-y">{groups.invoicesNoCard.map((inv) => <InvoiceRow key={inv.invoice_ref} {...rowProps(inv)} />)}</ul>}
         </Section>
 
+
+        {/* Personel listeleri */}
+        <StaffListsPanel lists={data.staff_lists} onChanged={refresh} />
 
         {/* Eşleşmiş kartlar (küçük) */}
         <div className="border-t px-5 py-3 text-xs text-muted-foreground">
@@ -305,6 +311,65 @@ function Section({ tone, title, count, sub, children }: { tone: keyof typeof SEC
 
 function Empty({ text }: { text: string }) {
   return <div className="px-5 py-6 text-center text-sm text-muted-foreground">{text}</div>;
+}
+
+const STAFF_HOTELS = ["Lord's Palace", "Les Ambassadeurs", "Cratos", "Merit", "Acapulco"] as const;
+
+function StaffListsPanel({ lists, onChanged }: { lists: Array<{ hotel: string; count: number; uploaded_at: string | null; source_name: string | null }>; onChanged: () => void }) {
+  const confirm = useConfirm();
+  const [hotel, setHotel] = useState<(typeof STAFF_HOTELS)[number]>("Lord's Palace");
+  const input = useRef<HTMLInputElement>(null);
+  const upload = trpc.merit.staffUpload.useMutation({ onSuccess: (r) => { toast.success(`${r.hotel}: ${r.count} kişi yüklendi`); onChanged(); }, onError: (e) => toast.error(e.message) });
+  const del = trpc.merit.staffDelete.useMutation({ onSuccess: () => { toast.success("Liste kaldırıldı"); onChanged(); }, onError: (e) => toast.error(e.message) });
+  const pick = async (f: File | undefined) => {
+    if (!f) return;
+    if (!/\.xlsx$/i.test(f.name)) {
+      toast.error("Yalnız .xlsx yüklenebilir — eski .xls ise Excel'de 'Farklı kaydet' → .xlsx");
+      return;
+    }
+    upload.mutate({ hotel, file_name: f.name, base64: await fileToBase64(f) });
+    if (input.current) input.current.value = "";
+  };
+  return (
+    <div className="border-t px-5 py-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <ListChecks className="h-4 w-4 text-muted-foreground" />
+          Personel listeleri
+          <span className="text-xs font-normal text-muted-foreground">kart yerine liste: fişteki ad listedeki adla tutarsa &quot;Listede&quot; sayılır</span>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <select value={hotel} onChange={(e) => setHotel(e.target.value as (typeof STAFF_HOTELS)[number])} className="h-8 rounded-md border bg-background px-2 text-sm">
+            {STAFF_HOTELS.map((h) => <option key={h} value={h}>{h}</option>)}
+          </select>
+          <input ref={input} type="file" accept=".xlsx" hidden onChange={(e) => void pick(e.target.files?.[0])} />
+          <Button size="sm" variant="outline" disabled={upload.isPending} onClick={() => input.current?.click()}>
+            {upload.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}
+            Liste yükle (.xlsx)
+          </Button>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {lists.length === 0 ? <span className="text-xs text-muted-foreground">Henüz liste yok.</span> : null}
+        {lists.map((l) => (
+          <span key={l.hotel} className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs">
+            <span className="font-medium">{l.hotel}</span>
+            <span className="tabular-nums text-muted-foreground">{l.count} kişi{l.uploaded_at ? ` · ${dmy(l.uploaded_at)}` : ""}{l.source_name ? ` · ${l.source_name}` : ""}</span>
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-rose-700"
+              title="Listeyi kaldır"
+              onClick={async () => {
+                if (await confirm({ title: `${l.hotel} listesi kaldırılsın mı?`, description: "Bu kurumun fişleri yeniden kart arar.", confirmLabel: "Kaldır" })) del.mutate({ hotel: l.hotel as (typeof STAFF_HOTELS)[number] });
+              }}
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function Kpi({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: string }) {
@@ -388,6 +453,16 @@ function InvoiceRow({ inv, onPick, onAccept, onReject, onClear }: { inv: MeritIn
               </div>
             </div>
           </>
+        ) : inv.list_match ? (
+          <>
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
+              <ListChecks className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">{inv.list_match.full_name}</div>
+              <div className="text-xs text-muted-foreground">{inv.hotel} personel listesinde · %{Math.round(inv.list_match.score * 100)}</div>
+            </div>
+          </>
         ) : (
           <div className="text-xs text-muted-foreground">
             {inv.status === "ok_no_card" || inv.status === "rejected"
@@ -417,7 +492,7 @@ function InvoiceRow({ inv, onPick, onAccept, onReject, onClear }: { inv: MeritIn
               <IdCard className="mr-1 h-3 w-3" />
               {inv.card ? "Değiştir" : "Kart seç"}
             </Button>
-            {inv.status !== "ok_card" ? (
+            {inv.status !== "ok_card" && inv.status !== "ok_list" ? (
               <>
                 <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onAccept}>
                   Kartsız kabul
