@@ -137,16 +137,16 @@ export const meritCardOcrSchema = z.object({
 });
 export type MeritCardOcr = z.infer<typeof meritCardOcrSchema>;
 
-const SYSTEM = `Sen bir otel personel kimlik kartı okuyucususun. Fotoğrafta Kuzey Kıbrıs'taki Merit otellerinin (Merit Park, Merit Royal, Merit Crystal Cove, Merit Cyprus Gardens…) "PERSONEL KİMLİK KARTI / PERSONAL ID CARD" kartı olabilir. Yalnız JSON döndür, başka metin yazma.`;
+const SYSTEM = `Sen bir otel / kurum personel kimlik kartı okuyucususun. Fotoğrafta Kuzey Kıbrıs'taki anlaşmalı otel ve kurumların (Merit Park, Merit Royal, Merit Crystal Cove, Merit Cyprus Gardens, Cratos Premium, Lord's Palace, Acapulco, Elexus, Kaya Palazzo, Concorde, Chamada, Tip-İş…) "PERSONEL KİMLİK KARTI / PERSONAL ID CARD / STAFF CARD" kartı olabilir. Yalnız JSON döndür, başka metin yazma.`;
 
 const USER = `Bu fotoğrafı oku ve şu JSON'u döndür:
 {
   "is_card": true/false,            // fotoğrafta bir otel PERSONEL kimlik kartı var mı (kimlik kartı, pasaport, başka belge → false)
   "rejection_reason": null | "neden",
-  "hotel": "Merit" | null,          // kart Merit grubuna mı ait (logo / Merit yazısı)
+  "hotel": "Merit" | "Cratos" | "Lord's Palace" | "Acapulco" | "Tip-İş" | "<diğer kurum adı>" | null, // karttaki otel / kurum grubu (logo, başlık)
   "full_name": "AD SOYAD" | null,   // kartta BÜYÜK harfle basılı ad soyad, aynen
   "id_no": "1453" | null,           // Sicil Numarası / ID No
-  "company": "Merit Park" | null,   // Kurum / Company
+  "company": "Merit Park" | null,   // Kurum / Company (karttaki tam kurum adı)
   "department": "Live Game" | null, // Departman / Department
   "join_date": "15.09.2014" | null, // İşe Başladığı Tarih / Join Date, basıldığı gibi
   "confidence": 0.0-1.0             // okuduğun ada güvenin

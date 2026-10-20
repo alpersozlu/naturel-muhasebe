@@ -157,7 +157,7 @@ function SectionNav({
         { id: SECTION_IDS.ozet, label: "Özet" },
         { id: SECTION_IDS.indirim, label: "İndirim" },
         { id: SECTION_IDS.kredi, label: "Kredi Çeki" },
-        { id: SECTION_IDS.merit, label: "Merit %10" },
+        { id: SECTION_IDS.merit, label: "Otel %10" },
         ...(hasOutlet ? [{ id: SECTION_IDS.outlet, label: "Outlet" }] : []),
         ...(hasStaff ? [{ id: SECTION_IDS.calisan, label: "Çalışan KPI" }] : []),
       ] as const,

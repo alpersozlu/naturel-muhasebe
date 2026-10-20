@@ -304,7 +304,8 @@ export async function buildMeritCheck(
     const { _base, _doc, ...rest } = inv;
     const extra_rate = extraRateOf(_base, _doc);
     const v: MeritInvoiceView = { ...rest, total: r2(inv.total), discount: r2(inv.discount), units: r2(inv.units), extra_rate, extra_ok: isExtraOk(extra_rate) };
-    v.required = v.hotel === "Merit" && meritRuleApplies(v.store_code, v.invoice_date);
+    // Sahibi (20.10.2026): kart yalnız Merit'e değil, tüm anlaşmalı kurumlara (Cratos, Lord's Palace…) aranır.
+    v.required = meritRuleApplies(v.store_code, v.invoice_date);
     const review = reviewByRef.get(v.invoice_ref) ?? null;
     v.review_note = review?.note ?? null;
     // adaylar: ad benzerliği; aynı gün çekilmiş kart +0,1 (eşik altındakileri öne alır)
@@ -359,7 +360,7 @@ export async function buildMeritCheck(
       const refs = new Map<string, { date: Date; merit: boolean }>();
       for (const l of inv) {
         const r = refs.get(l.invoice_ref) ?? { date: l.invoice_date, merit: false };
-        if (hotelOf([l.mgmt_note, l.invoice_note, l.discount_reason, l.campaign].filter(Boolean).join(" | ")) === "Merit") r.merit = true;
+        if (hotelOf([l.mgmt_note, l.invoice_note, l.discount_reason, l.campaign].filter(Boolean).join(" | "))) r.merit = true;
         refs.set(l.invoice_ref, r);
       }
       const refList = Array.from(refs.values());
@@ -368,9 +369,9 @@ export async function buildMeritCheck(
     }
   }
 
-  const meritInv = invoices.filter((i) => i.hotel === "Merit");
+  const meritInv = invoices; // tüm anlaşmalı kurumlar (Merit, Cratos, Lord's Palace, Acapulco, Tip-İş)
   const other_hotels: Record<string, number> = {};
-  for (const i of invoices) if (i.hotel !== "Merit") other_hotels[i.hotel] = (other_hotels[i.hotel] ?? 0) + 1;
+  for (const i of invoices) other_hotels[i.hotel] = (other_hotels[i.hotel] ?? 0) + 1;
   const kpi = {
     invoices: meritInv.length,
     other_hotels,

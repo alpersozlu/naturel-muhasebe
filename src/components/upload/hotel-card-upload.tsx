@@ -140,8 +140,9 @@ export function HotelCardUpload({ storeId, date }: { storeId: string; date: stri
           <div className="min-w-0 flex-1">
             <div className="font-semibold">Otel Anlaşması — Personel Kartı (%10)</div>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Merit personeline %10 indirim yaparken kimlik kartının fotoğrafını çekip buraya yükleyin. Sistem kartı okur, NEBİM&apos;de o isme kesilen
-              fişi bulur; yönetim notu işlenince (&quot;%10 Merit&quot;) ve fişte ek %10 gerçekten uygulanmışsa &quot;Doğrulandı&quot; olur.
+              Anlaşmalı otel / kurum personeline (Merit, Cratos, Lord&apos;s Palace, Acapulco, Tip-İş…) %10 indirim yaparken personel kartının fotoğrafını çekip buraya
+              yükleyin. Sistem kartı okur, NEBİM&apos;de o isme kesilen fişi bulur; yönetim notu işlenince (ör. &quot;%10 Merit&quot;, &quot;Cratos personeli&quot;) ve fişte ek %10
+              gerçekten uygulanmışsa &quot;Doğrulandı&quot; olur.
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
@@ -186,7 +187,7 @@ export function HotelCardUpload({ storeId, date }: { storeId: string; date: stri
                     <div className="font-medium">{c.full_name ?? <span className="text-muted-foreground">{c.ocr_status === "pending" ? "okunuyor…" : "ad okunamadı"}</span>}</div>
                     <div className="text-xs text-muted-foreground">
                       {c.id_no ? `Sicil ${c.id_no} · ` : ""}
-                      {c.company ?? "Merit"} · {c.photo_date ? `çekim ${dmy(c.photo_date)}` : `yüklendi ${dmyTr(c.uploaded_at)}`}
+                      {c.company ?? c.hotel ?? "Kurum"} · {c.photo_date ? `çekim ${dmy(c.photo_date)}` : `yüklendi ${dmyTr(c.uploaded_at)}`}
                     </div>
                   </div>
                   <div className="min-w-[220px] flex-1 text-xs text-muted-foreground">

@@ -120,13 +120,13 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
     const empty = { matched: [] as MeritInvoiceView[], cardsNoInvoice: [] as MeritCardView[], invoicesNoCard: [] as MeritInvoiceView[], others: [] as MeritInvoiceView[], badCards: [] as MeritCardView[] };
     if (!data) return empty;
     const byDate = (a: MeritInvoiceView, b: MeritInvoiceView) => b.invoice_date.localeCompare(a.invoice_date);
-    const merit = data.invoices.filter((i) => i.hotel === "Merit");
+    const merit = data.invoices; // tüm anlaşmalı kurumlar
     const matched = merit.filter((i) => i.status === "ok_card" && i.card).sort(byDate);
     const noCard = merit.filter((i) => !(i.status === "ok_card" && i.card)).sort((a, b) => ORDER[a.status] - ORDER[b.status] || byDate(a, b));
     const usable = data.cards.filter((c) => c.is_card && c.ocr_status === "done" && !!c.full_name);
     const cardsNoInvoice = usable.filter((c) => c.linked === 0).sort((a, b) => (b.photo_date ?? b.uploaded_at).localeCompare(a.photo_date ?? a.uploaded_at));
     const badCards = data.cards.filter((c) => !(c.is_card && c.ocr_status === "done" && !!c.full_name));
-    const others = data.invoices.filter((i) => i.hotel !== "Merit").sort(byDate);
+    const others: MeritInvoiceView[] = [];
     return { matched, cardsNoInvoice, invoicesNoCard: noCard, others, badCards };
   }, [data]);
 
@@ -179,11 +179,11 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 text-base font-semibold tracking-tight">
               <IdCard className="h-5 w-5 text-muted-foreground" />
-              Merit %10 Kontrolü
+              Otel Anlaşması %10 Kontrolü
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Üç kontrol: yönetim notunda otel adı (&quot;merit&quot;) yazılı mı (sahibi işler) · fişte ek %10 gerçekten uygulanmış mı (dip iskonto) · fişteki ad
-              mağazanın çektiği personel kartıyla tutuyor mu. Kart zorunlu: Girne baştan beri · Lefkoşa 08.10.2026&apos;dan itibaren.
+              Anlaşmalı kurumlar: Merit, Cratos, Lord&apos;s Palace, Acapulco, Tip-İş. Üç kontrol: yönetim notunda kurum adı yazılı mı (sahibi işler) · fişte ek %10 gerçekten
+              uygulanmış mı (dip iskonto) · fişteki ad mağazanın çektiği personel kartıyla tutuyor mu. Kart zorunlu: Girne baştan beri · Lefkoşa 08.10.2026&apos;dan itibaren.
             </p>
             <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
               <input type="checkbox" className="h-3.5 w-3.5" checked={useDates} onChange={(e) => setUseDates(e.target.checked)} />
@@ -201,7 +201,7 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
 
         {/* KPI */}
         <div className="grid grid-cols-2 gap-px border-b bg-border sm:grid-cols-3 lg:grid-cols-6">
-          <Kpi label="Merit fişi" value={String(k.invoices)} sub={`${money(k.total)} ₺ satış`} />
+          <Kpi label="Anlaşmalı fiş" value={String(k.invoices)} sub={`${money(k.total)} ₺ · ${Object.entries(k.other_hotels).map(([h, n]) => `${h} ${n}`).join(" · ")}`} />
           <Kpi label="Kartı var · fişi var" value={String(groups.matched.length)} tone="text-emerald-700" sub={`${money(sum(groups.matched))} ₺`} />
           <Kpi label="Kartı var · fişi yok" value={String(groups.cardsNoInvoice.length)} tone={groups.cardsNoInvoice.length ? "text-amber-700" : "text-emerald-700"} sub="kart yüklü, Merit fişi yok" />
           <Kpi label="Fişi var · kartı yok" value={String(groups.invoicesNoCard.length)} tone={missingCount ? "text-rose-700" : "text-emerald-700"} sub={missingCount ? `${missingCount} tanesi kontrol edilmeli` : "hepsi karara bağlı"} />
@@ -224,7 +224,7 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
           tone="amber"
           title="2 · Kartı var, fişi yok"
           count={groups.cardsNoInvoice.length}
-          sub="kart yüklenmiş ama bu adla Merit notlu fiş bulunamadı — kişi almamış ya da ad farklı yazılmış olabilir"
+          sub="kart yüklenmiş ama bu adla anlaşmalı indirim notlu fiş bulunamadı — kişi almamış ya da ad farklı yazılmış olabilir"
         >
           {groups.cardsNoInvoice.length === 0 && groups.badCards.length === 0 ? (
             <Empty text="Fişsiz kart yok." />
@@ -246,12 +246,6 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
           {groups.invoicesNoCard.length === 0 ? <Empty text="Kartsız Merit fişi yok." /> : <ul className="divide-y">{groups.invoicesNoCard.map((inv) => <InvoiceRow key={inv.invoice_ref} {...rowProps(inv)} />)}</ul>}
         </Section>
 
-        {/* 4) Diğer anlaşmalı kurumlar */}
-        {groups.others.length > 0 ? (
-          <Section tone="slate" title="Diğer anlaşmalı kurumlar" count={groups.others.length} sub={Object.entries(k.other_hotels).map(([h, n]) => `${h} ${n}`).join(" · ") + " · kart programı yok"}>
-            <ul className="divide-y">{groups.others.map((inv) => <InvoiceRow key={inv.invoice_ref} {...rowProps(inv)} />)}</ul>
-          </Section>
-        ) : null}
 
         {/* Eşleşmiş kartlar (küçük) */}
         <div className="border-t px-5 py-3 text-xs text-muted-foreground">
@@ -370,7 +364,7 @@ function InvoiceRow({ inv, onPick, onAccept, onReject, onClear }: { inv: MeritIn
       <div className="min-w-[180px] flex-1">
         <div className="flex items-center gap-2 font-medium">
           {inv.customer_name ?? <span className="text-muted-foreground">müşteri adı yok</span>}
-          {inv.hotel !== "Merit" ? <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{inv.hotel}</span> : null}
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{inv.hotel}</span>
         </div>
         <div className="truncate text-xs text-muted-foreground" title={inv.note ?? ""}>
           {inv.salesperson_name ? `${inv.salesperson_name} · ` : ""}
@@ -402,9 +396,7 @@ function InvoiceRow({ inv, onPick, onAccept, onReject, onClear }: { inv: MeritIn
                 ? `Benzer kart: ${inv.suggestions[0]!.full_name} (%${Math.round(inv.suggestions[0]!.score * 100)})`
                 : missing
                   ? "Kart fotoğrafı yok"
-                  : inv.hotel !== "Merit"
-                    ? `${inv.hotel} — kart programı yok`
-                    : "Kural öncesi — kart aranmaz"}
+                  : "Kural öncesi — kart aranmaz"}
           </div>
         )}
       </div>
@@ -466,10 +458,10 @@ function CardTile({ c, onRead, onEdit, onDelete }: { c: MeritCardView; onRead: (
               : c.other == null
                 ? "eşleşme yok"
                 : c.other.count === 0
-                  ? "Merit fişi yok · bu adla hiç alışveriş yok (Ocak 2026'dan beri)"
+                  ? "Anlaşmalı fiş yok · bu adla hiç alışveriş yok (Ocak 2026'dan beri)"
                   : c.other.merit_count > 0
-                    ? `Merit fişi var ama seçili tarih aralığının dışında (${c.other.merit_count} fiş, son ${dmy(c.other.merit_last!)}) — tarihi genişlet`
-                    : `Merit fişi yok · bu adla ${c.other.count} fiş var, Merit notu yazılmamış (son ${dmy(c.other.last_date!)})`}
+                    ? `Anlaşmalı fiş var ama seçili tarih aralığının dışında (${c.other.merit_count} fiş, son ${dmy(c.other.merit_last!)}) — tarihi genişlet`
+                    : `Anlaşmalı fiş yok · bu adla ${c.other.count} fiş var, kurum notu yazılmamış (son ${dmy(c.other.last_date!)})`}
           </div>
           {bad ? <div className="mt-0.5 text-amber-800">{c.ocr_error ?? "okuma bekliyor"}</div> : null}
         </div>

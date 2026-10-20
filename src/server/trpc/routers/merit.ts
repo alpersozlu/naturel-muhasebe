@@ -221,6 +221,7 @@ export const meritRouter = router({
             full_name: c.full_name,
             id_no: c.id_no,
             company: c.company,
+            hotel: c.hotel,
             photo_date: c.photo_date ? c.photo_date.toISOString().slice(0, 10) : null,
             uploaded_at: c.uploaded_at.toISOString(),
             ocr_status: c.ocr_status,
