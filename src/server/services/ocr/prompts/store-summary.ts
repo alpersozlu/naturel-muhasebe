@@ -169,12 +169,11 @@ DOĞRU bölümün DOĞRU satırından al:
    - credit_voucher_total = "Kredi Çeki" satırının Toplam'ı (çoğu gün 0,00 —
      kullanılan çekle aynı gün düzenlenen çek birbirini götürür). Satır yoksa 0.
    - "Hediye Çeki" satırı (varsa, Kredi Çeki'nin altında) BİLGİ satırıdır:
-     Kredi Kartı Tipi Açıklaması sütununda "1.750,00 TL (indirim olarak
-     düşüldü)" gibi bir yazı, bütün tutar hücrelerinde 0,00 vardır. ÖDEME
-     DEĞİLDİR → cash_sales / credit_card_total / credit_voucher_total'a
-     EKLEME; açıklamadaki tutar banka adı da değildir. nebim_pay_types'a
-     'Hediye Çeki | ', nebim_pay_totals'a 0 yaz. Kredi Çeki ile karıştırma:
-     Kredi Çeki gerçek ödemedir, Hediye Çeki indirimdir.
+     Peşinat'ta kullanılan çek tutarı, Peşinat İadesi'nde aynı tutarın eksisi,
+     Toplam'da 0,00 yazar (Kredi Çeki satırının düzeni). ÖDEME DEĞİLDİR →
+     cash_sales / credit_card_total / credit_voucher_total'a EKLEME.
+     nebim_pay_types'a 'Hediye Çeki | ', nebim_pay_totals'a 0 yaz. Kredi Çeki
+     ile karıştırma: Kredi Çeki gerçek ödemedir, Hediye Çeki indirimdir.
    - SÜTUN SÜTUN YAZ (nebim_pay_types / nebim_pay_totals): iki liste AYNI
      UZUNLUKTA, satır sırası aynı, başlık ve "Genel Toplam" HARİÇ; 0,00
      hücrelerini de yaz (atlama), eksi değeri eksi yaz. Fotoğraf eğik

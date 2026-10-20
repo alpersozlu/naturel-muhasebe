@@ -231,12 +231,13 @@ function solveItPosByEquation(
  * was measured and was the sloppy part (the Kredi Çeki row's 7.486,50 moved
  * between rows in 3 of 6 reads, while Toplam was right in all 6).
  *
- * "Hediye Çeki" (19.10.2026, Nebim YUKLE20): the gift voucher is a DISCOUNT,
- * not a payment, but the store's report prints an information row under
- * Kredi Çeki — "Hediye Çeki | 1.750,00 TL (indirim olarak düşüldü)" with every
- * amount 0,00. Its description column holds text, so the bank test below
- * would call it a card row; it is skipped instead, whatever total was read
- * for it (a value lifted from the description must not move money).
+ * "Hediye Çeki" (Nebim YUKLE20, 19.10.2026; YUKLE22, 20.10.2026): the gift
+ * voucher is a DISCOUNT, not a payment, but the store's report prints an
+ * information row under Kredi Çeki laid out like it — Peşinat = the vouchers
+ * used, Peşinat İadesi = minus that, Toplam 0,00. A description, if one is
+ * read, would pass the bank test below and make it a card row; the row is
+ * skipped instead, whatever total was read for it (a Peşinat value read
+ * into the Toplam column must not move money).
  */
 export function deriveNebimPayments(
   types: string[] | undefined,
