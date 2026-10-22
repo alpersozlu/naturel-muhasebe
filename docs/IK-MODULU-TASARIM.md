@@ -1,5 +1,7 @@
 # Naturel İK — izin, pazar çalışması ve mesai (tasarım)
 
+> **TAŞINDI (22.10.2026):** İK artık AYRI PROGRAM — repo `naturel-ik` (GitHub alpersozlu/naturel-ik), canlı https://naturel-ik.vercel.app, kendi Supabase projesi. Muhasebe içindeki eski `/ik` sayfaları ve kodu KALDIRILDI; Muhasebe ile bağ yalnız imzalı köprü (`/api/bridge/ik`, `services/ik-bridge.ts`). Menüdeki "İzin & Mesai (İK) ↗" yeni programı açar. Muhasebe veritabanındaki Hr* tabloları (boş; 33 tatil İK'ya kopyalandı) ve `UserRole.staff` şimdilik duruyor. Aşağıdaki kayıt tarihçedir.
+
 Başlangıç: 21.10.2026. Sahibi: Alp. Amaç: Kolay İK'daki izin / mesai / onay işlerini
 Naturel Muhasebe'nin içine almak; personel, müdür ve sahibi aynı programı kullanır,
 onaylanan mesai Maaşlar'a kendiliğinden gider.

@@ -13,6 +13,9 @@ import { DisabledAccount } from "@/components/layout/disabled-account";
 // - /contact: iletişim (iş verisi içermez; mağazasız müdür için fallback)
 const NON_ADMIN_ALLOWED = ["/upload", "/contact"];
 
+/** Naturel İK — ayrı program (izin / pazar / mesai). */
+const IK_URL = process.env.IK_URL ?? "https://naturel-ik.vercel.app";
+
 const LOCALE_RE = /^\/(tr|en)(\/|$)/;
 
 function stripLocale(pathname: string): { locale: string; path: string } {
@@ -47,8 +50,8 @@ export default async function AppLayout({
   const pathname = rawPath ?? "/";
   const { locale, path } = stripLocale(pathname);
 
-  // Personel (Naturel İK) muhasebe ekranlarını hiç görmez → /ik.
-  if (session?.role === "staff") redirect(`/${locale}/ik`);
+  // Personel hesapları (role "staff") ayrı programda: Naturel İK.
+  if (session?.role === "staff") redirect(IK_URL);
 
   // Admin dışı kullanıcı izinli olmayan bir rotaya girerse → /upload'a yönlendir.
   // Sidebar gizlemenin ötesinde URL'i direkt girene karşı koruma (default-deny).
