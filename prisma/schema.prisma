@@ -21,6 +21,7 @@ enum UserRole {
   store_manager
   cashier
   sales_rep
+  staff // Naturel İK: yalnız kendi izin / pazar / mesai ekranı (/ik)
 }
 
 enum UploadType {
@@ -124,6 +125,7 @@ model User {
   verifications   Verification[]
   cash_advances   CashAdvance[]
   expenses        Expense[]
+  hr_employee     PayrollEmployee?  @relation("EmployeeUser")
 
   @@index([role])
 }
@@ -1310,6 +1312,9 @@ model PayrollEmployee {
   status             PayrollEmployeeStatus    @default(active)
   notes              String? // kalıcı notlar (Not sütunu mantığı)
   sort_order         Int                      @default(0)
+  // Naturel İK: personelin giriş hesabı (kendi izin / pazar / mesai ekranı)
+  user_id            String?                  @unique
+  user               User?                    @relation("EmployeeUser", fields: [user_id], references: [id])
   created_at         DateTime                 @default(now())
   updated_at         DateTime                 @updatedAt
   deleted_at         DateTime?
@@ -1317,6 +1322,12 @@ model PayrollEmployee {
   lines   PayrollLine[]
   entries PayrollEntry[]
   loans   PayrollLoan[]
+
+  hr_worked_days    HrWorkedDay[]
+  hr_leaves         HrLeaveRequest[]
+  hr_overtimes      HrOvertime[]
+  hr_leave_openings HrLeaveOpening[]
+  hr_profile        HrProfile?
 
   @@index([store_id])
   @@index([status])
@@ -1615,4 +1626,170 @@ model MeritInvoiceReview {
   note        String?
   decided_by  String?
   decided_at  DateTime   @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────
+// NATUREL İK — izin, pazar / bayram çalışması, hafta içi mesai
+// Kurallar: src/server/services/hr/rules.ts · Tasarım: docs/IK-MODULU-TASARIM.md
+// Kişi = PayrollEmployee (bordroyla aynı kadro). Kolay İK'dan veri AKTARILMAZ
+// (sahibi talimat verene kadar).
+// ─────────────────────────────────────────────────────────────
+
+enum HrStatus {
+  waiting // müdür onayı bekliyor
+  approved
+  rejected
+  cancelled // personel geri çekti
+}
+
+enum HrLeaveKind {
+  annual // yıllık izin — çalıştıkça birikir
+  lieu // hak günü — pazar / bayram çalışmasının karşılığı
+  sick // hastalık
+  bereavement // vefat
+  unpaid // ücretsiz
+}
+
+/// Resmi tatil ve bayram takvimi — sahibi girer. Bu günlerde çalışan 1 hak günü kazanır.
+model HrHoliday {
+  id         String   @id @default(uuid())
+  date       DateTime @unique @db.Date
+  name       String
+  created_by String?
+  created_at DateTime @default(now())
+}
+
+/// "Pazar / bayram çalıştım" — onaylanınca 1 hak günü doğar (saat yazılmaz, gün = 8 saat).
+model HrWorkedDay {
+  id            String          @id @default(uuid())
+  employee_id   String
+  employee      PayrollEmployee @relation(fields: [employee_id], references: [id])
+  date          DateTime        @db.Date
+  kind          String // sunday | holiday
+  note          String?
+  status        HrStatus        @default(waiting)
+  created_by    String // bildiren kullanıcı (personel ya da müdür)
+  decided_by    String?
+  decided_at    DateTime?
+  decision_note String?
+  created_at    DateTime        @default(now())
+  updated_at    DateTime        @updatedAt
+
+  @@index([employee_id, date])
+  @@index([status])
+}
+
+/// İzin talebi. Hak günü (lieu) yıllık izinden DÜŞMEZ; en eski açık pazar / bayramı kapatır.
+model HrLeaveRequest {
+  id            String          @id @default(uuid())
+  employee_id   String
+  employee      PayrollEmployee @relation(fields: [employee_id], references: [id])
+  kind          HrLeaveKind
+  start_date    DateTime        @db.Date
+  end_date      DateTime        @db.Date
+  half_day      Boolean         @default(false)
+  days          Decimal         @db.Decimal(5, 2) // düşülecek gün (pazar ve resmi tatil hariç)
+  note          String?
+  status        HrStatus        @default(waiting)
+  created_by    String
+  decided_by    String?
+  decided_at    DateTime?
+  decision_note String?
+  created_at    DateTime        @default(now())
+  updated_at    DateTime        @updatedAt
+
+  @@index([employee_id, start_date])
+  @@index([status])
+}
+
+/// Hafta içi fazla mesai — sebep listeden, müdür onaylar, onaylı saat Maaşlar'a gider.
+model HrOvertime {
+  id            String          @id @default(uuid())
+  employee_id   String
+  employee      PayrollEmployee @relation(fields: [employee_id], references: [id])
+  date          DateTime        @db.Date
+  minutes       Int
+  reason        String // rules.ts OVERTIME_REASONS
+  note          String?
+  status        HrStatus        @default(waiting)
+  created_by    String
+  decided_by    String?
+  decided_at    DateTime?
+  decision_note String?
+  created_at    DateTime        @default(now())
+  updated_at    DateTime        @updatedAt
+
+  @@index([employee_id, date])
+  @@index([status])
+}
+
+/// Önceki yıllardan devreden yıllık izin (gün). Yalnız sahibinin talimatıyla girilir.
+model HrLeaveOpening {
+  id          String          @id @default(uuid())
+  employee_id String
+  employee    PayrollEmployee @relation(fields: [employee_id], references: [id])
+  year        Int
+  days        Decimal         @db.Decimal(5, 2)
+  note        String?
+  created_by  String?
+  created_at  DateTime        @default(now())
+
+  @@unique([employee_id, year])
+}
+
+/// Kişi bilgileri (Kolay İK'daki Work / Personal / Contact / Address / Emergency
+/// sekmelerinin karşılığı). Banka bilgisi PayrollEmployee'de. Hepsi boş başlar —
+/// Kolay İK'dan AKTARIM yalnız sahibinin talimatıyla. Görünürlük hr.ts'de:
+/// müdür yalnız iş + iletişim + acil durum; kimlik, adres, banka, belge sahibine.
+model HrProfile {
+  id          String          @id @default(uuid())
+  employee_id String          @unique
+  employee    PayrollEmployee @relation(fields: [employee_id], references: [id])
+
+  // Kişisel
+  national_id      String?
+  birth_date       DateTime? @db.Date
+  nationality      String?
+  gender           String?
+  education_status String?
+  education_level  String?
+  school           String?
+  disability       String?
+
+  // İletişim
+  work_email     String?
+  personal_email String?
+  work_phone     String?
+  personal_phone String?
+
+  // Adres
+  address     String?
+  city        String?
+  country     String?
+  postal_code String?
+
+  // Acil durum
+  emergency_name     String?
+  emergency_relation String?
+  emergency_phone    String?
+
+  // İş
+  contract_type String?
+  contract_end  DateTime? @db.Date
+  workweek_plan String?
+
+  // Belgeler — bitişten önce uyarı
+  work_permit_no     String?
+  work_permit_expiry DateTime? @db.Date
+  passport_no        String?
+  passport_expiry    DateTime? @db.Date
+
+  // Hesap daveti
+  invited_at       DateTime?
+  invite_count     Int       @default(0)
+  last_reminder_at DateTime?
+
+  updated_by String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 }

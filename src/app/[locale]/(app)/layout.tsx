@@ -47,6 +47,9 @@ export default async function AppLayout({
   const pathname = rawPath ?? "/";
   const { locale, path } = stripLocale(pathname);
 
+  // Personel (Naturel İK) muhasebe ekranlarını hiç görmez → /ik.
+  if (session?.role === "staff") redirect(`/${locale}/ik`);
+
   // Admin dışı kullanıcı izinli olmayan bir rotaya girerse → /upload'a yönlendir.
   // Sidebar gizlemenin ötesinde URL'i direkt girene karşı koruma (default-deny).
   if (

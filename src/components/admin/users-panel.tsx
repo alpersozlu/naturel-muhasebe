@@ -9,18 +9,20 @@ import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 
 // Order and labels match user-list.tsx so the two screens read the same.
-const ROLE_ORDER: UserRole[] = ["admin", "store_manager", "cashier", "sales_rep"];
+const ROLE_ORDER: UserRole[] = ["admin", "store_manager", "cashier", "sales_rep", "staff"];
 const ROLE_LABEL: Record<UserRole, string> = {
   admin: "Yönetici",
   store_manager: "Mağaza Müdürü",
   cashier: "Kasiyer",
   sales_rep: "Satış Temsilcisi",
+  staff: "Personel (İK)",
 };
 const ROLE_PILL: Record<UserRole, string> = {
   admin: "bg-indigo-50 text-indigo-700 ring-indigo-200/70",
   store_manager: "bg-emerald-50 text-emerald-700 ring-emerald-200/70",
   cashier: "bg-amber-50 text-amber-700 ring-amber-200/70",
   sales_rep: "bg-teal-50 text-teal-700 ring-teal-200/70",
+  staff: "bg-slate-50 text-slate-700 ring-slate-200/70",
 };
 // Avatar tint by role — the eye finds "the admin" and "the managers" before reading.
 const ROLE_AVATAR: Record<UserRole, string> = {
@@ -28,6 +30,7 @@ const ROLE_AVATAR: Record<UserRole, string> = {
   store_manager: "from-emerald-500 to-teal-600",
   cashier: "from-amber-400 to-orange-500",
   sales_rep: "from-teal-400 to-cyan-500",
+  staff: "from-slate-400 to-slate-600",
 };
 
 function initials(name: string | null, email: string): string {

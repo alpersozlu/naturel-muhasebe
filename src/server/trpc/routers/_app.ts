@@ -20,6 +20,7 @@ import { nebimSalesRouter } from "./nebimSales";
 import { meritRouter } from "./merit";
 import { peopleCountRouter } from "./peopleCount";
 import { payrollRouter } from "./payroll";
+import { hrRouter } from "./hr";
 import { pdfSelfTest } from "@/server/services/payroll/performance";
 
 export const appRouter = router({
@@ -55,6 +56,7 @@ export const appRouter = router({
   merit: meritRouter,
   peopleCount: peopleCountRouter,
   payroll: payrollRouter,
+  hr: hrRouter,
 });
 
 export type AppRouter = typeof appRouter;

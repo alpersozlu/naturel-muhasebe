@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const userRoleEnum = z.enum(["admin", "store_manager", "cashier", "sales_rep"]);
+export const userRoleEnum = z.enum(["admin", "store_manager", "cashier", "sales_rep", "staff"]);
 
 /** Mağaza ataması olmadan çalışamayan roller. */
 export const STORE_SCOPED_ROLES = ["store_manager", "cashier"] as const;

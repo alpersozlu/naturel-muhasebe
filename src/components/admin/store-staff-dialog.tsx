@@ -26,6 +26,7 @@ const ROLE_LABEL: Record<UserRole, string> = {
   store_manager: "Mağaza Müdürü",
   cashier: "Kasiyer",
   sales_rep: "Satış Temsilcisi",
+  staff: "Personel (İK)",
 };
 
 const ASSIGNABLE_ROLES: UserRole[] = ["store_manager", "cashier", "sales_rep"];

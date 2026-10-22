@@ -18,6 +18,7 @@ import {
   FileSpreadsheet,
   Ticket,
   Banknote,
+  CalendarHeart,
 } from "lucide-react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ const NAV_ADMIN = [
   { href: "/", icon: LayoutDashboard, key: "today" as const },
   { href: "/admin", icon: Shield, key: "admin" as const },
   { href: "/payroll", icon: Banknote, key: "payroll" as const },
+  { href: "/ik", icon: CalendarHeart, key: "hr" as const },
   { href: "/verification", icon: ClipboardCheck, key: "verification" as const },
   { href: "/cash-variance", icon: ShieldAlert, key: "cashVariance" as const },
   { href: "/z-analysis", icon: ScrollText, key: "zAnalysis" as const },
@@ -47,6 +49,7 @@ const NAV_ADMIN = [
 // sadece kendi mağazalarına belge yükleyebilir. Diğer sayfalar gizli.
 const NAV_NON_ADMIN = [
   { href: "/upload", icon: Upload, key: "upload" as const },
+  { href: "/ik", icon: CalendarHeart, key: "hr" as const },
   { href: "/contact", icon: Mail, key: "contact" as const },
 ] as const;
 

@@ -45,6 +45,7 @@ const ROLE_LABEL: Record<UserRole, string> = {
   store_manager: "Mağaza Müdürü",
   cashier: "Kasiyer",
   sales_rep: "Satış Temsilcisi",
+  staff: "Personel (İK)",
 };
 
 const ROLE_ICON: Record<UserRole, typeof Shield> = {
@@ -52,6 +53,7 @@ const ROLE_ICON: Record<UserRole, typeof Shield> = {
   store_manager: Store,
   cashier: UserIcon,
   sales_rep: Briefcase,
+  staff: UserIcon,
 };
 
 const ROLE_BADGE: Record<UserRole, string> = {
@@ -59,6 +61,7 @@ const ROLE_BADGE: Record<UserRole, string> = {
   store_manager: "bg-emerald-100 text-emerald-700",
   cashier: "bg-amber-100 text-amber-700",
   sales_rep: "bg-teal-100 text-teal-700",
+  staff: "bg-slate-100 text-slate-700",
 };
 
 type Row = {
