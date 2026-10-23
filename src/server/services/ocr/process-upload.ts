@@ -1,6 +1,6 @@
 import { downloadFromStorage } from "@/server/services/storage";
 import "server-only";
-import { balancesChain, resolveDocumentDate } from "./resolve-doc-date";
+import { balancesChain, nebimPeriodFromFooter, resolveDocumentDate } from "./resolve-doc-date";
 import { missingVoucherSerials } from "@/server/services/nebim/voucher-snapshot";
 import { createHash } from "node:crypto";
 import type { Prisma, Upload } from "@prisma/client";
@@ -501,6 +501,28 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     );
   }
 
+  // Nebim özetinde tarih YALNIZ alt satırdan ("Başlangıç Tarihi = …, Bitiş Tarihi = …").
+  // Sahibi 23.10.2026: Lefkoşa 21.10 özeti ekran fotoğrafıydı, model durum çubuğundaki
+  // "22 Ekim" tarihini aldı ve 22.10 sanıldı. Alt satır okunduysa tarihler oradan;
+  // okunmadıysa modelin başka yerden aldığı tarih YOK SAYILIR (kasa zinciri karar verir).
+  let nebimFooterMissing = false;
+  if (parsed.report_format === "nebim") {
+    const fp = nebimPeriodFromFooter(parsed.period_line_raw);
+    if (fp) {
+      parsed.period_start = fp.start;
+      parsed.period_end = fp.end;
+      parsed.summary_date = fp.end;
+    } else {
+      nebimFooterMissing = true;
+      if (parsed.summary_date || parsed.period_start || parsed.period_end) {
+        await stashRaw(upload.id, { ...(raw as object), date_ignored: `Alt satır ('Başlangıç Tarihi = …') okunamadı; modelin tarihi (${parsed.summary_date ?? parsed.period_end ?? parsed.period_start}) yok sayıldı` });
+      }
+      parsed.period_start = null;
+      parsed.period_end = null;
+      parsed.summary_date = null;
+    }
+  }
+
   // 🛡️ Marka formatı + mağaza ismi eşleşmesi: yanlış mağazaya yüklemeyi engelle.
   const dr = await prisma.dailyRecord.findUnique({
     where: { id: upload.daily_record_id },
@@ -531,6 +553,11 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
     }
 
     // OCR aralık okuduysa grupla karşılaştır (Derimod alt tarih aralığı)
+    if (parsed.report_format === "nebim" && nebimFooterMissing) {
+      throw new Error(
+        "Birleşik gün özetinin tarih aralığı yalnız raporun EN ALTINDAKİ 'Başlangıç Tarihi = …, Bitiş Tarihi = …' satırından okunur; bu fotoğrafta o satır görünmüyor. Raporu alt satır dahil tam çekip yeniden yükleyin."
+      );
+    }
     const pStart = parsed.period_start;
     const pEnd = parsed.period_end;
     if (dr.store.brand.name.toLowerCase().includes("mavi")) {
@@ -591,6 +618,11 @@ async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
           console.info("[OCR] store summary date accepted via cash chain", { upload: upload.id, expectedIso, read });
         }
       }
+    }
+    if (parsed.report_format === "nebim" && nebimFooterMissing && !parsed.summary_date) {
+      throw new Error(
+        "Mağaza özetinin tarihi yalnız raporun EN ALTINDAKİ 'Başlangıç Tarihi = …, Bitiş Tarihi = …' satırından okunur; bu fotoğrafta o satır görünmüyor (ekrandaki saat/tarih sayılmaz). Raporu alt satır dahil tam çekip yeniden yükleyin."
+      );
     }
     parsed.summary_date = await assertDateMatch(
       upload.daily_record_id,

@@ -29,6 +29,12 @@ export const storeSummaryOcrSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .nullable(),
+  /**
+   * Nebim: en alttaki "Başlangıç Tarihi = gg.aa.yyyy, Bitiş Tarihi = gg.aa.yyyy"
+   * satırı HARFİYEN. Sunucu Nebim tarihini YALNIZ bu satırdan çözer (sahibi,
+   * 23.10.2026: ekran fotoğrafındaki Windows saati / durum çubuğu tarih değildir).
+   */
+  period_line_raw: z.string().max(120).nullable().optional().default(null),
   sales_total: z.number().nullable(),
   cash_sales: z.number().nullable(),
   credit_card_total: z.number().nullable(),
@@ -110,6 +116,7 @@ export const storeSummaryOutputSchema = z.object({
   summary_date: z.string().nullable(),
   period_start: z.string().nullable(),
   period_end: z.string().nullable(),
+  period_line_raw: z.string().nullable(),
   sales_total: z.number().nullable(),
   cash_sales: z.number().nullable(),
   credit_card_total: z.number().nullable(),

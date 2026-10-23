@@ -343,7 +343,7 @@ export async function parseStoreSummary(opts: {
   }
   // Constrained decoders emit "" where the prompt says null; "" fails the
   // date regex and the upload would fail with a Zod issue list.
-  for (const k of ["summary_date", "period_start", "period_end", "store_name_on_report", "store_code_on_report", "rejection_reason"] as const) {
+  for (const k of ["summary_date", "period_start", "period_end", "period_line_raw", "store_name_on_report", "store_code_on_report", "rejection_reason"] as const) {
     const v = (raw as Record<string, unknown>)[k];
     if (typeof v === "string" && v.trim() === "") (raw as Record<string, unknown>)[k] = null;
   }

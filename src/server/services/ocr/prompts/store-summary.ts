@@ -97,7 +97,7 @@ Eğer mağaza özet raporu DEĞİLSE:
   "shopping_voucher_total": null, "wire_transfer_total": null,
   "credit_voucher_total": null, "it_pos_labels": [], "it_pos_amounts": [],
   "nebim_pay_types": [], "nebim_pay_totals": [],
-  "period_start": null, "period_end": null,
+  "period_start": null, "period_end": null, "period_line_raw": null,
   "opening_balance": null, "closing_balance": null, "currency": "TRY"
 }
 
@@ -112,6 +112,7 @@ Eğer mağaza özet raporu İSE:
   "summary_date": "YYYY-MM-DD (raporun tarihi)",
   "period_start": "YYYY-MM-DD veya null — raporun KAPSADIĞI tarih aralığının BAŞLANGICI. Derimod/Nebim raporlarının altında/üstünde 'gg.aa.yyyy - gg.aa.yyyy' şeklinde aralık yazabilir. Tek gün ise summary_date ile aynı. Aralık yoksa null.",
   "period_end": "YYYY-MM-DD veya null — raporun kapsadığı tarih aralığının BİTİŞİ. Tek gün ise summary_date ile aynı. Aralık yoksa null.",
+  "period_line_raw": "Nebim: raporun EN ALTINDAKİ 'Başlangıç Tarihi = gg.aa.yyyy, Bitiş Tarihi = gg.aa.yyyy' satırı HARFİYEN (ayraçlarıyla). O satır fotoğrafta görünmüyorsa null. IT POS'ta null.",
   "sales_total": "ondalık sayı veya null (Satış Toplam)",
   "cash_sales": "ondalık sayı veya null (Nakit Toplam)",
   "credit_card_total": "ondalık sayı veya null (Kredi Kartı Toplam)",
@@ -155,9 +156,15 @@ DOĞRU bölümün DOĞRU satırından al:
      Tutar'ı; Hediye Çeki satırını ayrıca ekleme/çıkarma.
    - "Tutar (VD)" liste fiyatı/brüt sütunudur (indirim düşülmemiş) → ALMA.
    - İade satırı eksi (−) yazar; Toplam = Normal + İade zaten hesaplanmıştır.
-   - period_start / period_end = en alttaki "Başlangıç Tarihi = …, Bitiş
-     Tarihi = …" satırından; summary_date = Bitiş Tarihi. Sağ alt köşedeki
-     yazdırma tarihi ("27 Ağustos 2026 Perşembe" gibi) rapor tarihi DEĞİLDİR.
+   - TARİH YALNIZ TEK YERDEN OKUNUR: raporun EN ALTINDAKİ "Başlangıç Tarihi =
+     gg.aa.yyyy, Bitiş Tarihi = gg.aa.yyyy" satırı. Onu period_line_raw'a
+     HARFİYEN yaz; period_start/period_end/summary_date oradan (summary_date =
+     Bitiş Tarihi). Sağ alt köşedeki yazdırma tarihi ("27 Ağustos 2026
+     Perşembe"), ekran fotoğrafındaki Nebim pencere başlığı / durum çubuğu
+     ("Lefkoşa Kasa | 22 Ekim 2026") ve Windows görev çubuğundaki saat-tarih
+     RAPOR TARİHİ DEĞİLDİR — bunlardan ASLA tarih alma. Alt satır fotoğrafta
+     yoksa (ekran fotoğrafı kesik vb.) üç tarih alanını da null bırak;
+     tahmin etme.
 
 2) ÖDEMELER tablosu — her satır bir ödeme tipi: "Nakit", "Kredi Kartı" (banka
    adıyla, banka başına ayrı satır), "Kredi Çeki"; sütunlar Taksitli Satış

@@ -135,3 +135,21 @@ export function balancesChain(prevClosing: number | null | undefined, opening: n
   if (!(Math.abs(prevClosing) > 0.005)) return false;
   return Math.abs(prevClosing - opening) < 0.015; // 0,01 yuvarlama + kayan nokta payı
 }
+
+/**
+ * Nebim "Mağaza Hareket Özeti" alt satırı: "Başlangıç Tarihi = 22.10.2026, Bitiş
+ * Tarihi = 22.10.2026". Derimod özetinin tarihi YALNIZ buradan okunur (sahibi,
+ * 23.10.2026): ekran fotoğrafındaki Windows saati / Nebim durum çubuğu
+ * ("Lefkoşa Kasa | 22 Ekim 2026") rapor tarihi değildir — 21.10 özeti o yüzden
+ * 22.10 sanılıp reddedilmişti. Satır yoksa null → kasa zinciri ya da ret.
+ */
+export function nebimPeriodFromFooter(raw: string | null | undefined): { start: string; end: string } | null {
+  if (!raw) return null;
+  const t = raw.replace(/\s+/g, " ");
+  const m = t.match(/ba[sş]lang[ıi][cç]\s*tarihi\s*[=:]\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})[^0-9]*?biti[sş]\s*tarihi\s*[=:]\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i);
+  if (!m) return null;
+  const start = parseTurkishDate(m[1]);
+  const end = parseTurkishDate(m[2]);
+  if (!start || !end || end < start) return null;
+  return { start, end };
+}
