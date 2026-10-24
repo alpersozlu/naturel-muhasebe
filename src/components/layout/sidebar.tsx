@@ -18,14 +18,11 @@ import {
   FileSpreadsheet,
   Ticket,
   Banknote,
-  CalendarHeart,
 } from "lucide-react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import type { UserRole } from "@prisma/client";
 import { NrLogo } from "@/components/brand/nr-logo";
-
-const IK_URL = process.env.NEXT_PUBLIC_IK_URL ?? "https://naturel-ik.vercel.app";
 
 const NAV_ADMIN = [
   { href: "/", icon: LayoutDashboard, key: "today" as const },
@@ -102,16 +99,6 @@ export function Sidebar({ role }: { role: UserRole | null }) {
             </Link>
           );
         })}
-        {/* Naturel İK ayrı program (izin / pazar / mesai) — yeni sekmede açılır */}
-        <a
-          href={IK_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-all duration-snap ease-ios hover:bg-accent/60 hover:text-foreground active:scale-[0.98]"
-        >
-          <CalendarHeart className="h-5 w-5 shrink-0 transition-transform duration-snap ease-snappy group-hover:scale-105" />
-          <span>{t("hr")} ↗</span>
-        </a>
       </nav>
     </aside>
   );
