@@ -334,6 +334,17 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
     },
     onError: (e) => toast.error(e.message),
   });
+  // Yönetici: dekont çekilmemişse bankada görülen havaleyi elle dekont olarak ekler.
+  const [manualBank, setManualBank] = useState(false);
+  const addManualBank = trpc.upload.addManualBankReceipt.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Elle dekont eklendi · gün farkı ${TRY_FMT.format(r.difference)} ₺`);
+      setManualBank(false);
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+      utils.dailyRecord.reconciliation.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const acceptGap = trpc.upload.acceptNebimGap.useMutation({
     onSuccess: () => {
       toast.success("Yeniden okunuyor — Nebim farkı bilerek kabul edildi");
@@ -412,11 +423,24 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
             </div>
           </div>
           {isAdmin ? (
-            <Button size="sm" variant="outline" onClick={() => setManualPos(true)} title="POS gün sonu alınamadıysa bankadan öğrenilen tutarı fiş olarak ekle">
-              Elle POS fişi ekle
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => setManualPos(true)} title="POS gün sonu alınamadıysa bankadan öğrenilen tutarı fiş olarak ekle">
+                Elle POS fişi ekle
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setManualBank(true)} title="Dekont çekilmemişse bankada görülen havaleyi dekont olarak ekle">
+                Elle dekont ekle
+              </Button>
+            </div>
           ) : null}
         </div>
+        {manualBank ? (
+          <ManualBankDialog
+            date={date}
+            pending={addManualBank.isPending}
+            onClose={() => setManualBank(false)}
+            onSave={(v) => addManualBank.mutate({ store_id: storeId, date, ...v })}
+          />
+        ) : null}
         {manualPos ? (
           <ManualPosDialog
             date={date}
@@ -663,7 +687,7 @@ function UploadRowItem({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 font-semibold text-sm text-foreground">
               {meta.label}
-              {(upload.user_meta_json as { manual_pos?: boolean } | null)?.manual_pos ? (
+              {(upload.user_meta_json as { manual_pos?: boolean; manual_bank_receipt?: boolean } | null)?.manual_pos || (upload.user_meta_json as { manual_bank_receipt?: boolean } | null)?.manual_bank_receipt ? (
                 <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 ring-1 ring-amber-200" title={String((upload.user_meta_json as { reason?: string }).reason ?? "")}>
                   Elle giriş
                 </span>
@@ -1227,6 +1251,69 @@ void ExpenseDetails;
  * Yönetici: POS gün sonu alınamadığında bankadan öğrenilen tutarı fiş olarak
  * ekler. Banka listesi o günün diğer fişlerinden gelir; serbest yazılabilir.
  */
+function ManualBankDialog({
+  date,
+  pending,
+  onClose,
+  onSave,
+}: {
+  date: string;
+  pending: boolean;
+  onClose: () => void;
+  onSave: (v: { bank_name: string; reference?: string; amount: number; note: string }) => void;
+}) {
+  const KNOWN = ["Türkiye İş Bankası", "Garanti", "Ziraat", "Halkbank", "Yapı Kredi", "Koopbank", "Nova Bank", "Asbank", "Limasol Türk Kooperatif Bankası", "Local Pay"];
+  const [bank, setBank] = useState("");
+  const [reference, setReference] = useState("");
+  const [amount, setAmount] = useState<number | undefined>(undefined);
+  const [note, setNote] = useState("");
+  const ok = bank.trim().length >= 2 && !!amount && amount > 0 && note.trim().length >= 5;
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Elle İban dekontu — {date.split("-").reverse().join(".")}</DialogTitle>
+          <DialogDescription>
+            Mağaza dekont fotoğrafını çekmediyse ve havalenin bankaya yattığı kontrol edildiyse tutarı girin. Gerçek dekont gibi sayılır, &quot;Elle giriş&quot;
+            etiketiyle görünür ve gün doğrulaması yeniden hesaplanır.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2 space-y-1">
+            <Label className="text-xs text-muted-foreground">Banka (paranın yattığı hesap)</Label>
+            <Input list="manual-bank-names" value={bank} onChange={(e) => setBank(e.target.value)} placeholder="Garanti" autoFocus />
+            <datalist id="manual-bank-names">
+              {KNOWN.map((b) => (
+                <option key={b} value={b} />
+              ))}
+            </datalist>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Referans / gönderen</Label>
+            <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="isteğe bağlı" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Tutar (₺)</Label>
+            <MoneyInput value={amount} onChange={setAmount} />
+          </div>
+          <div className="col-span-2 space-y-1">
+            <Label className="text-xs text-muted-foreground">Kaynak (zorunlu)</Label>
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Banka hesabında görüldü — dekont çekilmemiş, Alp 25.10" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Vazgeç
+          </Button>
+          <Button disabled={!ok || pending} onClick={() => onSave({ bank_name: bank.trim(), reference: reference.trim() || undefined, amount: amount!, note: note.trim() })}>
+            {pending ? "Ekleniyor…" : "Dekontu ekle"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ManualPosDialog({
   date,
   banks,

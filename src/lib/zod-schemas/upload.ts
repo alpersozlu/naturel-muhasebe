@@ -88,6 +88,16 @@ export const uploadsForStoreDateSchema = z.object({
 export type UploadCreateInput = z.infer<typeof uploadCreateSchema>;
 
 /** Yönetici: POS gün sonu alınamadığında banka ekstresinden elle fiş kaydı. */
+/** Yönetici: dekont fotoğrafı çekilmemişse, bankada görülen havaleyi elle dekont olarak kaydeder (sahibi 25.10.2026). */
+export const manualBankReceiptSchema = z.object({
+  store_id: z.string().uuid(),
+  date: dateOnly,
+  bank_name: z.string().trim().min(2).max(60),
+  reference: z.string().trim().max(60).optional(),
+  amount: z.number().finite().positive("Tutar 0'dan büyük olmalı").max(100_000_000),
+  note: z.string().trim().min(5, "Kaynağı yazın (ör. banka hesabında görüldü, kim kontrol etti)").max(500),
+});
+
 export const manualPosSlipSchema = z.object({
   store_id: z.string().uuid(),
   date: dateOnly,
