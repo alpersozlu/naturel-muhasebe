@@ -289,6 +289,8 @@ function equationHolds(p: StoreSummaryOcr): boolean {
 export async function parseStoreSummary(opts: {
   buffer: Buffer;
   mimeType: string;
+  /** Aynı dosya daha önce okunduysa (SHA-256) önceki ham çıktı — model ÇAĞRILMAZ (kredi harcanmaz). */
+  cachedRaw?: unknown;
 }): Promise<{ raw: unknown; parsed: StoreSummaryOcr; rawText: string; tiles: number }> {
   const isPdf = opts.mimeType === "application/pdf";
 
@@ -298,7 +300,9 @@ export async function parseStoreSummary(opts: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const content: any[] = [];
   let tileCount = 1;
-  if (isPdf) {
+  if (opts.cachedRaw != null) {
+    // önbellek: görsel işlenmez, model çağrılmaz
+  } else if (isPdf) {
     content.push({
       type: "document",
       source: {
@@ -324,13 +328,17 @@ export async function parseStoreSummary(opts: {
   // so the model cannot narrate its steps in prose first. Measured before this
   // change: ~30 s and ~950 output tokens per store summary, occasionally
   // overrunning max_tokens with no JSON at all. See the schema comment.
-  const response = await client.messages.parse({
+  const liveCall = () =>
+    client.messages.parse({
     model: OCR_MODEL,
     max_tokens: 2048,
     system: STORE_SUMMARY_SYSTEM_PROMPT,
     messages: [{ role: "user", content }],
     output_config: { format: zodOutputFormat(storeSummaryOutputSchema) },
   });
+  type Resp = Awaited<ReturnType<typeof liveCall>>;
+  const response: Resp =
+    opts.cachedRaw != null ? ({ content: [], parsed_output: structuredClone(opts.cachedRaw) } as unknown as Resp) : await liveCall();
 
   const rawText = response.content
     .filter((c) => c.type === "text")

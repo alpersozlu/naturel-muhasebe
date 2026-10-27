@@ -22,7 +22,10 @@ function extractJson(raw: string): string {
 export async function parseBankReceipt(opts: {
   buffer: Buffer;
   mimeType: string;
+  /** Aynı dosya daha önce okunduysa (SHA-256) önceki ham çıktı — model ÇAĞRILMAZ (kredi harcanmaz). */
+  cachedRaw?: unknown;
 }): Promise<{ raw: unknown; parsed: BankReceiptOcr; rawText: string }> {
+  if (opts.cachedRaw != null) return finishBankReceipt(structuredClone(opts.cachedRaw), "");
   const isPdf = opts.mimeType === "application/pdf";
 
   let imageBuffer = opts.buffer;
@@ -81,6 +84,11 @@ export async function parseBankReceipt(opts: {
   } catch {
     throw new Error(`Claude returned non-JSON output: ${rawText.slice(0, 200)}`);
   }
+  return finishBankReceipt(raw, rawText);
+}
+
+/** Ham JSON → doğrulanmış dekont (canlı okuma ve önbellek aynı yoldan geçer). */
+function finishBankReceipt(raw: unknown, rawText: string): { raw: unknown; parsed: BankReceiptOcr; rawText: string } {
   const parsed = bankReceiptOcrSchema.parse(raw);
   // Rakam ↔ yazıyla tutar ↔ basılı metin uzlaşması (02.10.2026: Halkbank
   // dekontunda 3,100.00 → 3.168,68 okunmuştu; yazıyla "UÇBİNYÜZ" doğrusunu verir).

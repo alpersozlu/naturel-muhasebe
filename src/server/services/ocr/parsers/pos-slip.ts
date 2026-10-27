@@ -27,6 +27,8 @@ function blankToNull<T extends Record<string, unknown>>(obj: T, keys: (keyof T)[
 export async function parsePosSlip(opts: {
   buffer: Buffer;
   mimeType: string;
+  /** Aynı dosya daha önce okunduysa (SHA-256) önceki ham çıktı — model ÇAĞRILMAZ (kredi harcanmaz). */
+  cachedRaw?: unknown;
 }): Promise<{ raw: unknown; parsed: PosSlipOcr; rawText: string; tiles: number }> {
   const isPdf = opts.mimeType === "application/pdf";
 
@@ -36,7 +38,9 @@ export async function parsePosSlip(opts: {
   const content: any[] = [];
   let tileCount = 1;
   let tiles: Buffer[] = [];
-  if (isPdf) {
+  if (opts.cachedRaw != null) {
+    // önbellek: görsel işlenmez, model çağrılmaz
+  } else if (isPdf) {
     content.push({
       type: "document",
       source: {
@@ -61,13 +65,17 @@ export async function parsePosSlip(opts: {
   const client = getAnthropic();
   // Structured output: the decoder cannot narrate ("ADIM 1 …") before the
   // JSON; its only scratchpad is `check_notes`, first in the schema.
-  const response = await client.messages.parse({
+  const liveCall = () =>
+    client.messages.parse({
     model: OCR_MODEL,
     max_tokens: 2048,
     system: POS_SLIP_SYSTEM_PROMPT,
     messages: [{ role: "user", content }],
     output_config: { format: zodOutputFormat(posSlipOutputSchema) },
   });
+  type Resp = Awaited<ReturnType<typeof liveCall>>;
+  const response: Resp =
+    opts.cachedRaw != null ? ({ content: [], parsed_output: structuredClone(opts.cachedRaw) } as unknown as Resp) : await liveCall();
 
   const rawText = response.content
     .filter((c) => c.type === "text")

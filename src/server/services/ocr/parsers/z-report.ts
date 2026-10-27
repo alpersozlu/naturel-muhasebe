@@ -92,6 +92,8 @@ export function settleStarMisread(parsed: ZReportOcr): string | null {
 export async function parseZReport(opts: {
   buffer: Buffer;
   mimeType: string;
+  /** Aynı dosya daha önce okunduysa (SHA-256) önceki ham çıktı — model ÇAĞRILMAZ (kredi harcanmaz). */
+  cachedRaw?: unknown;
 }): Promise<{ raw: unknown; parsed: ZReportOcr; rawText: string; tiles: number }> {
   const isPdf = opts.mimeType === "application/pdf";
 
@@ -99,7 +101,9 @@ export async function parseZReport(opts: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const content: any[] = [];
   let tileCount = 1;
-  if (isPdf) {
+  if (opts.cachedRaw != null) {
+    // önbellek: görsel işlenmez, model çağrılmaz
+  } else if (isPdf) {
     content.push({
       type: "document",
       source: {
@@ -121,13 +125,17 @@ export async function parseZReport(opts: {
   content.push({ type: "text", text: Z_REPORT_USER_PROMPT });
 
   const client = getAnthropic();
-  const response = await client.messages.parse({
+  const liveCall = () =>
+    client.messages.parse({
     model: OCR_MODEL,
     max_tokens: 2048,
     system: Z_REPORT_SYSTEM_PROMPT,
     messages: [{ role: "user", content }],
     output_config: { format: zodOutputFormat(zReportOutputSchema) },
   });
+  type Resp = Awaited<ReturnType<typeof liveCall>>;
+  const response: Resp =
+    opts.cachedRaw != null ? ({ content: [], parsed_output: structuredClone(opts.cachedRaw) } as unknown as Resp) : await liveCall();
 
   const rawText = response.content
     .filter((c) => c.type === "text")

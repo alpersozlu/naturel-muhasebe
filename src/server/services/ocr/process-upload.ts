@@ -3,7 +3,7 @@ import "server-only";
 import { balancesChain, nebimPeriodFromFooter, resolveDocumentDate } from "./resolve-doc-date";
 import { missingVoucherSerials } from "@/server/services/nebim/voucher-snapshot";
 import { createHash } from "node:crypto";
-import type { Prisma, Upload } from "@prisma/client";
+import { Prisma, type Upload } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { UPLOAD_BUCKET } from "@/lib/constants";
@@ -216,15 +216,25 @@ export async function processUpload(
       // Eskiden sessizce dönüyordu → kayıt sonsuza kadar "processing" kalıyordu.
       throw new Error("Dosya depodan indirilemedi. Lütfen tekrar yükleyin.");
     }
-    if (ASSESSED_TYPES.has(upload.type) && upload.authenticity_verdict !== "cleared") {
+    // KREDİ KORUMASI (sahibi 27.10.2026): aynı dosya (SHA-256) daha önce okunduysa
+    // — ör. yanlış güne yüklenip reddedilen fiş doğru güne yeniden yüklendiğinde —
+    // model BİR DAHA ÇAĞRILMAZ; önceki ham çıktı ve sahtecilik kararı kullanılır.
+    const cached = await cachedOcrFor(upload);
+    if (cached) {
+      console.info("[OCR] cached raw reused", { uploadId, from: cached.from, type: upload.type });
+      if (cached.authenticity) {
+        await prisma.upload.update({ where: { id: uploadId }, data: cached.authenticity });
+      }
+    } else if (ASSESSED_TYPES.has(upload.type) && upload.authenticity_verdict !== "cleared") {
       screening = inspectUpload({ buffer, mimeType: upload.mime_type });
       screening.catch(() => undefined); // awaited below; never an unhandled rejection
     }
-    if (upload.type === "pos_slip") await runPosSlip(upload, buffer);
-    else if (upload.type === "store_summary") await runStoreSummary(upload, buffer);
-    else if (upload.type === "bank_receipt") await runBankReceipt(upload, buffer);
-    else if (upload.type === "expense") await runExpense(upload, buffer);
-    else if (upload.type === "z_report") await runZReport(upload, buffer);
+    const cachedRaw = cached?.raw;
+    if (upload.type === "pos_slip") await runPosSlip(upload, buffer, cachedRaw);
+    else if (upload.type === "store_summary") await runStoreSummary(upload, buffer, cachedRaw);
+    else if (upload.type === "bank_receipt") await runBankReceipt(upload, buffer, cachedRaw);
+    else if (upload.type === "expense") await runExpense(upload, buffer, cachedRaw);
+    else if (upload.type === "z_report") await runZReport(upload, buffer, cachedRaw);
     else if (upload.type === "dealer_daily_report") await runDealerDailyReport(upload, buffer, opts);
   } catch (e) {
     const raw = e instanceof Error ? e.message : String(e);
@@ -239,6 +249,27 @@ export async function processUpload(
     const phase1 = await screening.catch(() => null);
     await applyAuthenticity(upload, phase1);
   }
+}
+
+/**
+ * Aynı dosyanın (SHA-256) daha önce okunmuş ham OCR çıktısı — aynı tür, bu kayıt
+ * hariç, en yenisi. Sahtecilik kararı da taşınır (görsel inceleme de kredidir).
+ * Ham çıktıya `ocr_cached_from` eklenir; denetimde "model çağrılmadı" görünür.
+ */
+async function cachedOcrFor(upload: Upload): Promise<{ raw: unknown; from: string; authenticity: Prisma.UploadUpdateInput | null } | null> {
+  if (!upload.file_hash) return null;
+  const prev = await prisma.upload.findFirst({
+    where: { file_hash: upload.file_hash, type: upload.type, id: { not: upload.id }, raw_ocr_json: { not: Prisma.DbNull } },
+    orderBy: { uploaded_at: "desc" },
+    select: { id: true, raw_ocr_json: true, authenticity_verdict: true, authenticity_json: true, authenticity_checked_at: true, authenticity_cleared_by: true },
+  });
+  if (!prev?.raw_ocr_json || typeof prev.raw_ocr_json !== "object") return null;
+  const { ocr_cached_from: _ignored, ...base } = prev.raw_ocr_json as Record<string, unknown>;
+  void _ignored;
+  const authenticity: Prisma.UploadUpdateInput | null = prev.authenticity_verdict
+    ? { authenticity_verdict: prev.authenticity_verdict, authenticity_json: (prev.authenticity_json ?? undefined) as Prisma.InputJsonValue | undefined, authenticity_checked_at: prev.authenticity_checked_at, authenticity_cleared_by: prev.authenticity_cleared_by }
+    : null;
+  return { raw: { ...base, ocr_cached_from: prev.id }, from: prev.id, authenticity };
 }
 
 /**
@@ -292,8 +323,8 @@ async function downloadUpload(upload: Upload): Promise<Buffer | null> {
   return Buffer.from(await blob.arrayBuffer());
 }
 
-async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
-  const { raw, parsed } = await parsePosSlip({ buffer, mimeType: upload.mime_type });
+async function runPosSlip(upload: Upload, buffer: Buffer, cachedRaw?: unknown): Promise<void> {
+  const { raw, parsed } = await parsePosSlip({ buffer, mimeType: upload.mime_type, cachedRaw });
   await stashRaw(upload.id, raw);
 
   if (!parsed.is_pos_slip) {
@@ -488,11 +519,8 @@ async function runPosSlip(upload: Upload, buffer: Buffer): Promise<void> {
   await markParsed(upload.id, rawOut, parsed);
 }
 
-async function runStoreSummary(upload: Upload, buffer: Buffer): Promise<void> {
-  const { raw, parsed } = await parseStoreSummary({
-    buffer,
-    mimeType: upload.mime_type,
-  });
+async function runStoreSummary(upload: Upload, buffer: Buffer, cachedRaw?: unknown): Promise<void> {
+  const { raw, parsed } = await parseStoreSummary({ buffer, mimeType: upload.mime_type, cachedRaw });
   await stashRaw(upload.id, raw);
   if (!parsed.is_store_summary) {
     throw new Error(
@@ -939,11 +967,8 @@ async function assertNebimNetMatch(
   );
 }
 
-async function runBankReceipt(upload: Upload, buffer: Buffer): Promise<void> {
-  const { raw, parsed } = await parseBankReceipt({
-    buffer,
-    mimeType: upload.mime_type,
-  });
+async function runBankReceipt(upload: Upload, buffer: Buffer, cachedRaw?: unknown): Promise<void> {
+  const { raw, parsed } = await parseBankReceipt({ buffer, mimeType: upload.mime_type, cachedRaw });
   await stashRaw(upload.id, raw);
   if (!parsed.is_bank_receipt) {
     throw new Error(
@@ -1010,8 +1035,8 @@ async function runBankReceipt(upload: Upload, buffer: Buffer): Promise<void> {
   await markParsed(upload.id, raw, parsed);
 }
 
-async function runExpense(upload: Upload, buffer: Buffer): Promise<void> {
-  const { raw, parsed } = await parseExpense({ buffer, mimeType: upload.mime_type });
+async function runExpense(upload: Upload, buffer: Buffer, cachedRaw?: unknown): Promise<void> {
+  const { raw, parsed } = await parseExpense({ buffer, mimeType: upload.mime_type, cachedRaw });
   await stashRaw(upload.id, raw);
   if (!parsed.is_expense) {
     throw new Error(
@@ -1104,11 +1129,8 @@ async function runExpense(upload: Upload, buffer: Buffer): Promise<void> {
   await relinkInvoicesForExpense(prisma, saved.id);
 }
 
-async function runZReport(upload: Upload, buffer: Buffer): Promise<void> {
-  const { raw, parsed } = await parseZReport({
-    buffer,
-    mimeType: upload.mime_type,
-  });
+async function runZReport(upload: Upload, buffer: Buffer, cachedRaw?: unknown): Promise<void> {
+  const { raw, parsed } = await parseZReport({ buffer, mimeType: upload.mime_type, cachedRaw });
   await stashRaw(upload.id, raw);
 
   if (!parsed.is_z_report) {

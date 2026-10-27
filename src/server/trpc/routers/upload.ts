@@ -109,6 +109,24 @@ export const uploadRouter = router({
         });
       }
 
+      // KREDİ KORUMASI (sahibi 27.10.2026): aynı dosya AYNI güne daha önce yüklenip
+      // reddedildiyse ikinci kez kabul edilmez — "Yeniden analiz et" var. Başka güne
+      // (yanlış gün düzeltmesi) yüklenebilir; o zaman model çağrılmaz, önceki okuma kullanılır.
+      const failedSameDay = await ctx.prisma.upload.findFirst({
+        where: { file_hash, status: "failed", daily_record_id: dr.id },
+        select: { error_message: true, uploaded_at: true },
+        orderBy: { uploaded_at: "desc" },
+      });
+      if (failedSameDay) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            `Bu dosya bu güne zaten yüklendi ve reddedildi (${failedSameDay.uploaded_at.toLocaleString("tr-TR", { timeZone: "Europe/Nicosia" })}): ` +
+            `${(failedSameDay.error_message ?? "neden kayıtlı değil").slice(0, 160)} — Aynı dosyayı tekrar yüklemeyin; ` +
+            `listedeki "Yeniden analiz et" düğmesini kullanın ya da belge başka güne aitse o güne yükleyin.`,
+        });
+      }
+
       const path = buildUploadPath({
         storeId: input.store_id,
         dailyRecordId: dr.id,
