@@ -21,6 +21,8 @@ import {
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { OptimumShareCard } from "@/components/shared/optimum-share-card";
+import { fmtShare, type OptimumShare } from "@/lib/optimum-share";
 
 const TRY_FORMATTER = new Intl.NumberFormat("tr-TR", {
   minimumFractionDigits: 2,
@@ -62,6 +64,8 @@ type DayRecord = {
   } | null;
   merge_group_id?: string | null;
   merge_index?: number | null;
+  /** Optimum payı (sahibi, 29.10.2026) — düşükse gün kartında amber rozet. */
+  optimum?: OptimumShare | null;
   _count: {
     pos_slips: number;
     bank_receipts: number;
@@ -320,6 +324,16 @@ function FilledDayRow({
         </div>
 
         <div className="sm:col-span-2 flex items-center justify-end gap-2">
+          {record.optimum?.status === "low" ? (
+            <Badge
+              variant="secondary"
+              className="bg-amber-100 text-amber-800 text-xs gap-1"
+              title={`Optimum cihazı (Yapı Kredi + Koopbank) ${fmt(record.optimum.optimum)} ₺ ↔ diğer bankalar ${fmt(record.optimum.other)} ₺ — Optimum diğerlerini geçmeli`}
+            >
+              <AlertTriangle className="h-3 w-3" />
+              Optimum {fmtShare(record.optimum.share)}
+            </Badge>
+          ) : null}
           <Badge variant="secondary" className={`${badgeMeta.color} text-xs`}>
             {badgeMeta.label}
           </Badge>
@@ -405,6 +419,11 @@ function FilledDayRow({
                       );
                     })}
                   </div>
+                </div>
+              ) : null}
+              {record.optimum && record.optimum.status !== "no_pos" ? (
+                <div className="mb-3">
+                  <OptimumShareCard share={record.optimum} compact />
                 </div>
               ) : null}
               {previewQuery.isLoading ? (

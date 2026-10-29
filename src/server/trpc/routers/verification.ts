@@ -7,6 +7,7 @@ import {
   persistVerification,
 } from "@/server/services/verification/compute";
 import { computeNebimDaySummary } from "@/server/services/nebim/day-summary";
+import { optimumShareOfRecords } from "@/server/services/verification/optimum-share";
 
 export const verificationRouter = router({
   /**
@@ -33,6 +34,8 @@ export const verificationRouter = router({
           // Merged days ("Gün Birleşmesi") are shown as ONE card on the
           // verification page; each day still reports its own documents.
           merge_group: { select: { start_date: true, end_date: true } },
+          // Optimum payı rozeti için (sahibi, 29.10.2026): banka bazında POS gün sonları.
+          pos_slips: { select: { bank_name: true, net_amount_try: true, upload: { select: { status: true } } } },
           _count: {
             select: {
               pos_slips: true,
@@ -44,7 +47,18 @@ export const verificationRouter = router({
           },
         },
       });
-      return records;
+      // Optimum payı: birleşik günlerde grubun (bu ayda listelenen) tüm fişleri birlikte.
+      const byGroup = new Map<string, typeof records>();
+      for (const r of records) {
+        if (!r.merge_group_id) continue;
+        const g = byGroup.get(r.merge_group_id) ?? [];
+        g.push(r);
+        byGroup.set(r.merge_group_id, g);
+      }
+      return records.map(({ pos_slips: _slips, ...r }) => ({
+        ...r,
+        optimum: optimumShareOfRecords(r.merge_group_id ? (byGroup.get(r.merge_group_id) ?? []) : [{ pos_slips: _slips }]),
+      }));
     }),
 
   /**

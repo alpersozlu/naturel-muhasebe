@@ -17,6 +17,7 @@ import {
   persistVerification,
 } from "@/server/services/verification/compute";
 import { computeNebimDaySummary } from "@/server/services/nebim/day-summary";
+import { computeOptimumShare } from "@/server/services/verification/optimum-share";
 import { loadInvoiceNets, matchCorporateToInvoices, type CorporateNebimCheck } from "@/server/services/nebim/corporate-check";
 
 const dailyAdmin = withAudit("DailyRecord");
@@ -322,6 +323,7 @@ export const dailyRecordRouter = router({
           merge: null,
           verification: null,
           nebim_summary: null,
+          optimum: null,
         };
       }
 
@@ -390,6 +392,9 @@ export const dailyRecordRouter = router({
 
       // NEBİM canlı server karşılaştırması (3. kontrol — Derimod). Varsa hesapla.
       const nebimSummary = await computeNebimDaySummary(ctx.prisma, dr.id);
+      // Optimum payı (sahibi, 29.10.2026): Yapı Kredi + Koopbank gün sonları
+      // diğer bankaları geçmeli; geçmiyorsa kapatmadan önce uyarı (engel değil).
+      const optimum = await computeOptimumShare(ctx.prisma, dr.id);
 
       let status:
         | "empty"
@@ -439,6 +444,7 @@ export const dailyRecordRouter = router({
         reconciliation_notes: dr.reconciliation_notes,
         reconciliation_notes_at: dr.reconciliation_notes_at,
         nebim_summary: nebimSummary,
+        optimum,
         // Gün birleşmesi bağlamı (varsa) — panel grup bilgisini gösterir
         merge: dr.merge_group
           ? {

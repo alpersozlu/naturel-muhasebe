@@ -25,6 +25,8 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { incompleteNotice, summaryCheck, summaryWaivedHere } from "./merge-wording";
+import { OptimumShareCard } from "@/components/shared/optimum-share-card";
+import { fmtShare, type OptimumShare } from "@/lib/optimum-share";
 import {
   Dialog,
   DialogContent,
@@ -313,6 +315,13 @@ export function ReconciliationPanel({
           </div>
         ) : null}
 
+        {/* Optimum payı (sahibi, 29.10.2026): Yapı Kredi + Koopbank ↔ diğer bankalar. Uyarı, engel değil. */}
+        {data.optimum && data.optimum.status !== "no_pos" ? (
+          <div className="mt-3">
+            <OptimumShareCard share={data.optimum} />
+          </div>
+        ) : null}
+
         {/* SAP Bayi Raporu vs Müdür Özeti — fark uyarı banner'ı (varsa) */}
         {v && v.rows ? <SapAlertBanner rows={v.rows} /> : null}
 
@@ -464,6 +473,17 @@ export function ReconciliationPanel({
                       `Z Visa'nın altında: ${TRY_FMT.format(zf.shortfall)} ₺ eksik. Farkı El Faturası ile tamamlayın, sonra kilitleyin.`
                     );
                     return;
+                  }
+                  // Optimum payı düşükse kapatmadan önce uyar (sahibi, 29.10.2026) — engel değil.
+                  const op = data.optimum;
+                  if (!zf && op && op.status === "low") {
+                    const goOn = await confirmDialog({
+                      title: `Optimum payı düşük (${fmtShare(op.share)}) — yine de kilitlensin mi?`,
+                      description: `Optimum cihazı (Yapı Kredi + Koopbank) ${TRY_FMT.format(op.optimum)} ₺, diğer bankalar ${TRY_FMT.format(op.other)} ₺. Kural: Optimum gün sonu toplamı diğer bankaların toplamını geçmeli; kartla ödemelerde önce Optimum cihazını kullanın. Günü yine de kapatabilirsiniz, yönetici bu günü işaretli görür.`,
+                      confirmLabel: "Yine de kilitle",
+                      destructive: true,
+                    });
+                    if (!goOn) return;
                   }
                   if (
                     await confirmDialog(
@@ -795,6 +815,8 @@ type ReconData = {
   has_bank_receipt?: boolean;
   has_gift_voucher?: boolean;
   has_expenses?: boolean;
+  /** Optimum payı (Yapı Kredi + Koopbank ↔ diğer bankalar); fiş yoksa no_pos. */
+  optimum?: OptimumShare | null;
   verification: {
     status: "match" | "mismatch" | "no_data" | "no_summary";
     /** Set when the day's total Z is below its card sales (blocks the lock). */
