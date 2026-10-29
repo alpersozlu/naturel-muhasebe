@@ -606,7 +606,7 @@ function StoreExtras({
                           </label>
                         ) : null}
                         {l.garment_eligible || l.garment_units > 0 ? (
-                          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground" title="Outlet ceketler sayılmaz (sahibi, 29.10.2026): eski sezon kodlu ve liste fiyatı 13.000 ₺ altı ceketlere giysi primi yok.">
                             giysi
                             <Input type="number" inputMode="numeric" min={0} value={d.garment_units} onChange={(e) => patch(l, { garment_units: e.target.value })} className="h-8 w-14 text-right" placeholder="0" disabled={closed} />
                             {c.garment_amount ? <span className="font-medium tabular-nums text-foreground">+{money(c.garment_amount)}</span> : <span>adet × {money(GARMENT_PREMIUM_PER_UNIT)}</span>}

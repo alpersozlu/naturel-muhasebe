@@ -22,6 +22,25 @@ export const PERFUME_PREMIUM_PER_UNIT = 50;
 /** Giysi primi — Derimod personeli, adet başına. */
 export const GARMENT_PREMIUM_PER_UNIT = 200;
 /**
+ * KURAL (sahibi, 29.10.2026): Derimod'da OUTLET CEKETLERE giysi primi VERİLMEZ.
+ * Nebim'de outlet işareti yok; tanım sahibiyle Ekim 2026 satışları üzerinde
+ * doğrulandı: eski sezon ürün kodu (ilk iki hane ≤ 23, örn "21WGD5921NC") ve
+ * liste fiyatı 13.000 ₺'nin altında (raflar 4.999,99 / 5.999,99 / 6.000 / 7.000)
+ * olan ceket = outlet. Yeni sezon (24W+) ya da liste ≥ 13.749,99 = normal ceket.
+ * Ceket/deri giysi = ürün kodunun 4. harfi "G". Giysi adedi girilirken outlet
+ * satırlar düşülür, iade −1 sayılır.
+ */
+export const OUTLET_JACKET_MAX_LIST_PRICE = 13000;
+export const OUTLET_JACKET_MAX_SEASON = 23;
+export function isJacketCode(itemCode: string | null | undefined): boolean {
+  return !!itemCode && itemCode.charAt(3).toUpperCase() === "G";
+}
+export function isOutletJacket(itemCode: string | null | undefined, listPrice: number): boolean {
+  if (!isJacketCode(itemCode)) return false;
+  const season = Number(itemCode!.slice(0, 2));
+  return Number.isFinite(season) && season <= OUTLET_JACKET_MAX_SEASON && Math.abs(listPrice) < OUTLET_JACKET_MAX_LIST_PRICE;
+}
+/**
  * Çalışma izni yıllık maliyeti; erken ayrılan kalan ayları öder (ay bazında).
  * KURAL (sahibi, 02.10.2026): bir yıldan uzun süredir çalışanlardan çalışma izni
  * ücreti KESİLMEZ; yalnız ilk yılındakilerden tek seferde kesilir.
