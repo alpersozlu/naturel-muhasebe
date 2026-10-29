@@ -25,6 +25,7 @@ import { overtimeApplyDecision } from "./overtime-apply";
 import { EntryDialog, type EntryKind } from "./entry-dialog";
 import { KolayikPanel } from "./kolayik-panel";
 import { SundayAuditPanel } from "./sunday-audit";
+import { IkPanel } from "./ik-panel";
 import { PerformanceDocs, type PerformanceDocsHandle } from "./performance-docs";
 import type { KolayikMonth } from "@/server/services/kolayik/payroll-sync";
 
@@ -295,6 +296,7 @@ export function ExtrasGrid({
 
       <KolayikPanel data={kolay.data} loading={kolay.isFetching} queryError={kolay.error?.message ?? null} onRefresh={() => void kolay.refetch()} />
       {kolay.data?.configured ? <SundayAuditPanel year={data.period.year} month={data.period.month} /> : null}
+      <IkPanel periodId={data.period.id} closed={closed} onChanged={onChanged} />
 
       {data.stores.map((s) => (
         <StoreExtras

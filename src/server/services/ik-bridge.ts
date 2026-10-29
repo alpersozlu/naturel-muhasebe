@@ -45,8 +45,27 @@ export type IkPayrollRow = {
   workedRestDays: number;
 };
 
+/**
+ * Kalem kalem İK kararları (kimlikle): devamsızlık kesintisi ve nakde çevrilen
+ * izin. Maaşlar her kalemi bir kez aktarır (PayrollEntry.reference =
+ * "naturel-ik:<id>"); İK'da geri alınan kalem status "cancelled" gelir.
+ */
+export type IkPayrollItem = {
+  id: string;
+  type: "absence_deduction" | "leave_payout";
+  employeeId: string;
+  status: "active" | "cancelled";
+  days: number;
+  amount: number;
+  start: string;
+  end: string;
+  reason: string;
+  detail: string;
+  note: string | null;
+};
+
 /** Ayın onaylı mesaisi / ücretsiz izinleri — Maaşlar ekranında öneri olarak (Kolay İK okumasının yerine). */
-export async function fetchIkPayrollMonth(year: number, month: number): Promise<{ restDayMultiplier: number; rows: IkPayrollRow[] }> {
+export async function fetchIkPayrollMonth(year: number, month: number): Promise<{ restDayMultiplier: number; rows: IkPayrollRow[]; items?: IkPayrollItem[] }> {
   const url = process.env.IK_URL;
   if (!url || !process.env.BRIDGE_SECRET) throw new Error("İK köprüsü ayarlı değil (IK_URL / BRIDGE_SECRET).");
   const body = JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 120, op: "payroll_month", year, month });

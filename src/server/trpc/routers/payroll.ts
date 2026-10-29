@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { router, adminProcedure } from "../trpc";
 import { withAudit } from "../middleware/audit";
@@ -45,6 +46,7 @@ import { batchChannelError, batchTitle, inBatchList, periodLabel } from "@/serve
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
 import { carryForwardCore } from "@/server/services/payroll/carry";
 import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
+import { IK_REF_PREFIX, ikPayrollItems } from "@/server/services/payroll/ik-items";
 import { kolayikAdvanceRequests, kolayikLeaveStatus, kolayikMonth, kolayikSundayAudit } from "@/server/services/kolayik/payroll-sync";
 import {
   biPdfPagesOf,
@@ -405,6 +407,47 @@ export const payrollRouter = router({
     leaveStatus: adminProcedure.input(idSchema).query(({ ctx, input }) => kolayikLeaveStatus(ctx.prisma, input.id)),
     /** Ayın pazarları: kim çalıştı, karşılığındaki hak gününü kullandı mı (kolayik/sunday-audit.ts). */
     sundayAudit: adminProcedure.input(periodKeySchema).query(({ ctx, input }) => kolayikSundayAudit(ctx.prisma, input.year, input.month)),
+  }),
+
+  // ── Naturel İK (köprü) — devamsızlık kesintisi, nakde çevrilen izin ────────
+  ik: router({
+    /** Ayın İK kalemleri ve Maaşlar'daki durumu (ik-items.ts). */
+    items: adminProcedure.input(periodIdSchema).query(({ ctx, input }) => ikPayrollItems(ctx.prisma, input.period_id)),
+    /**
+     * Bir kalemi bordroya kayıt olarak ekle. Kalem İK'dan yeniden okunur
+     * (istemciye güvenilmez); her kalem bir kez — reference "naturel-ik:<id>".
+     * Devamsızlık → kesinti; nakde çevrilen izin yalnız "Maaşla öde" ile ek hak ediş.
+     */
+    transfer: entryAudited
+      .input(z.object({ period_id: z.string().uuid(), item_id: z.string().min(3).max(80) }))
+      .mutation(async ({ ctx, input }) => {
+        const period = await ctx.prisma.payrollPeriod.findUniqueOrThrow({ where: { id: input.period_id } });
+        if (period.status === "closed") throw new TRPCError({ code: "BAD_REQUEST", message: "Kapalı ay — önce dönemi yeniden aç." });
+        const view = await ikPayrollItems(ctx.prisma, input.period_id);
+        if (view.error) throw new TRPCError({ code: "BAD_REQUEST", message: `İK okunamadı: ${view.error}` });
+        const it = view.items.find((x) => x.id === input.item_id);
+        if (!it) throw new TRPCError({ code: "NOT_FOUND", message: "Kalem İK'da bulunamadı (geri alınmış olabilir)." });
+        if (it.state !== "pending") throw new TRPCError({ code: "BAD_REQUEST", message: it.state === "transferred" ? "Bu kalem zaten aktarılmış." : "Bu kalem İK'da geri alınmış." });
+        if (!it.lineId) throw new TRPCError({ code: "BAD_REQUEST", message: "Bu kişinin bu ayda bordro satırı yok." });
+        if (!(it.amount > 0)) throw new TRPCError({ code: "BAD_REQUEST", message: "Tutar 0 — aktarılacak bir şey yok." });
+        const line = await ctx.prisma.payrollLine.findUniqueOrThrow({ where: { id: it.lineId } });
+        const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Nicosia" }).format(new Date());
+        return ctx.prisma.payrollEntry.create({
+          data: {
+            line_id: line.id,
+            period_id: line.period_id,
+            employee_id: line.employee_id,
+            kind: it.type === "absence_deduction" ? "deduction" : "addition",
+            category: it.type === "absence_deduction" ? "other" : "leave_payout",
+            entry_date: dateOnly(today),
+            amount: it.amount,
+            note: it.entryNote,
+            reference: `${IK_REF_PREFIX}${it.id}`,
+            created_by: ctx.user.id,
+            created_by_name: ctx.user.full_name ?? ctx.user.email,
+          },
+        });
+      }),
   }),
 
   // ── Personel ───────────────────────────────────────────────────────────────
