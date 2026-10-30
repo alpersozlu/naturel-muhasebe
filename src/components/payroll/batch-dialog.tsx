@@ -135,13 +135,6 @@ export function BatchDialog({
   const items = useMemo(() => selectedItems(rows ?? [], checked, amounts), [rows, checked, amounts]);
   const total = sumAmounts(items);
   const groups = useMemo(() => groupByStore(rows ?? [], storeOrder), [rows, storeOrder]);
-  // Nakit dağıtımı için: seçili tutarların mağaza mağaza toplamı
-  const storeChips = groups
-    .map((g) => {
-      const sel = selectedItems(g.rows, checked, amounts);
-      return { store: g.store, count: sel.length, total: sumAmounts(sel) };
-    })
-    .filter((c) => c.count > 0);
   const doneStores = storeOrder.filter((s) => done[s]);
   const doneCount = doneStores.reduce((s, k) => s + done[k].count, 0);
   const doneTotal = sumAmounts(doneStores.map((k) => ({ amount: done[k].total })));
@@ -169,10 +162,9 @@ export function BatchDialog({
         <td className="py-2">
           <div className="font-medium">{r.full_name}</div>
           <div className="text-[11px] text-muted-foreground">
-            {r.store_name}
-            {isGaranti ? ` · ${r.bank_name}` : ""}
-            {!r.has_bank_details && isGaranti ? " · hesap eksik" : ""}
-            {r.for_next_month ? " · gelecek ayın maaşı" : ""}
+            {[isGaranti ? r.bank_name : null, !r.has_bank_details && isGaranti ? "hesap eksik" : null, r.for_next_month ? "gelecek ayın maaşı" : null]
+              .filter(Boolean)
+              .join(" · ")}
           </div>
           {r.note ? <div className="text-[11px] text-amber-800">{r.note}</div> : null}
           {r.pending_note ? <div className="text-[11px] text-rose-700">{r.pending_note}</div> : null}
@@ -282,16 +274,6 @@ export function BatchDialog({
               </div>
             </div>
 
-            {choice.channel === "cash" && !perStore && storeChips.length > 1 ? (
-              <div className="flex flex-wrap gap-2 text-xs">
-                {storeChips.map((c) => (
-                  <span key={c.store} className="rounded-full bg-muted px-2.5 py-1 tabular-nums">
-                    {c.store}: {c.count} kişi · <b>{money(c.total)} ₺</b>
-                  </span>
-                ))}
-              </div>
-            ) : null}
-
             {missingBank > 0 && isGaranti ? (
               <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">
                 <AlertTriangle className="h-4 w-4" />
@@ -348,8 +330,9 @@ export function BatchDialog({
                   </tr>
                 </thead>
                 <tbody>
-                  {perStore
-                    ? groups
+                  {/* Her pencere mağaza mağaza gruplu (sahibi, 30.10.2026: "mağaza mağaza görmek
+                      beni rahatlatır"); "Bu mağaza ödendi" düğmesi yalnız Ödeme 2 nakitte. */}
+                  {groups
                         .filter((g) => g.rows.length > 0 || done[g.store])
                         .map((g) => {
                           const sel = selectedItems(g.rows, checked, amounts);
@@ -378,11 +361,12 @@ export function BatchDialog({
                                     <span className="font-semibold">{g.store}</span>
                                     {g.rows.length > 0 ? (
                                       <span className="text-xs text-muted-foreground tabular-nums">
-                                        {sel.length} kişi · <b className="text-foreground">{money(sumAmounts(sel))} ₺</b>
+                                        {sel.length}{sel.length !== g.rows.length ? ` / ${g.rows.length}` : ""} kişi ·{" "}
+                                        <b className="text-foreground">{money(sumAmounts(sel))} ₺</b>
                                       </span>
                                     ) : null}
                                     {done[g.store] ? donePill(g.store) : null}
-                                    {g.rows.length > 0 ? (
+                                    {perStore && g.rows.length > 0 ? (
                                       <Button
                                         size="sm"
                                         variant="secondary"
@@ -400,8 +384,7 @@ export function BatchDialog({
                               {g.rows.map(renderRow)}
                             </Fragment>
                           );
-                        })
-                    : rows.map(renderRow)}
+                        })}
                 </tbody>
               </table>
             )}
