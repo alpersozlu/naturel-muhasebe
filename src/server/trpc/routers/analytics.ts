@@ -3,7 +3,7 @@ import {
   analyticsFilterSchema,
   expenseFilterSchema,
 } from "@/lib/zod-schemas/analytics";
-import { revenueSummary } from "@/server/services/analytics/revenue";
+import { emptyRevenueSummary, revenueSummary } from "@/server/services/analytics/revenue";
 import { expenseSummary } from "@/server/services/analytics/expense";
 import {
   bankCommissionSummary,
@@ -66,23 +66,7 @@ export const analyticsRouter = router({
       if (!isAdmin(ctx.user) && !filter.store_id && !filter.brand_id) {
         const ids = await getAccessibleStoreIds(ctx.user);
         if (ids.length === 0) {
-          return {
-            total: 0,
-            cash: 0,
-            pos: 0,
-            loyalty: 0,
-            daily_avg: 0,
-            active_days: 0,
-            daily_series: [],
-            by_store: [],
-            by_bank: [],
-            prev_month_total: 0,
-            prev_year_total: 0,
-            sparkline: [],
-            cash_ratio_trend: [],
-            by_brand: [],
-            weekday_pattern: [],
-          };
+          return emptyRevenueSummary();
         }
         filter.store_id = ids[0];
       }

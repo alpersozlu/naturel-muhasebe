@@ -2,7 +2,7 @@ import "server-only";
 import { effectiveSummary, cumulativePrevSummarySelect } from "@/server/services/verification/effective-summary";
 import type { PrismaClient } from "@prisma/client";
 import type { AnalyticsFilter } from "@/lib/zod-schemas/analytics";
-import { canonicalBankName } from "@/lib/bank-names";
+import { canonicalBankName, cardplusVia, CARDPLUS } from "@/lib/bank-names";
 
 export type RevenueSummary = {
   // ---- Core (current month) ----
@@ -21,7 +21,33 @@ export type RevenueSummary = {
     pos: number;
     loyalty: number;
   }>;
-  by_bank: Array<{ bank_name: string; total: number }>;
+  /** POS fişlerinden (özetten değil). `parts`: CardPlus satırının hangi banka üzerinden geçtiği. */
+  by_bank: Array<{ bank_name: string; total: number; count: number; parts?: Array<{ label: string; total: number }> }>;
+  /** Cari ay POS fişleri toplamı — özetlerdeki kart toplamıyla (pos) mutabakat için. */
+  bank_slips_total: number;
+  /** Nakit ve kart dışı ödemeler: Kartuş, çek, havale… (total − cash − pos). */
+  other: number;
+
+  // ---- Veri kapsamı ----
+  coverage: {
+    /** Ay sürüyorsa düne kadar geçen gün (bugünün verisi varsa bugün dahil), bittiyse ayın gün sayısı. */
+    elapsed_days: number;
+    ongoing: boolean;
+    stores: Array<{ store_id: string; store_name: string; days: number; first_day: number; last_day: number }>;
+  };
+  /**
+   * Karşılaştırmalar AYNI GÜN ARALIĞINDA yapılır (ay sürüyorsa 1..son veri
+   * günü) ve iki tarafta da yüklenmiş mağaza-günü yeterliyse "comparable".
+   * Eylül 2026 gibi sisteme kısmen girilmiş bir ay +%362 gibi anlamsız bir
+   * artış gösteriyordu (30.10.2026 denetimi).
+   */
+  compare: {
+    window_end_day: number;
+    current_total: number;
+    current_store_days: number;
+    mom: CompareSide;
+    yoy: CompareSide;
+  };
 
   // ---- Trends ----
   /** Aynı filtre kapsamı, geçen ayın toplam cirosu */
@@ -41,12 +67,45 @@ export type RevenueSummary = {
     cash: number;
     pos: number;
     prev_month_total: number;
+    /** Aynı gün aralığında geçen ay + karşılaştırılabilir mi */
+    mom: CompareSide;
     sparkline: Array<{ month_key: string; total: number }>;
     stores: Array<{ store_id: string; store_name: string; total: number; cash: number; pos: number }>;
   }>;
   /** Pzt (0) → Pzr (6) sıralı, sadece cari ay */
   weekday_pattern: Array<{ dow: number; label: string; total: number; days: number; avg: number }>;
 };
+
+export type CompareSide = {
+  /** Aynı gün aralığında karşılaştırılan dönemin cirosu */
+  prev_total: number;
+  prev_store_days: number;
+  /** Değişim oranı (0,12 = %12) — yalnız comparable ise */
+  change: number | null;
+  comparable: boolean;
+};
+
+/** Karşılaştırılan dönemin mağaza-günü bu dönemin en az bu kadarı olmalı. */
+const COMPARABLE_COVERAGE = 0.8;
+
+function compareSide(curTotal: number, curStoreDays: number, prevTotal: number, prevStoreDays: number): CompareSide {
+  const comparable = prevStoreDays > 0 && prevTotal > 0 && prevStoreDays >= curStoreDays * COMPARABLE_COVERAGE;
+  return {
+    prev_total: prevTotal,
+    prev_store_days: prevStoreDays,
+    change: comparable ? (curTotal - prevTotal) / prevTotal : null,
+    comparable,
+  };
+}
+
+/** Europe/Istanbul takvim günü (KKTC = TR saati). */
+function todayParts(): { y: number; m: number; d: number } {
+  const [y, m, d] = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" })
+    .format(new Date())
+    .split("-")
+    .map(Number) as [number, number, number];
+  return { y, m, d };
+}
 
 function num(v: { toNumber: () => number } | null | undefined): number {
   return v ? v.toNumber() : 0;
@@ -65,6 +124,33 @@ function monthKey(date: Date): string {
 
 function ymKey(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+const noCompare: CompareSide = { prev_total: 0, prev_store_days: 0, change: null, comparable: false };
+
+/** Erişebildiği mağaza olmayan kullanıcı için boş özet. */
+export function emptyRevenueSummary(): RevenueSummary {
+  return {
+    total: 0,
+    cash: 0,
+    pos: 0,
+    loyalty: 0,
+    daily_avg: 0,
+    active_days: 0,
+    daily_series: [],
+    by_store: [],
+    by_bank: [],
+    bank_slips_total: 0,
+    other: 0,
+    coverage: { elapsed_days: 0, ongoing: false, stores: [] },
+    compare: { window_end_day: 0, current_total: 0, current_store_days: 0, mom: noCompare, yoy: noCompare },
+    prev_month_total: 0,
+    prev_year_total: 0,
+    sparkline: [],
+    cash_ratio_trend: [],
+    by_brand: [],
+    weekday_pattern: [],
+  };
 }
 
 export async function revenueSummary(
@@ -134,6 +220,18 @@ export async function revenueSummary(
     () => ({ total: 0, daySet: new Set<string>() })
   );
 
+  // Gün düzeyinde: ay → gün → { ciro, mağaza-günü } (genel ve marka başına) —
+  // aynı gün aralığında karşılaştırma için.
+  type DayCell = { total: number; stores: Set<string> };
+  const dayAll: Record<string, Record<number, DayCell>> = {};
+  const dayByBrand: Record<string, Record<string, Record<number, DayCell>>> = {};
+  const addDay = (bag: Record<string, Record<number, DayCell>>, mk: string, d: number, store: string, amount: number) => {
+    const cell = ((bag[mk] ??= {})[d] ??= { total: 0, stores: new Set() });
+    cell.total += amount;
+    cell.stores.add(store);
+  };
+  const coverageMap: Record<string, { name: string; days: Set<number> }> = {};
+
   for (const s of extSummaries) {
     const date = s.daily_record.date;
     const mk = monthKey(date);
@@ -146,6 +244,9 @@ export async function revenueSummary(
     const brandId = s.daily_record.store.brand_id;
     const brandName = s.daily_record.store.brand.name;
     brandNames[brandId] = brandName;
+
+    addDay(dayAll, mk, date.getUTCDate(), s.daily_record.store_id, sTotal);
+    addDay((dayByBrand[brandId] ??= {}), mk, date.getUTCDate(), s.daily_record.store_id, sTotal);
 
     // All-stores monthly bucket
     monthlyAll[mk] ??= { total: 0, cash: 0, pos: 0 };
@@ -168,6 +269,7 @@ export async function revenueSummary(
       pos += sCC;
       loyalty += sLoyalty;
       activeDays.add(date.toISOString());
+      (coverageMap[s.daily_record.store_id] ??= { name: s.daily_record.store.name, days: new Set() }).days.add(dayN);
 
       daily[dayN] ??= { cash: 0, pos: 0, total: 0 };
       daily[dayN].cash += sCash;
@@ -200,10 +302,19 @@ export async function revenueSummary(
   }
 
   // ---- Bank breakdown (current month) ----
-  const byBankMap: Record<string, number> = {};
+  const byBankMap: Record<string, { total: number; count: number; parts: Record<string, number> }> = {};
+  let bank_slips_total = 0;
   for (const p of posSlips) {
     const bank = canonicalBankName(p.bank_name);
-    byBankMap[bank] = (byBankMap[bank] ?? 0) + num(p.net_amount_try);
+    const amount = num(p.net_amount_try);
+    const b = (byBankMap[bank] ??= { total: 0, count: 0, parts: {} });
+    b.total += amount;
+    b.count += 1;
+    if (bank === CARDPLUS) {
+      const via = cardplusVia(p.bank_name) ?? "banka yazmıyor";
+      b.parts[via] = (b.parts[via] ?? 0) + amount;
+    }
+    bank_slips_total += amount;
   }
 
   // ---- Daily series (current month, zero-filled) ----
@@ -227,7 +338,12 @@ export async function revenueSummary(
     .sort((a, b) => b.total - a.total);
 
   const by_bank = Object.entries(byBankMap)
-    .map(([bank_name, t]) => ({ bank_name, total: t }))
+    .map(([bank_name, v]) => {
+      const parts = Object.entries(v.parts)
+        .map(([label, total]) => ({ label, total }))
+        .sort((a, b) => b.total - a.total);
+      return { bank_name, total: v.total, count: v.count, ...(parts.length ? { parts } : {}) };
+    })
     .sort((a, b) => b.total - a.total);
 
   // ---- Sparkline: last 12 months, oldest → newest ----
@@ -268,8 +384,49 @@ export async function revenueSummary(
   const prevYearKey = ymKey(filter.year - 1, filter.month);
   const prev_year_total = monthlyAll[prevYearKey]?.total ?? 0;
 
-  // ---- By brand (current month + prev + 12-month spark) ----
+  // ---- Aynı gün aralığında karşılaştırma + kapsam ----
   const currentKey = ymKey(filter.year, filter.month);
+  const today = todayParts();
+  const ongoing = today.y === filter.year && today.m === filter.month;
+  const future = today.y < filter.year || (today.y === filter.year && today.m < filter.month);
+  const dataDays = Object.keys(dayAll[currentKey] ?? {}).map(Number);
+  const window_end_day = ongoing ? Math.max(0, ...dataDays) || today.d : daysInMonth;
+  // Gün sonu ertesi gün yüklenir: süren ayda bugün henüz eksik sayılmaz.
+  const elapsed_days = future ? 0 : ongoing ? Math.max(window_end_day, today.d - 1, 1) : daysInMonth;
+  /** Ayın 1..cutoff günleri: ciro + mağaza-günü. cutoff ≥ ayın uzunluğu ise tüm ay. */
+  const windowOf = (bag: Record<string, Record<number, DayCell>>, mk: string, cutoff: number) => {
+    let total = 0;
+    let storeDays = 0;
+    for (const [d, cell] of Object.entries(bag[mk] ?? {})) {
+      if (Number(d) > cutoff) continue;
+      total += cell.total;
+      storeDays += cell.stores.size;
+    }
+    return { total, storeDays };
+  };
+  const cutoff = ongoing ? window_end_day : 31;
+  const curWin = windowOf(dayAll, currentKey, cutoff);
+  const momWin = windowOf(dayAll, prevMonthKey, cutoff);
+  const yoyWin = windowOf(dayAll, prevYearKey, cutoff);
+  const compare: RevenueSummary["compare"] = {
+    window_end_day,
+    current_total: curWin.total,
+    current_store_days: curWin.storeDays,
+    mom: compareSide(curWin.total, curWin.storeDays, momWin.total, momWin.storeDays),
+    yoy: compareSide(curWin.total, curWin.storeDays, yoyWin.total, yoyWin.storeDays),
+  };
+  const coverage: RevenueSummary["coverage"] = {
+    elapsed_days,
+    ongoing,
+    stores: Object.entries(coverageMap)
+      .map(([store_id, v]) => {
+        const days = Array.from(v.days).sort((a, b) => a - b);
+        return { store_id, store_name: v.name, days: days.length, first_day: days[0] ?? 0, last_day: days[days.length - 1] ?? 0 };
+      })
+      .sort((a, b) => a.store_name.localeCompare(b.store_name, "tr")),
+  };
+
+  // ---- By brand (current month + prev + 12-month spark) ----
   const by_brand = Object.entries(monthlyByBrand)
     .map(([brandId, months]) => {
       const cur = months[currentKey] ?? { total: 0, cash: 0, pos: 0 };
@@ -290,6 +447,8 @@ export async function revenueSummary(
           pos: v.pos,
         }))
         .sort((a, b) => b.total - a.total);
+      const bCur = windowOf(dayByBrand[brandId] ?? {}, currentKey, cutoff);
+      const bPrev = windowOf(dayByBrand[brandId] ?? {}, prevMonthKey, cutoff);
       return {
         brand_id: brandId,
         brand_name: brandNames[brandId] ?? "—",
@@ -297,6 +456,7 @@ export async function revenueSummary(
         cash: cur.cash,
         pos: cur.pos,
         prev_month_total: prev,
+        mom: compareSide(bCur.total, bCur.storeDays, bPrev.total, bPrev.storeDays),
         sparkline: brandSpark,
         stores,
       };
@@ -322,6 +482,10 @@ export async function revenueSummary(
     daily_series,
     by_store,
     by_bank,
+    bank_slips_total,
+    other: total - cash - pos,
+    coverage,
+    compare,
     prev_month_total,
     prev_year_total,
     sparkline,
