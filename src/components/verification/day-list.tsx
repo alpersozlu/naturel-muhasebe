@@ -6,8 +6,14 @@ import { trpc } from "@/lib/trpc";
 import { Skeleton } from "@/components/shared/skeleton";
 import { DayRow, type DayEntry } from "./day-row";
 import { MonthSummary, type ListFilter, type MonthCounts } from "./month-summary";
-import { deriveFlags, deriveStatus, type DayStatusKey } from "./status";
+import { deriveFlags, deriveStatus, type DayFlags, type DayStatusKey } from "./status";
 import { num, type DayRecord } from "./types";
+
+function needsAttention(status: DayStatusKey, flags: DayFlags, lead: DayRecord): boolean {
+  if (status === "mismatch" || status === "pending") return true;
+  if (flags.optimumLow || !!flags.sapIssue) return true;
+  return status === "locked" && lead.verification?.status === "mismatch";
+}
 
 /**
  * Doğrulama Sistemi gövdesi: tek sorgu (verification.listForMonth) hem ay
@@ -76,7 +82,8 @@ export function DayList({
       byStatus[status] += 1;
       elapsed += days.length;
       if (flags.optimumLow) optimumLow += 1;
-      if (status === "mismatch" || status === "pending" || flags.optimumLow || flags.sapIssue) attention += 1;
+      // Dikkat gereken: fark var, beklemede, SAP/Optimum sorunu ve kasa farkıyla kilitlenmiş günler (Alp, 30.10.2026: "katılsın").
+      if (needsAttention(status, flags, lead)) attention += 1;
       if (lead.store_summary) {
         salesTotal += num(lead.store_summary.sales_total_try);
         summaryDays += 1;
@@ -129,7 +136,7 @@ export function DayList({
     if (filter === "all") return true;
     if (e.kind === "gap") return filter === "empty";
     if (e.kind !== "filled") return filter === e.kind;
-    if (filter === "attention") return e.status === "mismatch" || e.status === "pending" || e.flags.optimumLow || !!e.flags.sapIssue;
+    if (filter === "attention") return needsAttention(e.status, e.flags, e.lead);
     if (filter === "optimum") return e.flags.optimumLow;
     return e.status === filter;
   });
