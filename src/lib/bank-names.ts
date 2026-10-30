@@ -16,7 +16,8 @@ const isCardplus = (s: string) => /card\s*plus/.test(s);
 export function canonicalBankName(raw: string | null | undefined): string {
   const name = (raw ?? "").trim();
   if (!name) return "Bilinmeyen";
-  const s = name.toLocaleLowerCase("tr");
+  // Büyük harfle basılan fiş: "ZIRAAT" Türkçe küçültmede "zıraat" olur — ı'yı i'ye katla.
+  const s = name.toLocaleLowerCase("tr").replace(/ı/g, "i");
   if (isCardplus(s)) return CARDPLUS;
   if (/i[sş]\s*bank/.test(s)) return "İş Bankası";
   if (/yap[ıi]/.test(s)) return "Yapı Kredi";

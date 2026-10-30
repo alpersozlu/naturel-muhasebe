@@ -20,9 +20,11 @@ import { ChartSkeleton, StatCardSkeleton } from "@/components/shared/skeleton";
 import type { CompareSide, RevenueSummary } from "@/server/services/analytics/revenue";
 
 /*
- * GELİR ANALİZİ — sakin, tek mürekkep. Seriler tek rengin üç tonudur
- * (POS koyu, nakit orta, diğer açık); metin hiçbir zaman seri rengini
- * giymez, rengin yanında hep etiket ve tutar olur. Tutarlar kuruşlu ve
+ * GELİR ANALİZİ — sakin, renkli ama ölçülü. Her renk bir varlığa bağlıdır ve
+ * sayfa boyunca aynı kalır: ödeme türleri (POS mavi, nakit yeşil, diğer
+ * turuncu) ve markalar (Mavi mor, Derimod pembe). Paletler renk körlüğü
+ * denetiminden geçti (dataviz validate_palette, 30.10.2026). Metin hiçbir
+ * zaman seri rengini giymez, rengin yanında hep etiket ve tutar olur. Tutarlar kuruşlu ve
  * kısaltmasız (yalnız eksen etiketleri kısa). Her grafiğin yanında ekran
  * okuyucu için gizli bir veri tablosu vardır. Karşılaştırmalar aynı gün
  * aralığında ve iki tarafın verisi yeterliyse yapılır (sunucu: compare).
@@ -40,13 +42,25 @@ const MONTHS = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz"
 const MONTHS_SHORT = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
 const prevMonthOf = (y: number, m: number) => (m === 1 ? { y: y - 1, m: 12 } : { y, m: m - 1 });
 
-// ───────────────── Mürekkep tonları ─────────────────
-const INK_VARS = {
-  "--ink-1": "hsl(var(--foreground))",
-  "--ink-2": "color-mix(in oklch, hsl(var(--foreground)) 42%, hsl(var(--card)))",
-  "--ink-3": "color-mix(in oklch, hsl(var(--foreground)) 16%, hsl(var(--card)))",
+// ───────────────── Renkler ─────────────────
+const VIZ_VARS = {
+  "--viz-pos": "#2a78d6",
+  "--viz-cash": "#1baf7a",
+  "--viz-other": "#eb6834",
+  "--viz-pos-soft": "#9ec5f4",
+  "--viz-mavi": "#6250d6",
+  "--viz-derimod": "#e87ba4",
+  "--viz-brand-other": "#8b8a86",
 } as CSSProperties;
-const INK = { pos: "var(--ink-1)", cash: "var(--ink-2)", other: "var(--ink-3)" } as const;
+const INK = { pos: "var(--viz-pos)", cash: "var(--viz-cash)", other: "var(--viz-other)", posSoft: "var(--viz-pos-soft)" } as const;
+/** Marka rengi markanın kendisine bağlı — sıralama değişse de değişmez. */
+function brandColor(name: string | undefined): string {
+  // "DERIMOD" Türkçe küçültmede "derımod" olur — ı'yı i'ye katla.
+  const n = (name ?? "").toLocaleLowerCase("tr").replace(/ı/g, "i");
+  if (n.includes("mavi")) return "var(--viz-mavi)";
+  if (n.includes("derimod")) return "var(--viz-derimod)";
+  return "var(--viz-brand-other)";
+}
 const AXIS_TICK = { fill: "hsl(var(--muted-foreground))", fontSize: 11 };
 const GRID = "hsl(var(--border))";
 
@@ -297,7 +311,7 @@ function Coverage({ data, month }: { data: RevenueSummary; month: number }) {
                 aria-valuenow={s.days}
                 aria-label={`${s.store_name} yüklenen gün`}
               >
-                <div className="h-full rounded-full" style={{ width: `${pct(s.days, elapsed_days)}%`, background: low ? "rgb(217 119 6)" : INK.cash }} />
+                <div className="h-full rounded-full" style={{ width: `${pct(s.days, elapsed_days)}%`, background: low ? "rgb(217 119 6)" : INK.posSoft }} />
               </div>
               {s.first_day > 1 ? (
                 <div className="mt-0.5 text-[11px] text-muted-foreground">
@@ -350,7 +364,7 @@ function Insights({ data, month, year }: { data: RevenueSummary; month: number; 
       <ul className="grid gap-2">
         {lines.map((l) => (
           <li key={l} className="flex gap-2.5 text-sm leading-relaxed text-foreground/90">
-            <span aria-hidden className="mt-2 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
+            <span aria-hidden className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: INK.pos }} />
             <span>{l}</span>
           </li>
         ))}
@@ -363,8 +377,11 @@ function Insights({ data, month, year }: { data: RevenueSummary; month: number; 
 function Stores({ data }: { data: RevenueSummary }) {
   if (data.by_store.length === 0) return null;
   const max = data.by_store[0]?.total ?? 0;
+  const brandOf = new Map(data.by_brand.flatMap((b) => b.stores.map((s) => [s.store_id, b.brand_name] as const)));
+  const brands = data.by_brand.map((b) => b.brand_name);
   return (
     <Panel title="Mağaza sıralaması" subtitle="Toplam ciroya göre · nakit payı ile">
+      {brands.length >= 2 ? <Legend items={brands.map((b) => ({ label: b, color: brandColor(b) }))} /> : null}
       <ol className="grid gap-3.5">
         {data.by_store.map((s, i) => (
           <li key={s.store_id}>
@@ -380,7 +397,7 @@ function Stores({ data }: { data: RevenueSummary }) {
             </div>
             <div className="mt-1.5 flex items-center gap-3 pl-6">
               <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full motion-safe:transition-[width] motion-safe:duration-500" style={{ width: `${pct(s.total, max)}%`, background: INK.pos }} />
+                <div className="h-full rounded-full motion-safe:transition-[width] motion-safe:duration-500" style={{ width: `${pct(s.total, max)}%`, background: brandColor(brandOf.get(s.store_id)) }} />
               </div>
               <span className="w-20 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">nakit {fmtPct(pct(s.cash, s.total))}</span>
             </div>
@@ -414,7 +431,7 @@ function Weekdays({ data }: { data: RevenueSummary }) {
             />
             <Bar dataKey="avg" maxBarSize={28} radius={[4, 4, 0, 0]} isAnimationActive={false}>
               {wd.map((w) => (
-                <Cell key={w.dow} fill={w === best ? INK.pos : INK.other} />
+                <Cell key={w.dow} fill={w === best ? INK.pos : INK.posSoft} />
               ))}
             </Bar>
           </BarChart>
@@ -441,8 +458,12 @@ function Brands({ data, month, year }: { data: RevenueSummary; month: number; ye
         {ranked.map((b) => {
           const maxStore = b.stores[0]?.total ?? 0;
           return (
-            <div key={b.brand_id} className="rounded-xl border border-border p-4">
-              <div className="text-sm font-semibold">{b.brand_name}</div>
+            <div key={b.brand_id} className="relative overflow-hidden rounded-xl border border-border p-4 pl-5">
+              <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: brandColor(b.brand_name) }} />
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Swatch color={brandColor(b.brand_name)} />
+                {b.brand_name}
+              </div>
               <div className="mt-1 text-xl font-semibold tabular-nums tracking-tight">
                 {fmt(b.total)} <span className="text-sm font-normal text-muted-foreground">₺</span>
               </div>
@@ -461,7 +482,7 @@ function Brands({ data, month, year }: { data: RevenueSummary; month: number; ye
                         <span className="shrink-0 font-medium tabular-nums">{fmt(s.total)} ₺</span>
                       </div>
                       <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
-                        <div className="h-full rounded-full" style={{ width: `${pct(s.total, maxStore)}%`, background: INK.cash }} />
+                        <div className="h-full rounded-full" style={{ width: `${pct(s.total, maxStore)}%`, background: brandColor(b.brand_name) }} />
                       </div>
                     </li>
                   ))}
@@ -498,9 +519,12 @@ function CashTrend({ data }: { data: RevenueSummary }) {
         {cr.map((c, i) => {
           const last = i === cr.length - 1;
           return (
-            <div key={c.month_key} className={cn("rounded-xl p-3 text-center", last ? "bg-muted" : "")}>
+            <div key={c.month_key} className={cn("rounded-xl border p-3 text-center", last ? "border-emerald-200 bg-emerald-50/60" : "border-transparent")}>
               <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{c.label}</div>
               <div className={cn("mt-0.5 text-lg font-semibold tabular-nums", !last && "text-muted-foreground")}>{fmtPct(c.ratio * 100)}</div>
+              <div aria-hidden className="mx-auto mt-1.5 h-1 w-16 overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full" style={{ width: `${Math.min(100, c.ratio * 100)}%`, background: INK.cash }} />
+              </div>
               <div className="text-[11px] tabular-nums text-muted-foreground">{fmt(c.cash)} ₺</div>
             </div>
           );
@@ -557,6 +581,8 @@ function Daily({ data, month }: { data: RevenueSummary; month: number }) {
                 dataKey={s.key}
                 stackId="d"
                 fill={s.color}
+                stroke="hsl(var(--card))"
+                strokeWidth={1}
                 maxBarSize={22}
                 radius={i === series.length - 1 ? [3, 3, 0, 0] : 0}
                 isAnimationActive={false}
@@ -666,7 +692,7 @@ export function RevenueView({ data, year, month }: { data: RevenueSummary; year:
     );
   }
   return (
-    <div className="space-y-4" style={INK_VARS}>
+    <div className="space-y-4" style={VIZ_VARS}>
       <Hero data={data} month={month} year={year} />
       <Coverage data={data} month={month} />
       <Insights data={data} month={month} year={year} />

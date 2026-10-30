@@ -19,6 +19,9 @@ describe("banka adları", () => {
     expect(canonicalBankName("T. İş Bankası A.Ş.")).toBe("İş Bankası");
     expect(canonicalBankName("Yapı ve Kredi Bankası")).toBe("Yapı Kredi");
     expect(canonicalBankName("ALBANK")).toBe("Albank");
+    expect(canonicalBankName("ZIRAAT BANKASI")).toBe("Ziraat Bankası");
+    expect(canonicalBankName("YAPI KREDI")).toBe("Yapı Kredi");
+    expect(canonicalBankName("TÜRKIYE İŞ BANKASI")).toBe("İş Bankası");
     expect(canonicalBankName("Nova Bank")).toBe("Nova Bank");
     expect(canonicalBankName(null)).toBe("Bilinmeyen");
   });
