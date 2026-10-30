@@ -28,7 +28,7 @@ export default function VerificationPage() {
     <div>
       <PageHeader
         title="Doğrulama Sistemi"
-        description="Mağazalar genelindeki günlük doğrulama durumunu takip edin."
+        description="Mağazanın ayını gün gün izleyin: belgeler mağaza özetiyle tutuyor mu, hangi günler kilitli, nerede dikkat gerekiyor."
       />
       <VerificationFilters value={sel} onChange={setSel} />
       <DayList

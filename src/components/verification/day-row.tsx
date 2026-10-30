@@ -1,212 +1,178 @@
 "use client";
 
-import { useState } from "react";
-import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useId, useState } from "react";
 import { toast } from "sonner";
 import {
-  Check,
+  ChevronDown,
   Lock,
   Unlock,
-  AlertTriangle,
-  ChevronDown,
-  ChevronUp,
   Loader2,
-  AlertCircle,
-  Radio,
-  ShieldCheck,
-  ShieldAlert,
-  Banknote,
+  AlertTriangle,
+  Gauge,
+  Receipt,
   CreditCard,
+  Landmark,
+  Wallet,
+  Banknote,
+  FileText,
+  Database,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { OptimumShareCard } from "@/components/shared/optimum-share-card";
-import { fmtShare, type OptimumShare } from "@/lib/optimum-share";
+import { fmtShare } from "@/lib/optimum-share";
+import { ComparisonPanel, FarkCell } from "./comparison-panel";
+import { checkThirdStage, dayOf, docPiecesOf, fmt, num, weekdayOf, type DayRecord, type DocPiece } from "./types";
+import { STATUS_META, type DayStatusKey, type DayFlags } from "./status";
 
-const TRY_FORMATTER = new Intl.NumberFormat("tr-TR", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
+export type DayEntry =
+  | {
+      kind: "filled";
+      day: number;
+      /** Mutabakatı taşıyan gün (grupta özetli gün). */
+      lead: DayRecord;
+      /** Grubun tüm günleri (tek günde [lead]). */
+      days: DayRecord[];
+      status: DayStatusKey;
+      flags: DayFlags;
+    }
+  | { kind: "empty" | "future"; day: number }
+  /** Art arda boş geçmiş günler tek satırda (from–to). */
+  | { kind: "gap"; day: number; to: number; count: number };
 
-// Prisma Decimal tRPC üzerinden string'e serialize edilir — client'ta
-// .toNumber() artık çağrılamaz. Bu helper hem Decimal object hem string/number'ı destekler.
-function num(v: unknown): number {
-  if (v === null || v === undefined) return 0;
-  if (typeof v === "object" && v !== null && "toNumber" in v) {
-    return (v as { toNumber: () => number }).toNumber();
-  }
-  return Number(v);
-}
-
-function fmt(n: number): string {
-  return TRY_FORMATTER.format(n);
-}
-
-type DayRecord = {
-  id: string;
-  date: Date;
-  status: "draft" | "pending" | "approved" | "locked";
-  store_summary: {
-    sales_total_try: unknown;
-    loyalty_points_total_try?: unknown;
-  } | null;
-  dealer_daily_report?: {
-    net_sales_try: unknown;
-    loyalty_try: unknown;
-  } | null;
-  store?: { brand: { name: string } };
-  verification: {
-    expected_total: unknown;
-    actual_total: unknown;
-    difference: unknown;
-    status: "match" | "mismatch" | "manual_override";
-  } | null;
-  merge_group_id?: string | null;
-  merge_index?: number | null;
-  /** Optimum payı (sahibi, 29.10.2026) — düşükse gün kartında amber rozet. */
-  optimum?: OptimumShare | null;
-  _count: {
-    pos_slips: number;
-    bank_receipts: number;
-    expenses: number;
-    cash_advances: number;
-    z_reports?: number;
-  };
+const DOC_ICON: Record<DocPiece["key"], React.ComponentType<{ className?: string }>> = {
+  z: Receipt,
+  pos: CreditCard,
+  iban: Landmark,
+  expense: Wallet,
+  advance: Banknote,
+  summary: FileText,
+  sap: Database,
 };
 
-/** "4 POS · 1 Masraf · Özet" for one day's own documents. */
-function docPiecesOf(r: DayRecord): string[] {
-  const p: string[] = [];
-  if ((r._count.z_reports ?? 0) > 0) p.push(`${r._count.z_reports} Z`);
-  if (r._count.pos_slips > 0) p.push(`${r._count.pos_slips} POS`);
-  if (r._count.bank_receipts > 0) p.push(`${r._count.bank_receipts} İban`);
-  if (r._count.expenses > 0) p.push(`${r._count.expenses} Masraf`);
-  if (r._count.cash_advances > 0) p.push(`${r._count.cash_advances} Peşin`);
-  if (r.store_summary) p.push("Özet");
-  return p;
+/**
+ * Doğrulama Sistemi gün satırı. Kapalı hâli tek bakışta: gün, özet satışı,
+ * belge rozetleri, kasa farkı, durum. Satırın tamamı açılır (aria-expanded);
+ * açılınca sol tarafta döküm, sağda durum kartı + kilit işlemleri.
+ */
+export function DayRow({
+  entry,
+  year,
+  month,
+  isToday,
+  onChange,
+  canUnlock,
+  defaultOpen = false,
+}: {
+  entry: DayEntry;
+  year: number;
+  month: number;
+  isToday: boolean;
+  onChange: () => void;
+  canUnlock: boolean;
+  /** Satır açık başlasın (önizleme / derin bağlantı). */
+  defaultOpen?: boolean;
+}) {
+  if (entry.kind === "gap") {
+    return <GapRow from={entry.day} to={entry.to} count={entry.count} year={year} month={month} />;
+  }
+  if (entry.kind !== "filled") {
+    return <QuietRow day={entry.day} year={year} month={month} kind={entry.kind} isToday={isToday} />;
+  }
+  return <FilledRow entry={entry} year={year} month={month} isToday={isToday} onChange={onChange} canUnlock={canUnlock} defaultOpen={defaultOpen} />;
 }
 
-/** 3. Aşama: SAP Bayi Raporu kontrolü (Mavi mağazalar için zorunlu). */
-function checkThirdStage(record: DayRecord): {
-  ok: boolean;
-  reason: string | null;
-} {
-  const brandName = record.store?.brand.name?.toLocaleLowerCase("tr") ?? "";
-  const isMavi = brandName.includes("mavi");
-  if (!isMavi) return { ok: true, reason: null };
-
-  if (!record.dealer_daily_report) {
-    return {
-      ok: false,
-      reason:
-        "3. Aşama: Bayi Gün Sonu (SAP) raporu yüklenmemiş — Mavi mağazalarda zorunlu",
-    };
-  }
-  const num = (v: unknown): number => {
-    if (v === null || v === undefined) return 0;
-    if (typeof v === "object" && v !== null && "toNumber" in v) {
-      return (v as { toNumber: () => number }).toNumber();
-    }
-    return Number(v);
-  };
-  const TOL = 5;
-  const sapNet = num(record.dealer_daily_report.net_sales_try);
-  const sapLoy = num(record.dealer_daily_report.loyalty_try);
-  const sumNet = num(record.store_summary?.sales_total_try);
-  const sumLoy = num(record.store_summary?.loyalty_points_total_try);
-  if (Math.abs(sapNet - sumNet) > TOL || Math.abs(sapLoy - sumLoy) > TOL) {
-    return {
-      ok: false,
-      reason: "3. Aşama uyumsuz: SAP Bayi Raporu ile Mağaza Özeti farklı",
-    };
-  }
-  return { ok: true, reason: null };
-}
-
-type Props =
-  | {
-      /** The day carrying the reconciliation (the summary day of a group). */
-      record: DayRecord;
-      /** All days of a merge group, oldest first; absent for a single day. */
-      groupDays?: DayRecord[];
-      onChange: () => void;
-      canUnlock: boolean;
-      emptyDay?: undefined;
-    }
-  | {
-      emptyDay: { day: number; year: number; month: number };
-      record?: undefined;
-      onChange?: undefined;
-      canUnlock?: undefined;
-    };
-
-export function DayRow(props: Props) {
-  if (props.emptyDay) {
-    return <EmptyDayRow {...props.emptyDay} />;
-  }
+function QuietRow({ day, year, month, kind, isToday }: { day: number; year: number; month: number; kind: "empty" | "future"; isToday: boolean }) {
+  const meta = STATUS_META[kind];
   return (
-    <FilledDayRow
-      record={props.record}
-      groupDays={props.groupDays}
-      onChange={props.onChange}
-      canUnlock={props.canUnlock}
-    />
-  );
-}
-
-function EmptyDayRow({ day }: { day: number; year: number; month: number }) {
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center border rounded-xl bg-card/40 px-5 py-3.5">
+    <div
+      className={`grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl border border-dashed px-4 py-2 sm:grid-cols-12 sm:gap-3 ${
+        kind === "future" ? "border-border/50 bg-transparent" : "border-border/70 bg-card/40"
+      } ${isToday ? "ring-1 ring-primary/30" : ""}`}
+    >
       <div className="sm:col-span-1">
-        <DayPill day={day} muted />
+        <DayPill day={day} weekday={weekdayOf(year, month, day)} muted isToday={isToday} />
       </div>
-      <div className="sm:col-span-3 text-sm text-muted-foreground/70 italic">
-        Yüklenmedi
+      <div className="text-xs italic text-muted-foreground/70 sm:col-span-8">
+        {kind === "future" ? "Henüz gelmedi" : isToday ? "Bugün — henüz yükleme yok." : "Bu gün için hiçbir belge yüklenmedi."}
       </div>
-      <div className="sm:col-span-4 text-sm text-muted-foreground/60 italic flex items-center gap-2">
-        <AlertCircle className="h-3.5 w-3.5" />
-        Bu gün için hiçbir belge yüklenmedi.
+      <div className="flex justify-end sm:col-span-3">
+        <StatusChip status={kind} compact />
       </div>
-      <div className="sm:col-span-2 text-right text-sm text-muted-foreground/60">—</div>
-      <div className="sm:col-span-2 flex justify-end">
-        <Badge variant="secondary" className="bg-slate-100 text-slate-500">
-          Boş
-        </Badge>
-      </div>
+      <span className="sr-only">{meta.label}</span>
     </div>
   );
 }
 
-function FilledDayRow({
-  record,
-  groupDays,
+/** Art arda boş günler: "1–13 Ekim · 13 gün belge yok" — açılınca gün gün listelenir. */
+function GapRow({ from, to, count, year, month }: { from: number; to: number; count: number; year: number; month: number }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <div className="rounded-xl border border-dashed border-border/70 bg-card/40">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls={id}
+        className="flex w-full items-center gap-3 px-4 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <div className="flex h-10 w-14 shrink-0 items-center justify-center rounded-lg bg-muted/50 text-xs font-semibold tabular-nums text-muted-foreground/70">
+          {from}–{to}
+        </div>
+        <div className="flex-1 text-xs text-muted-foreground/80">
+          <span className="font-medium text-muted-foreground">{count} gün</span> belge yok
+        </div>
+        <StatusChip status="empty" compact />
+        <ChevronDown className={`h-4 w-4 text-muted-foreground motion-safe:transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
+      </button>
+      {open ? (
+        <div id={id} className="flex flex-wrap gap-1.5 border-t border-dashed border-border/70 px-4 py-2.5">
+          {Array.from({ length: count }, (_, i) => from + i).map((d) => (
+            <span key={d} className="inline-flex items-center gap-1 rounded-md bg-muted/60 px-2 py-1 text-[11px] tabular-nums text-muted-foreground">
+              <span className="font-semibold">{d}</span> {weekdayOf(year, month, d)}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function FilledRow({
+  entry,
+  year,
+  month,
+  isToday,
   onChange,
   canUnlock,
+  defaultOpen,
 }: {
-  record: DayRecord;
-  groupDays?: DayRecord[];
+  entry: Extract<DayEntry, { kind: "filled" }>;
+  year: number;
+  month: number;
+  isToday: boolean;
   onChange: () => void;
   canUnlock: boolean;
+  defaultOpen: boolean;
 }) {
+  const { lead: record, days, status, flags } = entry;
   const confirmDialog = useConfirm();
-  const [open, setOpen] = useState(false);
-  const days = groupDays && groupDays.length > 1 ? groupDays : [record];
+  const [open, setOpen] = useState(defaultOpen);
+  const panelId = useId();
   const isGroup = days.length > 1;
+  const isLocked = status === "locked";
+  const meta = STATUS_META[status];
 
-  const previewQuery = trpc.verification.preview.useQuery(
-    { daily_record_id: record.id },
-    { enabled: open }
-  );
+  const previewQuery = trpc.verification.preview.useQuery({ daily_record_id: record.id }, { enabled: open });
 
   const approve = trpc.dailyRecord.approveAndLock.useMutation({
     onSuccess: () => {
-      toast.success("Gün doğrulandı ve kilitlendi");
+      toast.success(isGroup ? "Günler doğrulandı ve kilitlendi" : "Gün doğrulandı ve kilitlendi");
       onChange();
     },
     onError: (e) => toast.error(e.message),
   });
-
   const unlock = trpc.dailyRecord.unlock.useMutation({
     onSuccess: () => {
       toast.success("Kilit açıldı");
@@ -215,209 +181,154 @@ function FilledDayRow({
     onError: (e) => toast.error(e.message),
   });
 
-  // A group locks as one; "locked" only when every day is.
-  const isLocked = days.every((d) => d.status === "locked");
-  const verStatus = record.verification?.status;
-  const hasSummary = days.some((d) => !!d.store_summary);
-  const thirdStage = checkThirdStage(record);
-  const docCount = days.reduce(
-    (n, d) =>
-      n +
-      d._count.pos_slips +
-      d._count.bank_receipts +
-      d._count.expenses +
-      d._count.cash_advances +
-      (d._count.z_reports ?? 0) +
-      (d.store_summary ? 1 : 0),
-    0
-  );
-
-  const badgeMeta = isLocked
-    ? { color: "bg-emerald-100 text-emerald-700", label: "Doğrulandı" }
-    : verStatus === "match"
-      ? { color: "bg-emerald-100 text-emerald-700", label: "Eşleşiyor" }
-      : verStatus === "mismatch"
-        ? { color: "bg-rose-100 text-rose-700", label: "Fark Var" }
-        : docCount === 0
-          ? { color: "bg-slate-100 text-slate-500", label: "Belge Yok" }
-          : { color: "bg-amber-100 text-amber-700", label: "Beklemede" };
-
-  const dayNum = new Date(record.date).getUTCDate();
-  const firstDay = new Date(days[0]!.date).getUTCDate();
-  const lastDay = new Date(days[days.length - 1]!.date).getUTCDate();
+  const firstDay = dayOf(days[0]!);
+  const lastDay = dayOf(days[days.length - 1]!);
   const summaryDay = days.find((d) => !!d.store_summary);
-  const summarySales = summaryDay?.store_summary?.sales_total_try;
+  const hasSummary = !!summaryDay;
+  const summarySales = summaryDay ? num(summaryDay.store_summary!.sales_total_try) : null;
+  const thirdStage = hasSummary ? checkThirdStage(record) : { ok: true, reason: null };
+  const verification = (isGroup ? (summaryDay ?? record) : record).verification;
+  const diff = verification ? num(verification.difference) : null;
 
-  // Single day: "4 POS · 1 Masraf · Özet". Group: each day on its own,
-  // "20: 4 POS · 21: 2 POS, Özet" — what was uploaded to which day.
-  const docPieces = docPiecesOf(record);
+  const askUnlock = async () => {
+    if (
+      await confirmDialog({
+        title: isGroup ? "Birleşik günlerin kilidi açılsın mı?" : "Günün kilidi açılsın mı?",
+        description: isGroup
+          ? `${firstDay}–${lastDay}. günlerin hepsi birlikte açılır; yeniden belge eklenebilir.`
+          : "Bu güne yeniden belge eklenebilir ve değiştirilebilir. İşiniz bitince günü yeniden kilitleyin.",
+        confirmLabel: "Kilidi aç",
+      })
+    ) {
+      unlock.mutate({ id: record.id });
+    }
+  };
+
+  const doLock = () => {
+    if (!thirdStage.ok) {
+      toast.error(thirdStage.reason ?? "3. Aşama kontrolü başarısız");
+      return;
+    }
+    approve.mutate({ id: record.id });
+  };
+
+  const rowTone = isLocked
+    ? "border-border/70"
+    : status === "mismatch"
+      ? "border-rose-200"
+      : status === "pending"
+        ? "border-amber-200"
+        : "border-border";
 
   return (
-    <div className={`border rounded-xl bg-card overflow-hidden hover:shadow-sm transition-shadow ${isGroup ? "border-violet-300" : ""}`}>
-      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center px-5 py-3.5">
-        <div className="sm:col-span-1">
-          {isGroup ? <DayPill day={firstDay} to={lastDay} /> : <DayPill day={dayNum} />}
+    <div className={`overflow-hidden rounded-xl border bg-card motion-safe:transition-shadow hover:shadow-sm ${rowTone} ${isGroup ? "border-l-4 border-l-violet-400" : ""} ${isToday ? "ring-1 ring-primary/30" : ""}`}>
+      {/* Kapalı satır — tamamı tıklanabilir; klavye için chevron düğmesi aria-expanded taşır. */}
+      <div
+        className="grid cursor-pointer grid-cols-2 items-center gap-x-3 gap-y-2 px-4 py-3 sm:grid-cols-12"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <div className="flex items-center gap-2 sm:col-span-1">
+          {isGroup ? <DayPill day={firstDay} to={lastDay} isToday={isToday} /> : <DayPill day={entry.day} weekday={weekdayOf(year, month, entry.day)} isToday={isToday} />}
         </div>
 
-        <div className="sm:col-span-3">
-          {summarySales ? (
+        <div className="text-right sm:col-span-2 sm:text-left">
+          {summarySales !== null ? (
             <div>
-              <div className="text-sm font-semibold tabular-nums text-emerald-700">
-                {fmt(num(summarySales))} ₺
+              <div className="text-sm font-semibold tabular-nums">{fmt(summarySales)} ₺</div>
+              <div className="text-[11px] text-muted-foreground">
+                {isGroup ? `${days.length} gün birleşik · özet ${dayOf(summaryDay!)}. günde` : "mağaza özeti"}
               </div>
-              {isGroup ? (
-                <div className="text-[11px] text-violet-700">
-                  {days.length} gün birleşik · özet {new Date(summaryDay!.date).getUTCDate()}. güne yüklendi
-                </div>
-              ) : null}
             </div>
           ) : (
-            <div className="text-sm text-muted-foreground/70 italic">
-              {isGroup ? `${days.length} gün birleşik · özet yüklenmedi` : "Özet yüklenmedi"}
-            </div>
+            <div className="text-xs italic text-muted-foreground/80">{isGroup ? `${days.length} gün birleşik · özet yok` : "Özet yüklenmedi"}</div>
           )}
         </div>
 
-        <div className="sm:col-span-4">
+        <div className="col-span-2 sm:col-span-4">
           {isGroup ? (
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-foreground/80">
-              {days.map((d) => {
-                const pieces = docPiecesOf(d);
-                return (
-                  <span key={d.id} className="whitespace-nowrap">
-                    <span className="font-semibold text-violet-700">{new Date(d.date).getUTCDate()}:</span>{" "}
-                    {pieces.length ? pieces.join(", ") : <span className="italic text-muted-foreground/60">belge yok</span>}
-                  </span>
-                );
-              })}
-            </div>
-          ) : docPieces.length === 0 ? (
-            <div className="text-sm text-muted-foreground/60 italic flex items-center gap-2">
-              <AlertCircle className="h-3.5 w-3.5" />
-              Bu gün için hiçbir belge yüklenmedi.
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+              {days.map((d) => (
+                <span key={d.id} className="inline-flex items-center gap-1.5 text-xs">
+                  <span className="font-semibold tabular-nums text-violet-700">{dayOf(d)}</span>
+                  <DocChips pieces={docPiecesOf(d)} />
+                </span>
+              ))}
             </div>
           ) : (
-            <div className="text-sm text-foreground/80">
-              {docPieces.join(" · ")}
-            </div>
+            <DocChips pieces={docPiecesOf(record)} />
           )}
         </div>
 
-        {/* Kasa Farkı — kayıtlı doğrulama (belge − özet): eksi = eksik, artı = fazla.
-            Birleşik günlerde grubun özetli (son) gününün doğrulaması. */}
-        <div className="sm:col-span-2 text-right">
-          {(() => {
-            const v = (isGroup ? (summaryDay ?? record) : record).verification;
-            if (!v || !hasSummary) return <span className="text-sm text-muted-foreground/60">—</span>;
-            const diff = num(v.difference);
-            const ok = v.status === "match";
-            return (
-              <div className="text-sm tabular-nums">
-                <FarkCell diff={diff} matches={ok} />
-                <div className="text-[10px] text-muted-foreground">
-                  {Math.abs(diff) < 0.01 ? "tam" : ok ? "tolerans içinde" : diff < 0 ? "eksik" : "fazla"}
-                  {v.status === "manual_override" ? " · yönetici onayı" : ""}
-                </div>
+        <div className="text-left sm:col-span-2 sm:text-right">
+          {diff !== null && hasSummary ? (
+            <div className="text-sm tabular-nums">
+              <FarkCell diff={diff} matches={verification!.status !== "mismatch"} />
+              <div className="text-[10px] text-muted-foreground">
+                {Math.abs(diff) < 0.01 ? "tam" : verification!.status !== "mismatch" ? "tolerans içinde" : diff < 0 ? "eksik" : "fazla"}
+                {verification!.status === "manual_override" ? " · yönetici onayı" : ""}
               </div>
-            );
-          })()}
+            </div>
+          ) : (
+            <span className="text-sm text-muted-foreground/50">—</span>
+          )}
         </div>
 
-        <div className="sm:col-span-2 flex items-center justify-end gap-2">
-          {record.optimum?.status === "low" ? (
-            <Badge
-              variant="secondary"
-              className="bg-amber-100 text-amber-800 text-xs gap-1"
-              title={`Optimum cihazı (Yapı Kredi + Koopbank) ${fmt(record.optimum.optimum)} ₺ ↔ diğer bankalar ${fmt(record.optimum.other)} ₺ — Optimum diğerlerini geçmeli`}
-            >
-              <AlertTriangle className="h-3 w-3" />
-              Optimum {fmtShare(record.optimum.share)}
-            </Badge>
-          ) : null}
-          <Badge variant="secondary" className={`${badgeMeta.color} text-xs`}>
-            {badgeMeta.label}
-          </Badge>
-          {!isLocked ? (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!hasSummary || approve.isPending}
-              onClick={() => approve.mutate({ id: record.id })}
-              title={
-                hasSummary
-                  ? "Bu günü doğrula ve kilitle"
-                  : "Önce Mağaza Özeti yüklenmeli"
-              }
-            >
-              {approve.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Lock className="h-3.5 w-3.5" />
-              )}
-            </Button>
-          ) : canUnlock ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={unlock.isPending}
-              onClick={async () => {
-                if (
-                  await confirmDialog({
-                    title: isGroup ? "Birleşik günlerin kilidi açılsın mı?" : "Günün kilidi açılsın mı?",
-                    description: isGroup
-                      ? `${firstDay}–${lastDay}. günlerin hepsi birlikte açılır; yeniden belge eklenebilir.`
-                      : "Bu güne yeniden belge eklenebilir ve değiştirilebilir.",
-                    confirmLabel: "Kilidi aç",
-                  })
-                ) {
-                  unlock.mutate({ id: record.id });
-                }
-              }}
-              title="Kilidi aç (admin)"
-            >
-              <Unlock className="h-3.5 w-3.5" />
-            </Button>
-          ) : null}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => setOpen((o) => !o)}
-            title={open ? "Detayı gizle" : "Detayı göster"}
-          >
-            {open ? (
-              <ChevronUp className="h-4 w-4" />
-            ) : (
-              <ChevronDown className="h-4 w-4" />
-            )}
-          </Button>
+        <div className="flex items-center justify-end gap-1.5 sm:col-span-3">
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            {flags.optimumLow && record.optimum ? (
+              <span
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800"
+                title={`Optimum cihazı (Yapı Kredi + Koopbank) ${fmt(record.optimum.optimum)} ₺ ↔ diğer bankalar ${fmt(record.optimum.other)} ₺`}
+              >
+                <Gauge className="h-3 w-3" aria-hidden />
+                Optimum {fmtShare(record.optimum.share)}
+              </span>
+            ) : null}
+            {flags.sapIssue ? (
+              <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800" title={flags.sapIssue}>
+                <AlertTriangle className="h-3 w-3" aria-hidden />
+                SAP
+              </span>
+            ) : null}
+            <StatusChip status={status} />
+          </div>
+          <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
+            {!isLocked ? (
+              <IconButton
+                label={hasSummary ? "Doğrula ve kilitle" : "Önce Mağaza Özeti yüklenmeli"}
+                disabled={!hasSummary || approve.isPending}
+                onClick={doLock}
+              >
+                {approve.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+              </IconButton>
+            ) : canUnlock ? (
+              <IconButton label="Kilidi aç (yönetici)" disabled={unlock.isPending} onClick={askUnlock}>
+                {unlock.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlock className="h-4 w-4" />}
+              </IconButton>
+            ) : null}
+            <IconButton label={open ? "Dökümü kapat" : "Dökümü aç"} onClick={() => setOpen((o) => !o)} expanded={open} controls={panelId}>
+              <ChevronDown className={`h-4 w-4 motion-safe:transition-transform ${open ? "rotate-180" : ""}`} />
+            </IconButton>
+          </div>
         </div>
       </div>
 
       {open ? (
-        <div className="border-t bg-muted/20 px-5 py-4">
-          <div className="flex flex-col lg:flex-row gap-4 items-stretch">
-            {/* Sol: karşılaştırma tablosu */}
-            <div className="flex-1 min-w-0">
+        <div id={panelId} className="border-t border-border/70 bg-muted/20 px-4 py-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+            <div className="min-w-0 flex-1">
               {isGroup ? (
                 <div className="mb-3 rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-3">
-                  <div className="text-[10px] uppercase tracking-wider font-semibold text-violet-700 mb-1.5">
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-violet-700">
                     Gün gün yüklenenler · mutabakat {days.length} günün toplamıdır
                   </div>
                   <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
-                    {days.map((d) => {
-                      const pieces = docPiecesOf(d);
-                      return (
-                        <div key={d.id} className="flex items-baseline gap-2 text-sm">
-                          <span className="font-semibold tabular-nums text-violet-800 w-8 shrink-0">
-                            {new Date(d.date).getUTCDate()}
-                          </span>
-                          <span className="text-foreground/80">
-                            {pieces.length ? pieces.join(" · ") : <span className="italic text-muted-foreground/60">belge yok</span>}
-                          </span>
-                        </div>
-                      );
-                    })}
+                    {days.map((d) => (
+                      <div key={d.id} className="flex items-center gap-2 text-sm">
+                        <span className="w-8 shrink-0 font-semibold tabular-nums text-violet-800">{dayOf(d)}</span>
+                        <DocChips pieces={docPiecesOf(d)} />
+                      </div>
+                    ))}
                   </div>
                 </div>
               ) : null}
@@ -427,8 +338,8 @@ function FilledDayRow({
                 </div>
               ) : null}
               {previewQuery.isLoading ? (
-                <div className="text-sm text-muted-foreground py-4 text-center">
-                  <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                <div className="py-6 text-center text-sm text-muted-foreground" role="status">
+                  <Loader2 className="mr-2 inline h-4 w-4 animate-spin" aria-hidden />
                   Mutabakat hesaplanıyor
                 </div>
               ) : previewQuery.data ? (
@@ -436,69 +347,55 @@ function FilledDayRow({
               ) : null}
             </div>
 
-            {/* Sağ: status pill + ana aksiyon */}
-            <div className="flex flex-col gap-2 lg:w-60 shrink-0 lg:self-start">
-              <DayStatusPill
-                isLocked={isLocked}
-                verStatus={verStatus}
-                hasSummary={hasSummary}
-                docCount={docCount}
-                isGroup={isGroup}
-              />
+            <aside className="flex shrink-0 flex-col gap-2 lg:w-64">
+              <div className={`rounded-xl border px-4 py-3 ${meta.chip}`}>
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <meta.Icon className="h-4 w-4 shrink-0" aria-hidden />
+                  {isGroup && status === "locked" ? "Günler kilitli" : meta.label}
+                </div>
+                <p className="mt-1 text-xs leading-relaxed opacity-90">{meta.explain}</p>
+                {isLocked && verification?.status === "mismatch" && diff !== null ? (
+                  <p className="mt-1.5 flex items-start gap-1 text-xs leading-relaxed text-rose-800">
+                    <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+                    Kasa farkıyla kilitlenmiş: {diff > 0 ? "+" : ""}{fmt(diff)} ₺.
+                  </p>
+                ) : null}
+              </div>
+
               {!isLocked && hasSummary ? (
                 <>
                   {!thirdStage.ok ? (
-                    <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900 leading-snug">
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-900" role="note">
                       {thirdStage.reason}
                     </div>
                   ) : null}
                   <button
                     type="button"
-                    onClick={() => {
-                      if (!thirdStage.ok) {
-                        toast.error(thirdStage.reason ?? "3. Aşama kontrolü başarısız");
-                        return;
-                      }
-                      approve.mutate({ id: record.id });
-                    }}
+                    onClick={doLock}
                     disabled={approve.isPending || !thirdStage.ok}
                     title={thirdStage.reason ?? undefined}
-                    className="flex items-center justify-center gap-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-5 py-4 transition-colors shadow-sm"
+                    className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm motion-safe:transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {approve.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Lock className="h-4 w-4" />
-                    )}
-                    <span>Doğrula ve Kilitle</span>
+                    {approve.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Lock className="h-4 w-4" aria-hidden />}
+                    {isGroup ? "Günleri doğrula ve kilitle" : "Doğrula ve kilitle"}
                   </button>
                 </>
-              ) : isLocked && canUnlock ? (
+              ) : null}
+              {!isLocked && !hasSummary ? (
+                <p className="px-1 text-[11px] leading-relaxed text-muted-foreground">Kilitlemek için önce mağaza özeti yüklenmeli.</p>
+              ) : null}
+              {isLocked && canUnlock ? (
                 <button
                   type="button"
-                  onClick={async () => {
-                    if (
-                      await confirmDialog({
-                        title: "Günün kilidi açılsın mı?",
-                        description: "Bu güne yeniden belge eklenebilir ve değiştirilebilir.",
-                        confirmLabel: "Kilidi aç",
-                      })
-                    ) {
-                      unlock.mutate({ id: record.id });
-                    }
-                  }}
+                  onClick={askUnlock}
                   disabled={unlock.isPending}
-                  className="flex items-center justify-center gap-2.5 rounded-2xl bg-white hover:bg-muted/40 border border-border disabled:opacity-50 text-foreground font-semibold px-5 py-4 transition-colors"
+                  className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground motion-safe:transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
                 >
-                  {unlock.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Unlock className="h-4 w-4" />
-                  )}
-                  <span>Kilidi Aç</span>
+                  {unlock.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Unlock className="h-4 w-4" aria-hidden />}
+                  Kilidi aç
                 </button>
               ) : null}
-            </div>
+            </aside>
           </div>
         </div>
       ) : null}
@@ -506,612 +403,82 @@ function FilledDayRow({
   );
 }
 
-/** Doğrulama sayfasındaki büyük status pill — duruma göre renk değişir */
-function DayStatusPill({
-  isLocked,
-  verStatus,
-  hasSummary,
-  docCount,
-  isGroup,
-}: {
-  isLocked: boolean;
-  verStatus: "match" | "mismatch" | "manual_override" | undefined;
-  hasSummary: boolean;
-  docCount: number;
-  isGroup?: boolean;
-}) {
-  if (isLocked) {
-    return (
-      <div className="rounded-2xl bg-emerald-500 text-white px-5 py-4 flex items-center gap-2.5 shadow-sm">
-        <Lock className="h-4 w-4 shrink-0" />
-        <span className="font-semibold text-sm leading-tight">
-          {isGroup ? "Günler Doğrulandı ve Kilitlendi" : "Gün Doğrulandı ve Kilitlendi"}
-        </span>
-      </div>
-    );
-  }
-  if (verStatus === "match") {
-    return (
-      <div className="rounded-2xl bg-amber-500 text-white px-5 py-4 flex items-center gap-2.5 shadow-sm">
-        <Check className="h-4 w-4 shrink-0" />
-        <span className="font-semibold text-sm leading-tight">
-          Gün Mutabakatı Sağlandı
-        </span>
-      </div>
-    );
-  }
-  if (verStatus === "mismatch") {
-    return (
-      <div className="rounded-2xl bg-rose-500 text-white px-5 py-4 flex items-center gap-2.5 shadow-sm">
-        <AlertTriangle className="h-4 w-4 shrink-0" />
-        <span className="font-semibold text-sm leading-tight">
-          Mutabakat Sağlanmadı
-        </span>
-      </div>
-    );
-  }
-  if (!hasSummary) {
-    return (
-      <div className="rounded-2xl bg-amber-100 text-amber-800 border border-amber-200 px-5 py-4 flex items-center gap-2.5">
-        <AlertCircle className="h-4 w-4 shrink-0" />
-        <span className="font-semibold text-sm leading-tight">
-          Mağaza Özeti Eksik
-        </span>
-      </div>
-    );
-  }
-  if (docCount === 0) {
-    return (
-      <div className="rounded-2xl bg-slate-100 text-slate-700 border border-slate-200 px-5 py-4 flex items-center gap-2.5">
-        <AlertCircle className="h-4 w-4 shrink-0" />
-        <span className="font-semibold text-sm leading-tight">
-          Belge Yok
-        </span>
-      </div>
-    );
-  }
-  return (
-    <div className="rounded-2xl bg-slate-100 text-slate-700 border border-slate-200 px-5 py-4 flex items-center gap-2.5">
-      <Loader2 className="h-4 w-4 shrink-0" />
-      <span className="font-semibold text-sm leading-tight">
-        Beklemede
-      </span>
-    </div>
-  );
-}
-
-function DayPill({ day, to, muted }: { day: number; to?: number; muted?: boolean }) {
-  const range = to !== undefined && to !== day;
-  return (
-    <div
-      className={`flex h-10 items-center justify-center rounded-xl font-semibold tabular-nums ${
-        range ? "w-14 text-xs bg-violet-100 text-violet-800" : "w-10 text-sm"
-      } ${muted ? "bg-muted/50 text-muted-foreground/60" : range ? "" : "bg-primary/10 text-primary"}`}
-      title={range ? `${day}–${to} birleşik günler` : undefined}
-    >
-      {range ? `${day}–${to}` : day}
-    </div>
-  );
-}
-
-function ComparisonPanel({
-  result,
-}: {
-  result: {
-    rows: Array<{
-      label: string;
-      document_total: number;
-      summary_total: number;
-      difference: number;
-      matches: boolean;
-      z_compliance?: { cash_present: boolean; hard_floor?: number };
-    }>;
-    status: "match" | "mismatch" | "no_data" | "no_summary";
-    notes: string | null;
-    summary_parts?: {
-      sales: number;
-      cash: number;
-      card: number;
-      loyalty: number;
-      shopping_voucher: number;
-      wire: number;
-      other: number;
-    };
-    nebim_summary?: {
-      net: number;
-      sales: number;
-      returns: number;
-      line_count: number;
-      invoice_count: number;
-      summary_sales: number;
-      difference: number;
-      payment?: NebimPayment | null;
-      card_by_bank?: NebimBankCompare[] | null;
-    } | null;
-  };
-}) {
-  if (result.status === "no_summary") {
-    return (
-      <div className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-3 flex items-start gap-2 border border-amber-200/60">
-        <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-        Bu güne ait Mağaza Özeti yüklenmedi — mutabakat yapılamıyor.
-      </div>
-    );
-  }
-  if (result.status === "no_data") {
-    return (
-      <div className="text-sm text-muted-foreground">Bu gün için kayıt yok.</div>
-    );
-  }
-
-  // Açıklama notlarını parçala (cümle bazlı) — her biri ayrı pill
-  const noteList = result.notes
-    ? result.notes
-        .split(/(?<=\.)\s+/)
-        .map((s) => s.trim())
-        .filter(Boolean)
-    : [];
-
-  return (
-    <div>
-      {/* Tablo */}
-      <div className="rounded-xl border border-border/70 overflow-hidden bg-card">
-        <div className="grid grid-cols-12 gap-2 px-5 py-2.5 bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-          <div className="col-span-4">Belge Türü</div>
-          <div className="col-span-3 text-right">Belge Tutarı</div>
-          <div className="col-span-2 text-right">Mağaza Özeti</div>
-          <div className="col-span-2 text-right">Fark</div>
-          <div className="col-span-1 text-right">Durum</div>
-        </div>
-        <div>
-          {result.rows
-            .filter((r) => !(r.label === "Kartuş Puan" && Math.abs(r.document_total) < 0.005 && Math.abs(r.summary_total) < 0.005))
-            .map((row, i, rows) => {
-            const isLast = i === rows.length - 1;
-            // The Z row is not compared with the summary: its right-hand
-            // figure is the bar the Z must reach (card sales, ×1,05 when the
-            // day has cash). Say so, or it reads as a summary number.
-            const z = row.z_compliance;
-            return (
-              <div
-                key={row.label}
-                className={`grid grid-cols-12 gap-2 px-5 py-3 items-baseline ${
-                  isLast
-                    ? "border-t-2 border-border bg-slate-50/40 font-semibold"
-                    : i === 0
-                      ? ""
-                      : "border-t border-border/40"
-                }`}
-              >
-                <div className="col-span-4 text-sm text-foreground">
-                  {row.label}
-                  {z ? (
-                    <div className="text-[11px] font-normal text-muted-foreground mt-0.5">
-                      Özetle kıyas değil — Z'nin ulaşması gereken hedef
-                    </div>
-                  ) : null}
-                </div>
-                <div className="col-span-3 text-right text-sm tabular-nums text-foreground">
-                  {fmt(row.document_total)} ₺
-                </div>
-                <div className="col-span-2 text-right text-sm tabular-nums text-muted-foreground">
-                  {z ? "≥ " : ""}
-                  {fmt(row.summary_total)} ₺
-                  {z ? (
-                    <div className="text-[11px] opacity-80">
-                      {z.cash_present ? "hedef: kart × 1,05" : "hedef: kart"}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="col-span-2 text-right text-sm tabular-nums">
-                  <FarkCell diff={row.difference} matches={row.matches} />
-                </div>
-                <div className="col-span-1 text-right">
-                  {row.matches ? (
-                    <Check
-                      className="h-4 w-4 text-emerald-600 inline"
-                      aria-label="Eşleşti"
-                    />
-                  ) : (
-                    <AlertTriangle
-                      className="h-4 w-4 text-rose-600 inline"
-                      aria-label="Eşleşmiyor"
-                    />
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {result.summary_parts ? <SummaryParts p={result.summary_parts} /> : null}
-
-      {/* NEBİM canlı server karşılaştırması (3. kontrol — Derimod) */}
-      {result.nebim_summary ? <NebimBlock n={result.nebim_summary} /> : null}
-
-      {/* Açıklama notları — varsa */}
-      {noteList.length > 0 ? (
-        <div className="mt-3 space-y-1.5">
-          {noteList.map((note, i) => (
-            <NoteCard key={i} text={note} />
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-/**
- * The store summary's own lines, so the "Mağaza Özeti" column can be read:
- * cash + card (+ …) = sales. A remainder is shown as its own term; a large
- * one means a summary line was misread (Kredi Çeki is at most a few thousand).
- */
-function SummaryParts({
-  p,
-}: {
-  p: {
-    sales: number;
-    cash: number;
-    card: number;
-    loyalty: number;
-    shopping_voucher: number;
-    wire: number;
-    other: number;
-  };
-}) {
-  const terms: Array<[string, number]> = [
-    ["Nakit", p.cash],
-    ["Kredi Kartı", p.card],
-  ];
-  if (Math.abs(p.loyalty) > 0.005) terms.push(["Kartuş", p.loyalty]);
-  if (Math.abs(p.shopping_voucher) > 0.005) terms.push(["Alışveriş Çeki", p.shopping_voucher]);
-  if (Math.abs(p.wire) > 0.005) terms.push(["Havale", p.wire]);
-  const hasOther = Math.abs(p.other) > 1;
-  const otherIsLarge = Math.abs(p.other) > Math.max(5000, Math.abs(p.sales) * 0.1);
-  return (
-    <div
-      className={`mt-3 rounded-lg px-4 py-2.5 text-xs tabular-nums ${
-        otherIsLarge
-          ? "bg-amber-50 text-amber-800 border border-amber-200/70"
-          : "bg-muted/30 text-muted-foreground"
-      }`}
-    >
-      <span className="font-medium text-foreground/80">Mağaza özeti kendi içinde: </span>
-      {terms.map(([label, v], i) => (
-        <span key={label}>
-          {i > 0 ? (v < 0 ? " − " : " + ") : ""}
-          {label} {fmt(i > 0 ? Math.abs(v) : v)}
-        </span>
-      ))}
-      {hasOther ? (
-        <span className={otherIsLarge ? "font-semibold" : ""}>
-          {p.other < 0 ? " − " : " + "}Kredi Çeki / diğer {fmt(Math.abs(p.other))}
-        </span>
-      ) : null}
-      <span> = Satış {fmt(p.sales)} ₺</span>
-      {otherIsLarge ? (
-        <div className="mt-1">
-          Özetteki ödeme satırları satış toplamını ancak {fmt(Math.abs(p.other))} ₺&apos;lik
-          açıklanamayan bir kalemle tutuyor — özetin bir satırı yanlış okunmuş olabilir.
-          Özeti &quot;Yeniden analiz et&quot; ile tekrar okutun.
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-/**
- * NEBİM canlı server karşılaştırması (Derimod 3. kontrol aşaması).
- * Günün Nebim net satış toplamı (iade düşülü) ↔ Mağaza Özeti satış toplamı.
- * "Server'da gerçekten o kadar satış oldu mu" kontrolü.
- * difference = Nebim net − Mağaza Özeti:
- *  > 0 → server > özet → ÖZET AZ (kritik) · < 0 → server < özet → ÖZET FAZLA (anomali)
- */
-type NebimPayment = {
-  nebim_cash: number;
-  nebim_card: number;
-  summary_cash: number;
-  summary_card: number;
-  cash_diff: number;
-  card_diff: number;
-};
-
-type NebimBankCompare = {
-  bank: string;
-  nebim: number;
-  slip: number;
-  slip_count: number;
-  diff: number;
-};
-
-function NebimBlock({
-  n,
-}: {
-  n: {
-    net: number;
-    sales: number;
-    returns: number;
-    line_count: number;
-    invoice_count: number;
-    summary_sales: number;
-    difference: number;
-    payment?: NebimPayment | null;
-    card_by_bank?: NebimBankCompare[] | null;
-  };
-}) {
-  const matches = Math.abs(n.difference) <= 1;
-  const tone = matches
-    ? {
-        bar: "border-emerald-200 bg-gradient-to-r from-emerald-50 to-white",
-        accent: "text-emerald-600",
-        title: "text-emerald-900",
-        Icon: ShieldCheck,
-        label: "Server ile uyumlu",
-        explainer: "Mağaza Özeti, server'daki gerçek satışla tutuyor.",
-      }
-    : n.difference > 0
-      ? {
-          bar: "border-rose-300 bg-gradient-to-r from-rose-50 to-rose-50/40",
-          accent: "text-rose-600",
-          title: "text-rose-900",
-          Icon: ShieldAlert,
-          label: "Özet, server'dan AZ",
-          explainer:
-            "Nebim server'da bu günün satışı Mağaza Özeti'nden yüksek — özette daha az satış gösterilmiş olabilir.",
-        }
-      : {
-          bar: "border-amber-300 bg-gradient-to-r from-amber-50 to-amber-50/40",
-          accent: "text-amber-600",
-          title: "text-amber-900",
-          Icon: AlertTriangle,
-          label: "Özet, server'dan FAZLA",
-          explainer:
-            "Mağaza Özeti server'daki satıştan yüksek — server'a henüz işlenmemiş satış olabilir, kontrol et.",
-        };
-  const Icon = tone.Icon;
-
-  return (
-    <div className={`mt-4 rounded-2xl border-2 ${tone.bar} p-4 shadow-sm`}>
-      <div className="flex items-start gap-3">
-        <div className={`shrink-0 ${tone.accent}`}>
-          <Icon className="h-6 w-6" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className={`font-semibold text-sm ${tone.title} flex items-center gap-2 flex-wrap`}>
-            📡 Nebim Server Karşılaştırması — {tone.label}
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium rounded-full bg-slate-900/5 px-2 py-0.5 text-slate-600">
-              <Radio className="h-3 w-3" /> canlı · 3. kontrol
-            </span>
-          </div>
-          <div className="text-xs text-foreground/80 mt-1">{tone.explainer}</div>
-
-          <div className="grid grid-cols-3 gap-2 mt-3">
-            <div className="rounded-lg bg-white/70 border border-border/60 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                Server Net Satış
-              </div>
-              <div className="tabular-nums font-semibold text-sm">{fmt(n.net)} ₺</div>
-            </div>
-            <div className="rounded-lg bg-white/70 border border-border/60 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                Mağaza Özeti
-              </div>
-              <div className="tabular-nums font-semibold text-sm">
-                {fmt(n.summary_sales)} ₺
-              </div>
-            </div>
-            <div className="rounded-lg bg-white/70 border border-border/60 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                Fark
-              </div>
-              <div className={`tabular-nums font-semibold text-sm ${tone.accent}`}>
-                {n.difference >= 0 ? "+" : ""}
-                {fmt(n.difference)} ₺
-              </div>
-            </div>
-          </div>
-
-          <div className="text-[11px] text-muted-foreground mt-2">
-            {n.invoice_count} fiş · {n.line_count} satır
-            {n.returns < 0 ? ` · iade düşülü ${fmt(Math.abs(n.returns))} ₺` : ""}
-          </div>
-
-          {/* Ödeme tipi kıyası — Nebim nakit/kart ↔ Mağaza Özeti (brüt satış) */}
-          {n.payment ? (
-            <div className="mt-3 rounded-xl border border-border/60 bg-white/70 overflow-hidden">
-              <div className="grid grid-cols-12 gap-2 px-3 py-1.5 bg-slate-900/[0.04] text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
-                <div className="col-span-4">Ödeme Tipi (brüt)</div>
-                <div className="col-span-3 text-right">Nebim</div>
-                <div className="col-span-3 text-right">Mağaza Özeti</div>
-                <div className="col-span-2 text-right">Fark</div>
-              </div>
-              <PayCompareRow
-                label="Nakit"
-                Icon={Banknote}
-                iconClass="text-emerald-600"
-                nebim={n.payment.nebim_cash}
-                summary={n.payment.summary_cash}
-                diff={n.payment.cash_diff}
-              />
-              <PayCompareRow
-                label="Kredi Kartı"
-                Icon={CreditCard}
-                iconClass="text-indigo-600"
-                nebim={n.payment.nebim_card}
-                summary={n.payment.summary_card}
-                diff={n.payment.card_diff}
-                border
-              />
-            </div>
-          ) : null}
-
-          {/* Kart — Banka bazında ↔ POS slipleri (çalışan doğru girdi mi?) */}
-          {n.card_by_bank && n.card_by_bank.length > 0 ? (
-            <div className="mt-3 rounded-xl border border-border/60 bg-white/70 overflow-hidden">
-              <div className="px-3 py-1.5 bg-slate-900/[0.04] flex items-center gap-1.5">
-                <CreditCard className="h-3.5 w-3.5 text-indigo-600" />
-                <span className="text-[11px] font-semibold text-foreground/80">
-                  Kart — Banka Bazında ↔ POS Slipleri
-                </span>
-                <span className="ml-auto text-[10px] text-muted-foreground">
-                  Nebim&apos;e doğru banka girilmiş mi?
-                </span>
-              </div>
-              <div className="grid grid-cols-12 gap-2 px-3 py-1 text-[10px] uppercase tracking-wide text-muted-foreground font-medium border-b border-border/40">
-                <div className="col-span-4">Banka (Nebim kartı)</div>
-                <div className="col-span-3 text-right">Nebim</div>
-                <div className="col-span-3 text-right">POS Slip</div>
-                <div className="col-span-2 text-right">Fark</div>
-              </div>
-              {n.card_by_bank.map((b, i) => (
-                <BankSlipRow key={b.bank} b={b} border={i > 0} />
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function BankSlipRow({ b, border }: { b: NebimBankCompare; border?: boolean }) {
-  const noSlip = b.slip_count === 0 && b.slip === 0;
-  const matches = Math.abs(b.diff) <= 1;
-  return (
-    <div
-      className={`grid grid-cols-12 gap-2 px-3 py-2 items-center text-sm ${
-        border ? "border-t border-border/40" : ""
-      }`}
-    >
-      <div className="col-span-4 font-medium truncate">{b.bank}</div>
-      <div className="col-span-3 text-right tabular-nums">{fmt(b.nebim)} ₺</div>
-      <div className="col-span-3 text-right tabular-nums text-muted-foreground">
-        {noSlip ? "—" : `${fmt(b.slip)} ₺`}
-        {b.slip_count > 0 ? (
-          <span className="text-[10px] text-muted-foreground/70"> ({b.slip_count})</span>
-        ) : null}
-      </div>
-      <div className="col-span-2 text-right tabular-nums flex items-center justify-end gap-1">
-        {noSlip ? (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600">
-            <AlertCircle className="h-3.5 w-3.5" /> slip yok
-          </span>
-        ) : (
-          <>
-            <span className={matches ? "text-emerald-600" : "text-rose-600 font-medium"}>
-              {b.diff >= 0 ? "+" : ""}
-              {fmt(b.diff)}
-            </span>
-            {matches ? (
-              <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-            ) : (
-              <AlertTriangle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PayCompareRow({
+function IconButton({
   label,
-  Icon,
-  iconClass,
-  nebim,
-  summary,
-  diff,
-  border,
+  onClick,
+  disabled,
+  expanded,
+  controls,
+  children,
 }: {
   label: string;
-  Icon: typeof Banknote;
-  iconClass: string;
-  nebim: number;
-  summary: number;
-  diff: number;
-  border?: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+  expanded?: boolean;
+  controls?: string;
+  children: React.ReactNode;
 }) {
-  const matches = Math.abs(diff) <= 1;
   return (
-    <div
-      className={`grid grid-cols-12 gap-2 px-3 py-2 items-center text-sm ${
-        border ? "border-t border-border/40" : ""
-      }`}
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      aria-expanded={expanded}
+      aria-controls={expanded !== undefined ? controls : undefined}
+      className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground motion-safe:transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
     >
-      <div className="col-span-4 flex items-center gap-1.5">
-        <Icon className={`h-3.5 w-3.5 shrink-0 ${iconClass}`} />
-        <span className="font-medium">{label}</span>
-      </div>
-      <div className="col-span-3 text-right tabular-nums">{fmt(nebim)} ₺</div>
-      <div className="col-span-3 text-right tabular-nums text-muted-foreground">
-        {fmt(summary)} ₺
-      </div>
-      <div className="col-span-2 text-right tabular-nums flex items-center justify-end gap-1">
-        <span className={matches ? "text-emerald-600" : "text-rose-600 font-medium"}>
-          {diff >= 0 ? "+" : ""}
-          {fmt(diff)}
-        </span>
-        {matches ? (
-          <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-        ) : (
-          <AlertTriangle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
-        )}
-      </div>
-    </div>
+      {children}
+    </button>
   );
 }
 
-function FarkCell({ diff, matches }: { diff: number; matches: boolean }) {
-  // Konvansiyon: docs − summary
-  //   pozitif → elimizdeki belge özetten fazla (fazla)
-  //   negatif → belge özetten az (eksik)
-  //   |diff| ≤ tolerans (matches=true) → 0,00 (yeşil, eşleşti)
-  if (Math.abs(diff) < 0.01) {
-    return <span className="text-emerald-600">0,00 ₺</span>;
-  }
-  if (matches) {
-    // Tolerans içinde ama sıfır değil — yeşil ama "minor"
-    const positive = diff > 0;
-    return (
-      <span className="text-emerald-600 font-medium">
-        {positive ? "+" : ""}
-        {fmt(diff)} ₺
-      </span>
-    );
-  }
-  // Tolerans dışı: pozitif = fazla (amber), negatif = eksik (rose)
-  const positive = diff > 0;
-  const tone = positive ? "text-amber-700" : "text-rose-700";
+export function StatusChip({ status, compact }: { status: DayStatusKey; compact?: boolean }) {
+  const m = STATUS_META[status];
   return (
-    <span className={`${tone} font-medium`}>
-      {positive ? "+" : ""}
-      {fmt(diff)} ₺
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium ${m.chip}`}>
+      <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${m.dot}`} />
+      {compact ? m.short : m.label}
     </span>
   );
 }
 
-function NoteCard({ text }: { text: string }) {
-  // İlk iki kelimeyi başlık olarak gösterelim ("Kasa eksiklik:", "Kasa fazlalık:")
-  const colonIdx = text.indexOf(":");
-  const label = colonIdx > 0 ? text.slice(0, colonIdx) : null;
-  const body = colonIdx > 0 ? text.slice(colonIdx + 1).trim() : text;
+function DocChips({ pieces }: { pieces: DocPiece[] }) {
+  if (pieces.length === 0) {
+    return <span className="text-xs italic text-muted-foreground/60">belge yok</span>;
+  }
+  return (
+    <span className="inline-flex flex-wrap gap-1">
+      {pieces.map((p) => {
+        const Icon = DOC_ICON[p.key];
+        return (
+          <span
+            key={p.key}
+            className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-white px-1.5 py-0.5 text-[11px] text-foreground/80"
+            title={p.count ? `${p.count} ${p.label}` : p.label}
+          >
+            <Icon className="h-3 w-3 text-muted-foreground" aria-hidden />
+            {p.count ? <span className="tabular-nums font-semibold">{p.count}</span> : null}
+            {p.label}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
 
-  // Eksik = kırmızı; Fazla = amber; diğer = rose (default)
-  const isDeficit = /eksik/i.test(label ?? "");
-  const tone = isDeficit
-    ? "bg-rose-50 border-rose-200 text-rose-800"
-    : "bg-amber-50 border-amber-200 text-amber-800";
-
+function DayPill({ day, to, weekday, muted, isToday }: { day: number; to?: number; weekday?: string; muted?: boolean; isToday?: boolean }) {
+  const range = to !== undefined && to !== day;
   return (
     <div
-      className={`text-sm rounded-lg border px-4 py-2.5 flex items-start gap-2.5 ${tone}`}
+      className={`flex h-10 shrink-0 flex-col items-center justify-center rounded-lg leading-none tabular-nums ${
+        range ? "w-14 bg-violet-100 text-violet-800" : "w-11"
+      } ${muted ? "bg-muted/50 text-muted-foreground/60" : range ? "" : isToday ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}
+      title={range ? `${day}–${to} birleşik günler` : isToday ? "Bugün" : undefined}
     >
-      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 opacity-80" />
-      <div className="leading-relaxed">
-        {label ? <span className="font-semibold">{label}:</span> : null}{" "}
-        <span>{body}</span>
-      </div>
+      <span className={`font-semibold ${range ? "text-xs" : "text-sm"}`}>{range ? `${day}–${to}` : day}</span>
+      {!range && weekday ? <span className="mt-0.5 text-[9px] font-medium uppercase tracking-wide opacity-80">{weekday}</span> : null}
     </div>
   );
 }
