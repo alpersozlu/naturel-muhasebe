@@ -86,7 +86,7 @@ export function BatchDialogView(p: BatchDialogViewProps) {
   const primaryLabel = isGaranti ? "Dosyayı oluştur ve indir" : perStore ? "Seçili herkesi ödendi olarak işle" : "Ödendi olarak işle";
 
   return (
-    <div className="flex max-h-[inherit] flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* Gövde — kaydırılır */}
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-4">
         {result ? (
@@ -246,7 +246,7 @@ export function BatchDialogView(p: BatchDialogViewProps) {
       </div>
 
       {/* Alt çubuk — sabit */}
-      <div className="flex flex-wrap items-center gap-3 border-t border-border bg-background px-6 py-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-background px-6 py-3">
         {!result && rows && rows.length > 0 ? (
           <div className="text-sm tabular-nums">
             <span className="text-muted-foreground">Seçili </span>

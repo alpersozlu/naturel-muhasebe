@@ -137,7 +137,7 @@ export function BatchDialog({
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="flex max-h-[92vh] max-w-5xl flex-col gap-0 overflow-hidden p-0">
-        <DialogHeader className="px-6 pb-3 pt-6">
+        <DialogHeader className="shrink-0 px-6 pb-3 pt-6">
           <DialogTitle>
             {BATCH_KIND_LABEL[choice.kind]} · {CHANNEL_SHORT[choice.channel]} · {periodLabel}
           </DialogTitle>
