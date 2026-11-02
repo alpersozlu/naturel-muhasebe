@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pendingFor, pendingText, type PendingStore } from "@/lib/payroll-pending";
+import { pendingCounts, pendingFor, pendingText, type PendingStore } from "@/lib/payroll-pending";
 
 // Sahibi 02.11.2026: prim için beklenen belgeler mağaza mağaza izlensin.
 const line = (full_name: string, commission_profile: string, own_target: number | null = null, employee_status: "active" | "left" = "active") => ({
@@ -73,5 +73,9 @@ describe("bekleyen belgeler", () => {
     expect(t).not.toContain("IT POS");
     expect(t).not.toContain("Rojin");
     expect(pendingText("Ekim 2026", [])).toBe("Ekim 2026 primi için bekleyen belge yok.");
+  });
+
+  it("sayaç isteğe bağlıları saymaz", () => {
+    expect(pendingCounts([m])).toEqual({ ok: 3, partial: 2, missing: 1, total: 6 });
   });
 });

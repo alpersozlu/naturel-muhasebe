@@ -36,8 +36,22 @@ export type PendingPerf = {
   daily: { days_expected: number; days_present: number; days_missing: string[] } | null;
 };
 
+export type PendingKey = "bi_sales" | "bi_category" | "kpi" | "itpos" | "daily" | "nebim" | "store_target" | "person_targets";
+
+/** Ekranda iki grup: gelen belgeler ve girilecek hedefler. */
+export const PENDING_GROUP: Record<PendingKey, "docs" | "targets"> = {
+  bi_sales: "docs",
+  bi_category: "docs",
+  kpi: "docs",
+  itpos: "docs",
+  daily: "docs",
+  nebim: "docs",
+  store_target: "targets",
+  person_targets: "targets",
+};
+
 export type PendingItem = {
-  key: "bi_sales" | "bi_category" | "kpi" | "itpos" | "daily" | "nebim" | "store_target" | "person_targets";
+  key: PendingKey;
   label: string;
   /** ok = geldi · missing = bekleniyor · partial = kısmen · optional = isteğe bağlı, gelmedi */
   status: "ok" | "missing" | "partial" | "optional";
@@ -119,6 +133,20 @@ export function pendingFor(stores: PendingStore[], perf: PendingPerf[]): Pending
     const open = items.filter((i) => i.status === "missing" || i.status === "partial").length;
     return { store_id: s.store_id, store_name: s.store_name, is_mavi: s.is_mavi, items, open };
   });
+}
+
+export type PendingCounts = { ok: number; partial: number; missing: number; total: number };
+
+/** İsteğe bağlı kalemler sayılmaz. */
+export function pendingCounts(rows: PendingStoreResult[]): PendingCounts {
+  const c: PendingCounts = { ok: 0, partial: 0, missing: 0, total: 0 };
+  for (const r of rows)
+    for (const i of r.items) {
+      if (i.status === "optional") continue;
+      c[i.status] += 1;
+      c.total += 1;
+    }
+  return c;
 }
 
 /** Mert'e / mağazalara gönderilecek düz metin — yalnız bekleyenler. */
