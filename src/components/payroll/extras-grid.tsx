@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CornerDownRight, FileUp, Minus, Plus, Save } from "lucide-react";
+import { CornerDownRight, Minus, Plus, Save } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,7 @@ import { EntryDialog, type EntryKind } from "./entry-dialog";
 import { KolayikPanel } from "./kolayik-panel";
 import { SundayAuditPanel } from "./sunday-audit";
 import { IkPanel } from "./ik-panel";
-import { PerformanceDocs, type PerformanceDocsHandle } from "./performance-docs";
+import { PerformanceDocs } from "./performance-docs";
 import type { KolayikMonth } from "@/server/services/kolayik/payroll-sync";
 
 /**
@@ -381,11 +381,7 @@ function StoreExtras({
   carrying: boolean;
   nextLabel: string;
 }) {
-  // Sürükle-bırak: Mavi mağazasının kutusuna bırakılan dosyalar performans belgesi olarak yüklenir.
-  const perfRef = useRef<PerformanceDocsHandle>(null);
-  const [dragDepth, setDragDepth] = useState(0);
-  const droppable = store.is_mavi && !closed;
-  const carriesFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  // Belgeler burada yüklenmez — "Bekleyen belgeler" sekmesindeki mağaza kartına bırakılır (sahibi, 02.11.2026).
   const lines = store.lines.filter((l) => l.employee_status !== "inactive");
   if (lines.length === 0) return null;
   const storeIn = { revenue: store.revenue, target: store.target };
@@ -393,48 +389,7 @@ function StoreExtras({
   const totalP2 = live.reduce((s, x) => s + x.c.payment2_due, 0);
 
   return (
-    <section
-      data-drop-zone={droppable ? "" : undefined}
-      className={cn("relative rounded-2xl border bg-card shadow-xs overflow-hidden", dragDepth > 0 && droppable && "border-sky-400 ring-2 ring-sky-300")}
-      onDragEnter={(e) => {
-        if (!carriesFiles(e)) return;
-        e.preventDefault();
-        setDragDepth((d) => d + 1);
-      }}
-      onDragOver={(e) => {
-        if (!carriesFiles(e)) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = droppable ? "copy" : "none";
-      }}
-      onDragLeave={(e) => {
-        if (carriesFiles(e)) setDragDepth((d) => Math.max(0, d - 1));
-      }}
-      onDrop={(e) => {
-        if (!carriesFiles(e)) return;
-        e.preventDefault();
-        setDragDepth(0);
-        if (droppable) perfRef.current?.upload(Array.from(e.dataTransfer.files));
-      }}
-    >
-      {dragDepth > 0 ? (
-        <div
-          className={cn(
-            "pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 text-sm font-medium backdrop-blur-[1px]",
-            droppable ? "bg-sky-50/85 text-sky-900" : "bg-muted/80 text-muted-foreground"
-          )}
-        >
-          {droppable ? (
-            <>
-              <FileUp className="h-4 w-4" />
-              Bırakın — {store.store_name} performans belgeleri okunup otomatik hesaplanacak
-            </>
-          ) : closed ? (
-            "Ay kapalı — belge yüklenemez"
-          ) : (
-            `${store.store_name}: belge gerekmez (ciro Nebim’den gelir)`
-          )}
-        </div>
-      ) : null}
+    <section className="relative rounded-2xl border bg-card shadow-xs overflow-hidden">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-muted/30 px-4 py-3">
         <div>
           <div className="font-semibold tracking-tight">{store.store_name}</div>
@@ -450,7 +405,7 @@ function StoreExtras({
       </header>
       {store.is_mavi ? (
         <PerformanceDocs
-          ref={perfRef}
+          allowUpload={false}
           periodId={periodId}
           storeId={store.store_id}
           closed={closed}

@@ -36,42 +36,28 @@ function fileToBase64(file: File): Promise<string> {
 const dayNums = (days: string[]) => days.map((d) => String(Number(d.slice(8, 10)))).join(", ");
 
 /**
- * Ay sonu performans belgeleri — mağaza başına. Dosyalar sistemde okunur,
- * birbirleriyle karşılaştırılır; fark yoksa tek tuşla prim tablosuna aktarılır.
- * Fotoğraf gerekmez: SAP'den alınan PDF ve Excel dışa aktarımları yeter.
- *
- * Bağımsız kontrol: aynı kişi ciroları, ay boyunca her akşam yüklenen günlük
- * bayi gün sonu dosyalarından da hesaplanır ("Günlük dosyalar" sütunu). Eksik
- * günün dosyası da aynı düğmeyle eklenir.
- *
- * OTOMATİK HESAP (sahibi, 05.10.2026: "dosyaları ilgili mağazanın kenarından
- * sürükleyip yükleyeyim, otomatik hesaplasın"). Dosyalar mağaza kutusuna
- * bırakılır ya da düğmeyle seçilir; okuma bitince çapraz kontrol temizse
- * rakamlar kendiliğinden prim tablosuna işlenir. Belgeler tutmuyorsa ya da
- * eksik belge varsa işlenmez, nedenini söyler.
+ * Belge yükleme + otomatik hesap — Bekleyen belgeler sekmesindeki mağaza
+ * kartları kullanır (sahibi, 02.11.2026: "yalnız bekleyen belgeler kısmına
+ * atayım, prim ve mesai kısmında yükleme olmasın").
  */
-export const PerformanceDocs = forwardRef<
-  PerformanceDocsHandle,
-  {
-    periodId: string;
-    storeId: string;
-    closed: boolean;
-    perf: StorePerf | undefined;
-    /** Bu mağazanın satırlarında kaydedilmemiş değişiklik var — otomatik aktarım taslakları ezmesin */
-    hasUnsaved?: boolean;
-    onChanged: () => void;
-    onApplied: () => void;
-  }
->(function PerformanceDocs({ periodId, storeId, closed, perf, hasUnsaved = false, onChanged, onApplied }, ref) {
-  const confirm = useConfirm();
+export function usePerformanceUpload({
+  periodId,
+  storeId,
+  closed,
+  hasUnsaved = false,
+  onChanged,
+  onApplied,
+}: {
+  periodId: string;
+  storeId: string;
+  closed: boolean;
+  hasUnsaved?: boolean;
+  onChanged: () => void;
+  onApplied: () => void;
+}) {
   const utils = trpc.useUtils();
-  const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const upload = trpc.payroll.performance.upload.useMutation();
-  const remove = trpc.payroll.performance.remove.useMutation({
-    onSuccess: () => onChanged(),
-    onError: (e) => toast.error(e.message),
-  });
   const apply = trpc.payroll.performance.applyToLines.useMutation({
     onSuccess: (r) => {
       toast.success(
@@ -169,8 +155,53 @@ export const PerformanceDocs = forwardRef<
       if (read > 0) await autoApply();
     } finally {
       setBusy(false);
-      if (input.current) input.current.value = "";
     }
+  };
+
+  return { onFiles, busy, apply };
+
+}
+
+/**
+ * Ay sonu performans belgeleri — mağaza başına. Dosyalar sistemde okunur,
+ * birbirleriyle karşılaştırılır; fark yoksa tek tuşla prim tablosuna aktarılır.
+ * Fotoğraf gerekmez: SAP'den alınan PDF ve Excel dışa aktarımları yeter.
+ *
+ * Bağımsız kontrol: aynı kişi ciroları, ay boyunca her akşam yüklenen günlük
+ * bayi gün sonu dosyalarından da hesaplanır ("Günlük dosyalar" sütunu). Eksik
+ * günün dosyası da aynı düğmeyle eklenir.
+ *
+ * OTOMATİK HESAP (sahibi, 05.10.2026: "dosyaları ilgili mağazanın kenarından
+ * sürükleyip yükleyeyim, otomatik hesaplasın"). Dosyalar mağaza kutusuna
+ * bırakılır ya da düğmeyle seçilir; okuma bitince çapraz kontrol temizse
+ * rakamlar kendiliğinden prim tablosuna işlenir. Belgeler tutmuyorsa ya da
+ * eksik belge varsa işlenmez, nedenini söyler.
+ */
+export const PerformanceDocs = forwardRef<
+  PerformanceDocsHandle,
+  {
+    periodId: string;
+    storeId: string;
+    closed: boolean;
+    perf: StorePerf | undefined;
+    /** Bu mağazanın satırlarında kaydedilmemiş değişiklik var — otomatik aktarım taslakları ezmesin */
+    hasUnsaved?: boolean;
+    /** false: yükleme düğmesi yok — belgeler Bekleyen belgeler sekmesinden yüklenir (02.11.2026) */
+    allowUpload?: boolean;
+    onChanged: () => void;
+    onApplied: () => void;
+  }
+>(function PerformanceDocs({ periodId, storeId, closed, perf, hasUnsaved = false, allowUpload = true, onChanged, onApplied }, ref) {
+  const confirm = useConfirm();
+  const input = useRef<HTMLInputElement>(null);
+  const remove = trpc.payroll.performance.remove.useMutation({
+    onSuccess: () => onChanged(),
+    onError: (e) => toast.error(e.message),
+  });
+  const { onFiles: uploadFiles, busy, apply } = usePerformanceUpload({ periodId, storeId, closed, hasUnsaved, onChanged, onApplied });
+  const onFiles = async (list: File[] | FileList | null) => {
+    await uploadFiles(list);
+    if (input.current) input.current.value = "";
   };
 
   useImperativeHandle(ref, () => ({ upload: (files: File[]) => void onFiles(files) }));
@@ -227,12 +258,18 @@ export const PerformanceDocs = forwardRef<
           </span>
         ) : null}
         <div className="flex-1" />
-        <input ref={input} type="file" multiple accept=".xlsx,.pdf" className="hidden" onChange={(e) => void onFiles(e.target.files)} />
-        {!closed ? <span className="hidden text-[11px] text-muted-foreground sm:inline">dosyaları bu kutuya sürükleyip bırakın ya da</span> : null}
-        <Button size="sm" variant="outline" onClick={() => input.current?.click()} disabled={busy || closed}>
-          <FileUp className="h-3.5 w-3.5 mr-1.5" />
-          {busy ? "Okunuyor…" : "Belge yükle"}
-        </Button>
+        {allowUpload ? (
+          <>
+            <input ref={input} type="file" multiple accept=".xlsx,.pdf" className="hidden" onChange={(e) => void onFiles(e.target.files)} />
+            {!closed ? <span className="hidden text-[11px] text-muted-foreground sm:inline">dosyaları bu kutuya sürükleyip bırakın ya da</span> : null}
+            <Button size="sm" variant="outline" onClick={() => input.current?.click()} disabled={busy || closed}>
+              <FileUp className="h-3.5 w-3.5 mr-1.5" />
+              {busy ? "Okunuyor…" : "Belge yükle"}
+            </Button>
+          </>
+        ) : (
+          <span className="text-[11px] text-muted-foreground">belgeler &quot;Bekleyen belgeler&quot; sekmesinden yüklenir</span>
+        )}
         {check ? (
           <Button
             size="sm"

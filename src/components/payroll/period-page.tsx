@@ -369,7 +369,7 @@ export function PayrollPeriodPage() {
           ) : tab === "extras" ? (
             <ExtrasGrid data={data} closed={isClosed} onChanged={invalidate} onOpenLine={setOpenLineId} />
           ) : (
-            <PendingDocs data={data} onGoExtras={() => setTab("extras")} />
+            <PendingDocs data={data} onChanged={invalidate} />
           )}
 
           <Batches data={data} onChanged={invalidate} />

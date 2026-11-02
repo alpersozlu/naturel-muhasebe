@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Check, CheckCircle2, ChevronDown, Circle, CircleDashed, ClipboardCopy, FileUp, Minus, Target } from "lucide-react";
+import { Check, CheckCircle2, ChevronDown, Circle, CircleDashed, ClipboardCopy, FileUp, Loader2, Minus, Target } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { PeriodView } from "@/server/services/payroll/period";
+import { usePerformanceUpload } from "./performance-docs";
 import {
   PENDING_GROUP,
   pendingCounts,
@@ -27,9 +28,38 @@ import {
  * Mert'e / mağazalara gönderilecek düz metni panoya alır (tüm ay ya da tek
  * mağaza). Hesap: lib/payroll-pending.ts. Halka ve açılır satır deseni
  * 21st.dev "Onboarding Checklist"ten uyarlandı.
+ *
+ * BELGELER YALNIZ BURADAN YÜKLENİR (sahibi, 02.11.2026): Mavi kartına dosya
+ * bırakılır ya da "Yükle"ye basılır; okuma bitince çapraz kontrol temizse
+ * rakamlar prim tablosuna kendiliğinden işlenir (usePerformanceUpload).
+ * "Prim ve mesai girişi"nde yalnız kontrol tablosu ve "Prim tablosuna aktar".
  */
-export function PendingDocs({ data, onGoExtras }: { data: PeriodView; onGoExtras: () => void }) {
+export function PendingDocs({ data, onChanged }: { data: PeriodView; onChanged: () => void }) {
+  const utils = trpc.useUtils();
   const perf = trpc.payroll.performance.get.useQuery({ period_id: data.period.id });
+  const refresh = () => {
+    void utils.payroll.performance.get.invalidate({ period_id: data.period.id });
+    onChanged();
+  };
+  // Kart dışına bırakılan dosya sayfayı terk ettirmesin.
+  useEffect(() => {
+    const isFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    const inZone = (e: DragEvent) => e.target instanceof Element && !!e.target.closest("[data-drop-zone]");
+    const over = (e: DragEvent) => {
+      if (!isFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer && !inZone(e)) e.dataTransfer.dropEffect = "none";
+    };
+    const drop = (e: DragEvent) => {
+      if (isFiles(e)) e.preventDefault();
+    };
+    window.addEventListener("dragover", over);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("drop", drop);
+    };
+  }, []);
   const rows = useMemo(() => {
     const p: PendingPerf[] = (perf.data ?? []).map((x) => ({
       store_id: x.store_id,
@@ -39,7 +69,7 @@ export function PendingDocs({ data, onGoExtras }: { data: PeriodView; onGoExtras
     return pendingFor(data.stores, p);
   }, [data.stores, perf.data]);
   if (perf.isLoading) return <div className="text-sm text-muted-foreground">Belgeler okunuyor…</div>;
-  return <PendingDocsView periodLabel={data.period.label} rows={rows} onGoExtras={onGoExtras} />;
+  return <PendingDocsView periodLabel={data.period.label} rows={rows} upload={{ periodId: data.period.id, closed: data.period.status === "closed", onChanged: refresh }} />;
 }
 
 // ───────────────── Durum dili ─────────────────
@@ -52,11 +82,11 @@ const STATUS: Record<PendingItem["status"], { label: string; Icon: typeof Check;
 
 /** Bekleyen kalem açılınca: nereden tamamlanır. */
 const HOW: Record<PendingKey, string> = {
-  bi_sales: "SAP BI › Çalışan Performans Raporu — satış sayfası (Net TL, UPT, tekli). PDF'i Prim ve mesai girişi'nde mağaza kutusuna bırakın.",
+  bi_sales: "SAP BI › Çalışan Performans Raporu — satış sayfası (Net TL, UPT, tekli). PDF'i bu karta bırakın ya da \"Yükle\"ye basın.",
   bi_category: "Aynı raporun kategori sayfası (adetler). Ayrı PDF olarak gelebilir; ikincisi birincinin üstüne yazmaz, tamamlar.",
-  kpi: "SAP › Personel KPI Raporu (Excel). Erkek ve kadın denim sütunları prim hesabında kullanılır.",
+  kpi: "SAP › Personel KPI Raporu (Excel) — bu karta bırakın. Erkek ve kadın denim sütunları prim hesabında kullanılır.",
   itpos: "İsteğe bağlı — BI raporu varken mağaza cirosu BI'dan alınır.",
-  daily: "Eksik günlerin bayi gün sonu Excel'i Yükle ve Analiz Et'ten ya da Prim ve mesai girişi'nden eklenir; kişi cirosu bunlarla karşılaştırılır.",
+  daily: "Eksik günleri içeren bayi gün sonu Excel'i bu karta bırakılır (birkaç günü birden içerebilir); kişi cirosu bunlarla karşılaştırılır.",
   nebim: "Genel bakışta \"Derimod cirolarını Nebim'den al\" düğmesi; mağaza ve kişi cirosu Derimod Satışları'ndan gelir.",
   store_target: "Genel bakışta mağaza kartındaki \"Merkez hedefi (aylık)\" alanı; müdür ve müdür yardımcısının primi buna bağlı.",
   person_targets: "Prim ve mesai girişi'nde kişinin \"Hedef\" hücresi (ya da satırı açıp \"Kişisel hedef\"); satış asistanının primi buna bağlı.",
@@ -99,7 +129,9 @@ async function copyText(text: string, what: string) {
 
 // ───────────────── Görünüm ─────────────────
 /** Saf görünüm — veri dışarıdan (önizleme ve test için ayrı). */
-export function PendingDocsView({ periodLabel, rows, onGoExtras }: { periodLabel: string; rows: PendingStoreResult[]; onGoExtras?: () => void }) {
+type UploadCfg = { periodId: string; closed: boolean; onChanged: () => void };
+
+export function PendingDocsView({ periodLabel, rows, upload }: { periodLabel: string; rows: PendingStoreResult[]; upload?: UploadCfg }) {
   const [onlyOpen, setOnlyOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const c = pendingCounts(rows);
@@ -125,17 +157,11 @@ export function PendingDocsView({ periodLabel, rows, onGoExtras }: { periodLabel
                 {c.ok} / {c.total} kalem tamam
               </div>
               <p className="text-xs text-muted-foreground" aria-live="polite">
-                {openStores === 0 ? "Bütün mağazaların belgeleri ve hedefleri tamam." : `${openStores} mağazada eksik var`}
+                {openStores === 0 ? "Bütün mağazaların belgeleri ve hedefleri tamam." : `${openStores} mağazada eksik var · SAP belgelerini ilgili Mavi kartına sürükleyip bırakın`}
               </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {onGoExtras ? (
-              <Button variant="outline" size="sm" onClick={onGoExtras}>
-                <FileUp className="mr-2 h-4 w-4" />
-                Belge yükle
-              </Button>
-            ) : null}
             <Button
               size="sm"
               disabled={openStores === 0}
@@ -192,16 +218,43 @@ export function PendingDocsView({ periodLabel, rows, onGoExtras }: { periodLabel
         <div className="rounded-2xl border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">Eksik kalan mağaza yok.</div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {shown.map((r) => (
-            <StoreCard key={r.store_id} row={r} periodLabel={periodLabel} />
-          ))}
+          {shown.map((r) =>
+            upload && r.is_mavi ? (
+              <UploadableStoreCard key={r.store_id} row={r} periodLabel={periodLabel} cfg={upload} />
+            ) : (
+              <StoreCard key={r.store_id} row={r} periodLabel={periodLabel} />
+            )
+          )}
         </div>
       )}
     </section>
   );
 }
 
-function StoreCard({ row, periodLabel }: { row: PendingStoreResult; periodLabel: string }) {
+/** Mavi kartı: dosya bırakılır / seçilir → okunur → temizse prim tablosuna işlenir. */
+function UploadableStoreCard({ row, periodLabel, cfg }: { row: PendingStoreResult; periodLabel: string; cfg: UploadCfg }) {
+  const { onFiles, busy } = usePerformanceUpload({
+    periodId: cfg.periodId,
+    storeId: row.store_id,
+    closed: cfg.closed,
+    onChanged: cfg.onChanged,
+    onApplied: cfg.onChanged,
+  });
+  return <StoreCard row={row} periodLabel={periodLabel} uploader={{ onFiles, busy, closed: cfg.closed }} />;
+}
+
+type Uploader = { onFiles: (files: File[] | FileList | null) => Promise<void>; busy: boolean; closed: boolean };
+
+function StoreCard({ row, periodLabel, uploader }: { row: PendingStoreResult; periodLabel: string; uploader?: Uploader }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [dragDepth, setDragDepth] = useState(0);
+  const droppable = !!uploader && !uploader.closed;
+  const carriesFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  const pick = async (files: File[] | FileList | null) => {
+    if (!uploader) return;
+    await uploader.onFiles(files);
+    if (input.current) input.current.value = "";
+  };
   const counted = row.items.filter((i) => i.status !== "optional");
   const done = counted.filter((i) => i.status === "ok").length;
   const firstOpen = row.items.find((i) => i.status === "missing" || i.status === "partial")?.key ?? null;
@@ -212,7 +265,51 @@ function StoreCard({ row, periodLabel }: { row: PendingStoreResult; periodLabel:
   ];
 
   return (
-    <article className={cn("flex flex-col rounded-2xl border bg-card shadow-sm", row.open === 0 ? "border-emerald-200" : "border-border")}>
+    <article
+      data-drop-zone={droppable ? "" : undefined}
+      className={cn(
+        "relative flex flex-col rounded-2xl border bg-card shadow-sm",
+        row.open === 0 ? "border-emerald-200" : "border-border",
+        dragDepth > 0 && droppable && "border-sky-400 ring-2 ring-sky-300"
+      )}
+      onDragEnter={(e) => {
+        if (!uploader || !carriesFiles(e)) return;
+        e.preventDefault();
+        setDragDepth((d) => d + 1);
+      }}
+      onDragOver={(e) => {
+        if (!uploader || !carriesFiles(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = droppable ? "copy" : "none";
+      }}
+      onDragLeave={(e) => {
+        if (uploader && carriesFiles(e)) setDragDepth((d) => Math.max(0, d - 1));
+      }}
+      onDrop={(e) => {
+        if (!uploader || !carriesFiles(e)) return;
+        e.preventDefault();
+        setDragDepth(0);
+        if (droppable) void pick(Array.from(e.dataTransfer.files));
+      }}
+    >
+      {dragDepth > 0 ? (
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-2xl text-center text-sm font-medium backdrop-blur-[1px]",
+            droppable ? "bg-sky-50/90 text-sky-900" : "bg-muted/85 text-muted-foreground"
+          )}
+        >
+          {droppable ? (
+            <>
+              <FileUp className="h-5 w-5" aria-hidden />
+              Bırakın — {row.store_name}
+              <span className="text-xs font-normal">okunur, tutuyorsa prim tablosuna işlenir</span>
+            </>
+          ) : (
+            "Ay kapalı — belge yüklenemez"
+          )}
+        </div>
+      ) : null}
       <header className="flex items-center gap-3 px-4 pb-3 pt-4">
         <div className="relative">
           <Ring done={done} total={counted.length} />
@@ -224,6 +321,22 @@ function StoreCard({ row, periodLabel }: { row: PendingStoreResult; periodLabel:
           <div className="truncate text-sm font-semibold">{row.store_name}</div>
           <div className="text-[11px] text-muted-foreground">{row.is_mavi ? "Mavi · SAP belgeleri" : "Derimod · ciro Nebim'den"}</div>
         </div>
+        {uploader ? (
+          <>
+            <input ref={input} type="file" multiple accept=".xlsx,.pdf" className="hidden" onChange={(e) => void pick(e.target.files)} />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-2.5 text-xs"
+              onClick={() => input.current?.click()}
+              disabled={uploader.busy || uploader.closed}
+              aria-label={`${row.store_name} belge yükle`}
+            >
+              {uploader.busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <FileUp className="mr-1.5 h-3.5 w-3.5" />}
+              {uploader.busy ? "Okunuyor…" : "Yükle"}
+            </Button>
+          </>
+        ) : null}
         {row.open > 0 ? (
           <Button
             variant="ghost"
