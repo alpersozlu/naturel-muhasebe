@@ -17,6 +17,12 @@ export const batchKindEnum = z.enum(["advance", "payment1", "payment2", "single"
 const money = z.number().finite().min(0).max(100_000_000);
 const moneyNullable = money.nullable();
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Tarih YYYY-AA-GG olmalı");
+/**
+ * Metin alanı: "" → null (alanı boşalt), GÖNDERİLMEYEN alan undefined kalır
+ * (Prisma dokunmaz). 02.11.2026'ya kadar undefined da null'a çevriliyordu:
+ * yalnız hedefi güncelleyen bir istek satır notunu, komisyon notunu, ek prim
+ * notunu sessizce siliyordu (8 not denetim kaydından geri yazıldı).
+ */
 const text = (max: number) =>
   z
     .string()
@@ -24,7 +30,7 @@ const text = (max: number) =>
     .max(max)
     .optional()
     .nullable()
-    .transform((v) => (v === "" || v === undefined ? null : v));
+    .transform((v) => (v === "" ? null : v));
 
 export const periodKeySchema = z.object({
   year: z.number().int().min(2024).max(2100),
@@ -46,8 +52,9 @@ export const employeeCreateSchema = z.object({
     .trim()
     .optional()
     .nullable()
-    .transform((v) => (v ? v.replace(/\s+/g, "").toUpperCase() : null))
-    .refine((v) => v === null || /^TR\d{24}$/.test(v), "IBAN TR + 24 rakam olmalı"),
+    // gönderilmeyen IBAN undefined kalır (kısmi güncelleme IBAN'ı silmesin); "" → null
+    .transform((v) => (v === undefined ? undefined : v ? v.replace(/\s+/g, "").toUpperCase() : null))
+    .refine((v) => v == null || /^TR\d{24}$/.test(v), "IBAN TR + 24 rakam olmalı"),
   is_registered: z.boolean().default(true),
   is_gross_minimum: z.boolean().default(false),
   perfume_eligible: z.boolean().default(false),
