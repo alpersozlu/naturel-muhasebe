@@ -82,7 +82,7 @@ const STATUS: Record<PendingItem["status"], { label: string; Icon: typeof Check;
 
 /** Bekleyen kalem açılınca: nereden tamamlanır. */
 const HOW: Record<PendingKey, string> = {
-  bi_sales: "SAP BI › Çalışan Performans Raporu — satış sayfası (Net TL, UPT, tekli). PDF'i bu karta bırakın ya da \"Yükle\"ye basın.",
+  bi_sales: "SAP BI › Çalışan Performans Raporu — satış sayfası (Net TL, UPT, tekli). PDF'i ya da \"Çalışan Satış KPI\" tablosunun Excel'ini bu karta bırakın; kategori sayfasıyla birleşir.",
   bi_category: "Aynı raporun kategori sayfası (adetler). Ayrı PDF olarak gelebilir; ikincisi birincinin üstüne yazmaz, tamamlar.",
   kpi: "IT POS › Personel KPI Raporu (Excel) — bu karta bırakın. Denimin TL tutarı yalnız burada var; BI'ın kategori sayfası yalnız adet verir, KPI'nın yerini tutmaz.",
   itpos: "IT POS › Performans raporu (Excel) — zorunlu. Bu karta bırakın; yüklenmeden rakamlar prim tablosuna aktarılmaz.",

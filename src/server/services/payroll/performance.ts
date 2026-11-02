@@ -99,6 +99,8 @@ export type BiPdfParsed = {
   /** Raporun kendi süzgecinde yazan ay / yıl (okunabildiyse) */
   month?: number | null;
   year?: number | null;
+  /** Kaynak biçimi; eski kayıtlarda yoktur (= pdf). xlsx = satış sayfasının Excel'e çevrilmiş tablosu */
+  format?: "pdf" | "xlsx";
 };
 export type KpiPerson = {
   code: string | null;
@@ -271,8 +273,69 @@ async function parseXlsx(buf: Buffer): Promise<PerfParsed> {
     });
     return { kind: "itpos_reps", persons };
   }
+  // BI "Çalışan Satış KPI" sayfasının Excel tablosu (sahibi, 02.11.2026 — Lefkoşa Ekim):
+  // Çalışan | Çalışan Net TL % | Net TL | UPT | Sepet TL | 2+1'li İşlem | Tekli İşlem | İşlem Adet | Denim Adet …
+  // Yalnız satış sayfası; kategori (adet) sayfası ayrı PDF'ten gelir ve birleşir (mergeBiPdf).
+  const empCol = find("Çalışan");
+  const netTlCol = find("Net TL");
+  const uptCol = find("UPT");
+  const singleCol = find("Tekli İşlem");
+  if (empCol > 0 && netTlCol > 0 && uptCol > 0 && singleCol > 0) {
+    const col = (label: string) => find(label);
+    const twoCol = col("2+1'li İşlem");
+    const sepetCol = col("Sepet TL");
+    const txCol = col("İşlem Adet");
+    const denimCol = col("Denim Adet");
+    // Hücre kesir (0,357) ya da yüzde metni ("35,7%") olabilir.
+    const frac = (v: unknown): number | null => {
+      if (typeof v === "string" && v.includes("%")) {
+        const n = trNum(v);
+        return n == null ? null : n / 100;
+      }
+      const n = trNum(v);
+      return n == null ? null : n > 1 ? n / 100 : n;
+    };
+    const num = (row: ExcelJS.Row, c: number) => (c > 0 ? trNum(row.getCell(c).value as unknown) : null);
+    const persons: BiPerson[] = [];
+    const total: BiPdfParsed["total"] = { ...EMPTY_TOTAL };
+    ws.eachRow((row, n) => {
+      if (n === 1) return;
+      const label = cellText(row.getCell(empCol).value);
+      if (!label) return;
+      const vals = {
+        net_tl: num(row, netTlCol),
+        upt: num(row, uptCol),
+        sepet: num(row, sepetCol),
+        two_plus_one_pct: twoCol > 0 ? frac(row.getCell(twoCol).value as unknown) : null,
+        single_pct: frac(row.getCell(singleCol).value as unknown),
+        transactions: num(row, txCol),
+        denim_units: num(row, denimCol),
+      };
+      if (/genel\s*toplam/i.test(label)) {
+        Object.assign(total, vals);
+        return;
+      }
+      const r = splitRep(label);
+      if (!r.code || vals.net_tl == null) return;
+      persons.push({ code: r.code, name: r.name, ...EMPTY_TOTAL, ...vals });
+    });
+    if (persons.length > 0) {
+      return {
+        kind: "bi_pdf",
+        store_code: persons[0]!.code.slice(0, 4),
+        persons,
+        total,
+        category_layout_ok: true,
+        has_sales: true,
+        has_category: false,
+        month: null,
+        year: null,
+        format: "xlsx",
+      };
+    }
+  }
   throw new Error(
-    "Dosya tanınmadı. Beklenen: IT POS Performans (KPI/Değer), Personel KPI Raporu (Satış temsilcisi + Erkek-Denim(TL)) veya IT POS satış temsilcisi tablosu (Satış temsilcisi + Net ciro)."
+    "Dosya tanınmadı. Beklenen: IT POS Performans (KPI/Değer), Personel KPI Raporu (Satış temsilcisi + Erkek-Denim(TL)), IT POS satış temsilcisi tablosu (Satış temsilcisi + Net ciro) veya BI Çalışan Satış KPI tablosu (Çalışan + Net TL + UPT + Tekli İşlem)."
   );
 }
 
