@@ -6,7 +6,7 @@
  *
  * Mavi: BI raporunun satış sayfası (Net TL, UPT, tekli) ve kategori sayfası
  * (adet), Personel KPI (denim), günlük bayi dosyaları (bağımsız kişi cirosu).
- * IT POS raporu isteğe bağlıdır (BI varken mağaza cirosu BI'dan gelir).
+ * IT POS Excel'i (Performans ya da kişi tablosu) ZORUNLUDUR (sahibi, 02.11.2026).
  * Derimod: belge yok — ciro Nebim'den gelir; yalnız hedefler beklenir.
  * Mağaza hedefi müdürü / müdür yardımcısı olan mağazada, kişisel hedef her
  * satış asistanında beklenir. Ayrılan (left) ve bu ay çalışmayan (inactive)
@@ -98,7 +98,7 @@ export function pendingFor(stores: PendingStore[], perf: PendingPerf[]): Pending
       const kpi = docs.some((d) => d.kind === "kpi_xlsx");
       items.push({ key: "kpi", label: "Personel KPI", status: kpi ? "ok" : "missing", detail: kpi ? null : "erkek / kadın denim" });
       const itpos = docs.some((d) => d.kind === "itpos_kpi" || d.kind === "itpos_reps");
-      items.push({ key: "itpos", label: "IT POS Performans", status: itpos ? "ok" : "optional", detail: itpos ? null : "isteğe bağlı" });
+      items.push({ key: "itpos", label: "IT POS Performans (Excel)", status: itpos ? "ok" : "missing", detail: itpos ? null : "kişi Net Ciro, UPT" });
       const d = p?.daily ?? null;
       if (!d || d.days_present === 0) {
         items.push({ key: "daily", label: "Günlük bayi dosyaları", status: "missing", detail: "hiç yüklenmedi" });

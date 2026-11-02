@@ -48,7 +48,10 @@ describe("performans çapraz kontrolü — günlük bayi dosyaları", () => {
       daily([["94010020", "Maral Rahmanova", 1038234.31], ["94010049", "Enes Demir", 806726.21]])
     );
     expect(hasError(c)).toBe(false);
-    expect(c.ready).toBe(true);
+    expect(c.figures_ready).toBe(true);
+    // IT POS Excel'i zorunlu (sahibi, 02.11.2026): rakamlar tutsa da aktarıma hazır değil, uyarı var
+    expect(c.ready).toBe(false);
+    expect(c.flags.some((f) => f.level === "warn" && f.text.includes("IT POS Performans (Excel) yüklenmedi"))).toBe(true);
     expect(c.daily_agrees).toBe(true);
     const maral = c.rows.find((r) => r.code === "94010020")!;
     expect(maral.net_used).toBe(1038234.31);
@@ -63,7 +66,7 @@ describe("performans çapraz kontrolü — günlük bayi dosyaları", () => {
       daily([["94010020", "Maral Rahmanova", 1038234.31], ["94010049", "Enes Demir", 806726.21]])
     );
     expect(hasError(c)).toBe(true);
-    expect(c.ready).toBe(false);
+    expect(c.figures_ready).toBe(false);
     expect(c.daily_agrees).toBe(false);
     const maral = c.rows.find((r) => r.code === "94010020")!;
     expect(maral.net_used_source).toBe("bi");
@@ -89,7 +92,7 @@ describe("performans çapraz kontrolü — günlük bayi dosyaları", () => {
     expect(hasError(c)).toBe(false);
     expect(c.flags.some((f) => f.level === "warn" && f.text.includes("eksik: 4 gün"))).toBe(true);
     expect(c.rows.find((r) => r.code === "94010020")!.net_used).toBe(1038234);
-    expect(c.ready).toBe(true);
+    expect(c.figures_ready).toBe(true);
   });
 
   it("ay sonu belgesi olmadan, günler tamsa ciro günlük dosyalardan alınır", () => {
@@ -97,7 +100,7 @@ describe("performans çapraz kontrolü — günlük bayi dosyaları", () => {
     expect(c.store_net).toBe(1844960.52);
     expect(c.store_net_source).toBe("daily");
     expect(c.top_seller).toBe("Maral Rahmanova");
-    expect(c.ready).toBe(false); // KPI yok → denim ayrımı yapılamaz
+    expect(c.figures_ready).toBe(false); // KPI yok → denim ayrımı yapılamaz
     expect(hasError(c)).toBe(false);
   });
 
@@ -111,7 +114,7 @@ describe("performans çapraz kontrolü — günlük bayi dosyaları", () => {
     const flag = far.rows.find((r) => r.code === "94010020")!.flags.find((f) => f.text.startsWith("Denim tutarı"));
     expect(flag?.level).toBe("warn");
     expect(hasError(far)).toBe(false);
-    expect(far.ready).toBe(true);
+    expect(far.figures_ready).toBe(true);
   });
 
   it("temsilci kodu girilmemiş satış kimsenin cirosuna eklenmez; kısa ad bordrodaki uzun adla eşleşir", () => {
@@ -164,7 +167,8 @@ describe("performans çapraz kontrolü — IT POS kişi tablosu ve ortak fişler
   it("IT POS, düşülmeyen Kartuş payı kadar yüksekse belge DOĞRUDUR; bordroya mağaza cirosuyla tutan rakam gider", () => {
     const c = buildPerformanceCheck([itpos([["Batuhan Kuru", 1630061.3], ["Yaşar Kemal Tıngır", 1674093.16], ["Didem Aydoğan", 8404.31]]), K], L, D());
     expect(hasError(c)).toBe(false);
-    expect(c.ready).toBe(true);
+    expect(c.figures_ready).toBe(true);
+    expect(c.ready).toBe(true); // IT POS kişi tablosu zorunlu belgeyi karşılar
     const batuhan = c.rows.find((r) => r.code === "94000044")!;
     expect(batuhan.itpos_extra).toBe(1961.32);
     expect(batuhan.net_used).toBe(1628099.98);
@@ -272,7 +276,7 @@ describe("performans çapraz kontrolü — BI raporu, çocuk reyonu ve mağaza t
   it("BI denim adedi = KPI (erkek + kadın) + çocuk reyonu ise tutar", () => {
     const c = buildPerformanceCheck([B([6, 9]), K, I], lines, D());
     expect(hasError(c)).toBe(false);
-    expect(c.ready).toBe(true);
+    expect(c.figures_ready).toBe(true);
     // üç kaynak da aynı kişide birleşir: BI liraya kadar günlükle aynı, IT POS düşülmeyen pay kadar yüksek
     const selbi = c.rows.find((r) => r.code === "94000027")!;
     expect(selbi.net_bi).toBe(1417624);
@@ -325,7 +329,7 @@ describe("performans çapraz kontrolü — KPI'da olmayan sweatshirt ve çocuk r
   it("adetler tutuyorsa (KPI = BI − sweatshirt − çocuk) fark ne kadar büyük olursa olsun uyarı yok", () => {
     const c = buildPerformanceCheck([B({ sweatshirt_units: 2, cocuk_units: 2 }), K(56)], L, D());
     expect(flagsOf(c)).toEqual([]); // KPI toplamı net cironun %13,7 altında — olağan
-    expect(c.ready).toBe(true);
+    expect(c.figures_ready).toBe(true);
   });
 
   it("adetler tutmuyorsa neyin tutmadığını söyler", () => {

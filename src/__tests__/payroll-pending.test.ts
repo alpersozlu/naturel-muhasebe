@@ -43,13 +43,13 @@ describe("bekleyen belgeler", () => {
   it("Mağusa: BI + KPI geldi, günlükler kısmi, hedefler eksik; ayrılan sayılmaz", () => {
     expect(st(m, "bi_sales")).toBe("ok");
     expect(st(m, "kpi")).toBe("ok");
-    expect(st(m, "itpos")).toBe("optional");
+    expect(st(m, "itpos")).toBe("missing"); // IT POS zorunlu (02.11.2026)
     expect(m.items.find((i) => i.key === "daily")?.detail).toBe("18 / 31 gün · eksik: 1–13");
     expect(st(m, "store_target")).toBe("missing");
     const pt = m.items.find((i) => i.key === "person_targets")!;
     expect(pt.status).toBe("partial");
     expect(pt.detail).toBe("1 / 2 kişi · bekleyen: Dilber Günay");
-    expect(m.open).toBe(3);
+    expect(m.open).toBe(4);
   });
 
   it("Lefkoşa: yalnız kategori sayfası geldi → satış sayfası ve KPI bekleniyor", () => {
@@ -70,12 +70,12 @@ describe("bekleyen belgeler", () => {
   it("gönderilecek metin yalnız bekleyenleri içerir", () => {
     const t = pendingText("Ekim 2026", rows);
     expect(t).toContain("Mavi Lefkosa:\n- BI raporu — satış sayfası (Net TL, UPT, tekli işlem)\n- Personel KPI (erkek / kadın denim)");
-    expect(t).not.toContain("IT POS");
+    expect(t).toContain("- IT POS Performans (Excel) (kişi Net Ciro, UPT)");
     expect(t).not.toContain("Rojin");
     expect(pendingText("Ekim 2026", [])).toBe("Ekim 2026 primi için bekleyen belge yok.");
   });
 
   it("sayaç isteğe bağlıları saymaz", () => {
-    expect(pendingCounts([m])).toEqual({ ok: 3, partial: 2, missing: 1, total: 6 });
+    expect(pendingCounts([m])).toEqual({ ok: 3, partial: 2, missing: 2, total: 7 });
   });
 });

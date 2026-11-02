@@ -966,6 +966,12 @@ export type PerfCheck = {
   daily_agrees: boolean | null;
   rows: PerfPersonRow[];
   flags: Flag[];
+  /** Rakamlar için belgeler yeterli: KPI + (BI ya da tam günlük dosyalar). */
+  figures_ready: boolean;
+  /**
+   * Prim tablosuna aktarılabilir: figures_ready + IT POS Excel'i (Performans ya
+   * da kişi tablosu) yüklü — IT POS ZORUNLU belgedir (sahibi, 02.11.2026).
+   */
   ready: boolean;
 };
 
@@ -1326,7 +1332,9 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
     );
   }
   if (!kpi) flags.push({ level: "warn", text: "Personel KPI Raporu (xlsx) yüklenmedi — denim ayrımı yapılamaz" });
-  if (!itk) {
+  if (!itk && !itr) {
+    flags.push({ level: "warn", text: "IT POS Performans (Excel) yüklenmedi — zorunlu belge; yüklenmeden prim tablosuna aktarılmaz" });
+  } else if (!itk) {
     flags.push({
       level: "info",
       text: biAgreesToLira
@@ -1374,6 +1382,7 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
     daily_agrees,
     rows,
     flags,
-    ready: (!!bi || dailyComplete) && !!kpi && !hasError,
+    figures_ready: (!!bi || dailyComplete) && !!kpi && !hasError,
+    ready: (!!bi || dailyComplete) && !!kpi && (!!itk || !!itr) && !hasError,
   };
 }
