@@ -85,7 +85,7 @@ const HOW: Record<PendingKey, string> = {
   bi_sales: "SAP BI › Çalışan Performans Raporu — satış sayfası (Net TL, UPT, tekli). PDF'i ya da \"Çalışan Satış KPI\" tablosunun Excel'ini bu karta bırakın; kategori sayfasıyla birleşir.",
   bi_category: "Aynı raporun kategori sayfası (adetler). Ayrı PDF olarak gelebilir; ikincisi birincinin üstüne yazmaz, tamamlar.",
   kpi: "IT POS › Personel KPI Raporu (Excel) — bu karta bırakın. Denimin TL tutarı yalnız burada var; BI'ın kategori sayfası yalnız adet verir, KPI'nın yerini tutmaz.",
-  itpos: "IT POS'tan ay için (1–31) alınan Performans Excel'i: mağazanın kuruşlu Net Ciro'su, UPT, sepet, tekli ve 2+1'li fatura oranı (örnek: Girne \"It pos 01 31 ekim 2026 performans.xlsx\"). Zorunlu — bu karta bırakın; yüklenmeden rakamlar prim tablosuna aktarılmaz.",
+  itpos: "IT POS'tan ay için (1–31) alınan Performans Excel'i: mağazanın kuruşlu Net Ciro'su, UPT, sepet, tekli ve 2+1'li fatura oranı (örnek: Girne \"It pos 01 31 ekim 2026 performans.xlsx\"). İsteğe bağlı — yoksa mağaza cirosu BI raporundan ve günlük dosyalardan alınır.",
   daily: "Eksik günleri içeren bayi gün sonu Excel'i bu karta bırakılır (birkaç günü birden içerebilir); kişi cirosu bunlarla karşılaştırılır.",
   nebim: "Genel bakışta \"Derimod cirolarını Nebim'den al\" düğmesi; mağaza ve kişi cirosu Derimod Satışları'ndan gelir.",
   store_target: "Genel bakışta mağaza kartındaki \"Merkez hedefi (aylık)\" alanı; müdür ve müdür yardımcısının primi buna bağlı.",

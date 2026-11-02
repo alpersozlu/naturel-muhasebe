@@ -88,7 +88,6 @@ export function usePerformanceUpload({
     }
     if (!c.ready) {
       const need: string[] = [];
-      if (!c.docs.includes("itpos_kpi") && !c.docs.includes("itpos_reps")) need.push("IT POS Performans (Excel) — zorunlu");
       if (!c.docs.includes("kpi_xlsx")) need.push("Personel KPI Raporu (denim TL'si için — BI kategori sayfası yalnız adet verir)");
       if (!c.docs.includes("bi_pdf") && !c.daily?.complete) {
         need.push(
@@ -279,7 +278,7 @@ export const PerformanceDocs = forwardRef<
               const ok = await confirm({
                 title: "Eksik belgeyle aktarılsın mı?",
                 description:
-                  "IT POS Excel'i zorunlu belgedir. KPI dosyası olmadan denim ayrımı yapılamaz (cironun tamamı denim dışı sayılır). BI raporu ya da tam günlük dosyalar olmadan kişi cirosu eksik kalabilir.",
+                  "KPI dosyası olmadan denim ayrımı yapılamaz (cironun tamamı denim dışı sayılır). BI raporu ya da tam günlük dosyalar olmadan kişi cirosu eksik kalabilir.",
                 confirmLabel: "Yine de aktar",
               });
               if (ok) apply.mutate({ period_id: periodId, store_id: storeId, force: true });

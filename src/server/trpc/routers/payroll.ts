@@ -348,7 +348,7 @@ export const payrollRouter = router({
       const hasError = check.flags.some((f) => f.level === "error") || check.rows.some((r) => r.flags.some((f) => f.level === "error"));
       if (hasError) throw new TRPCError({ code: "BAD_REQUEST", message: "Belgeler birbirini tutmuyor — kırmızı farklar çözülmeden aktarılamaz." });
       if (!check.ready && !input.force)
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Eksik belge var (IT POS Excel'i, KPI dosyası ve BI raporu ya da tam günlük dosyalar gerekli). Yine de aktarmak için onay verin." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Eksik belge var (KPI dosyası ve BI raporu ya da tam günlük dosyalar gerekli). Yine de aktarmak için onay verin." });
 
       if (check.store_net != null) {
         await ctx.prisma.payrollStoreMonth.upsert({

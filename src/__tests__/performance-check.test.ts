@@ -49,9 +49,9 @@ describe("performans çapraz kontrolü — günlük bayi dosyaları", () => {
     );
     expect(hasError(c)).toBe(false);
     expect(c.figures_ready).toBe(true);
-    // IT POS Excel'i zorunlu (sahibi, 02.11.2026): rakamlar tutsa da aktarıma hazır değil, uyarı var
-    expect(c.ready).toBe(false);
-    expect(c.flags.some((f) => f.level === "warn" && f.text.includes("IT POS Performans (Excel) yüklenmedi"))).toBe(true);
+    // IT POS Excel'i isteğe bağlı (sahibi, 02.11.2026): BI + KPI yeter, uyarı yok
+    expect(c.ready).toBe(true);
+    expect(c.flags.some((f) => f.level === "warn" && f.text.includes("IT POS"))).toBe(false);
     expect(c.daily_agrees).toBe(true);
     const maral = c.rows.find((r) => r.code === "94010020")!;
     expect(maral.net_used).toBe(1038234.31);
@@ -175,7 +175,7 @@ describe("performans çapraz kontrolü — IT POS kişi tablosu ve ortak fişler
     const c = buildPerformanceCheck([itpos([["Batuhan Kuru", 1630061.3], ["Yaşar Kemal Tıngır", 1674093.16], ["Didem Aydoğan", 8404.31]]), K], L, D());
     expect(hasError(c)).toBe(false);
     expect(c.figures_ready).toBe(true);
-    expect(c.ready).toBe(true); // IT POS kişi tablosu zorunlu belgeyi karşılar
+    expect(c.ready).toBe(true);
     const batuhan = c.rows.find((r) => r.code === "94000044")!;
     expect(batuhan.itpos_extra).toBe(1961.32);
     expect(batuhan.net_used).toBe(1628099.98);
