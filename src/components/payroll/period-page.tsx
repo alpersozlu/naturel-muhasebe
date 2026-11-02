@@ -39,6 +39,7 @@ import { LineDialog } from "./line-dialog";
 import { BatchDialog, type BatchChoice } from "./batch-dialog";
 import { KpiDetailDialog, type KpiKind } from "./kpi-detail-dialog";
 import { ExtrasGrid } from "./extras-grid";
+import { PendingDocs } from "./pending-docs";
 
 type Key = { year: number; month: number };
 
@@ -75,7 +76,7 @@ export function PayrollPeriodPage() {
   const [openLineId, setOpenLineId] = useState<string | null>(null);
   const [batch, setBatch] = useState<BatchChoice | null>(null);
   const [kpiDetail, setKpiDetail] = useState<KpiKind | null>(null);
-  const [tab, setTab] = useState<"overview" | "extras">("overview");
+  const [tab, setTab] = useState<"overview" | "extras" | "pending">("overview");
 
   const invalidate = () => {
     void utils.payroll.periods.get.invalidate(key);
@@ -337,6 +338,7 @@ export function PayrollPeriodPage() {
               [
                 ["overview", "Genel bakış"],
                 ["extras", "Prim ve mesai girişi (Ödeme 2)"],
+                ["pending", "Bekleyen belgeler"],
               ] as const
             ).map(([k, label]) => (
               <button
@@ -364,8 +366,10 @@ export function PayrollPeriodPage() {
                 onSaved={invalidate}
               />
             ))
-          ) : (
+          ) : tab === "extras" ? (
             <ExtrasGrid data={data} closed={isClosed} onChanged={invalidate} onOpenLine={setOpenLineId} />
+          ) : (
+            <PendingDocs data={data} onGoExtras={() => setTab("extras")} />
           )}
 
           <Batches data={data} onChanged={invalidate} />

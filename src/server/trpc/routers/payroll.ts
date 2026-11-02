@@ -164,6 +164,8 @@ export const payrollRouter = router({
             genuine: d.genuine,
             created_at: d.created_at.toISOString(),
             uploaded_by_name: d.uploaded_by_name,
+            // BI iki ayrı PDF gelebilir: hangi sayfaların geldiği (Bekleyen belgeler).
+            pages: d.kind === "bi_pdf" ? biPdfPagesOf(d.parsed_json as unknown as BiPdfParsed) : null,
           })),
           check:
             sd.length || (sdaily?.days_present ?? 0) > 0
