@@ -89,7 +89,7 @@ export function usePerformanceUpload({
     if (!c.ready) {
       const need: string[] = [];
       if (!c.docs.includes("itpos_kpi") && !c.docs.includes("itpos_reps")) need.push("IT POS Performans (Excel) — zorunlu");
-      if (!c.docs.includes("kpi_xlsx")) need.push("Personel KPI Raporu (denim ayrımı için)");
+      if (!c.docs.includes("kpi_xlsx")) need.push("Personel KPI Raporu (denim TL'si için — BI kategori sayfası yalnız adet verir)");
       if (!c.docs.includes("bi_pdf") && !c.daily?.complete) {
         need.push(
           c.daily && c.daily.days_missing.length

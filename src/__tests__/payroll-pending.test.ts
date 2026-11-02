@@ -69,7 +69,7 @@ describe("bekleyen belgeler", () => {
 
   it("gönderilecek metin yalnız bekleyenleri içerir", () => {
     const t = pendingText("Ekim 2026", rows);
-    expect(t).toContain("Mavi Lefkosa:\n- BI raporu — satış sayfası (Net TL, UPT, tekli işlem)\n- Personel KPI (erkek / kadın denim)");
+    expect(t).toContain("Mavi Lefkosa:\n- BI raporu — satış sayfası (Net TL, UPT, tekli işlem)\n- Personel KPI (Excel) (erkek / kadın denim TL)");
     expect(t).toContain("- IT POS Performans (Excel) (kişi Net Ciro, UPT)");
     expect(t).not.toContain("Rojin");
     expect(pendingText("Ekim 2026", [])).toBe("Ekim 2026 primi için bekleyen belge yok.");

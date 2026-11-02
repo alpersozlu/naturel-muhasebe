@@ -96,7 +96,7 @@ export function pendingFor(stores: PendingStore[], perf: PendingPerf[]): Pending
       items.push({ key: "bi_sales", label: "BI raporu — satış sayfası", status: biSales ? "ok" : "missing", detail: biSales ? null : "Net TL, UPT, tekli işlem" });
       items.push({ key: "bi_category", label: "BI raporu — kategori sayfası", status: biCategory ? "ok" : "missing", detail: biCategory ? null : "kategori adetleri" });
       const kpi = docs.some((d) => d.kind === "kpi_xlsx");
-      items.push({ key: "kpi", label: "Personel KPI", status: kpi ? "ok" : "missing", detail: kpi ? null : "erkek / kadın denim" });
+      items.push({ key: "kpi", label: "Personel KPI (Excel)", status: kpi ? "ok" : "missing", detail: kpi ? null : "erkek / kadın denim TL" });
       const itpos = docs.some((d) => d.kind === "itpos_kpi" || d.kind === "itpos_reps");
       items.push({ key: "itpos", label: "IT POS Performans (Excel)", status: itpos ? "ok" : "missing", detail: itpos ? null : "kişi Net Ciro, UPT" });
       const d = p?.daily ?? null;

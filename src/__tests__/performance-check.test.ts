@@ -104,6 +104,13 @@ describe("performans çapraz kontrolü — günlük bayi dosyaları", () => {
     expect(hasError(c)).toBe(false);
   });
 
+  it("KPI yokken BI kategori sayfası okunduysa uyarı bunu söyler: kategori yalnız adet, denim TL'si KPI'da", () => {
+    const withCat = buildPerformanceCheck([{ ...bi([["94010020", "Maral Rahmanova", 1038234]]), has_category: true }], LINES, null);
+    expect(withCat.flags.find((f) => f.text.startsWith("Personel KPI"))?.text).toContain("kategori sayfası okundu ama yalnız ADET verir");
+    const noCat = buildPerformanceCheck([{ ...bi([["94010020", "Maral Rahmanova", 1038234]]), has_category: false }], LINES, null);
+    expect(noCat.flags.find((f) => f.text.startsWith("Personel KPI"))?.text).toBe("Personel KPI Raporu (Excel) yüklenmedi — denim ayrımı yapılamaz");
+  });
+
   it("KPI'daki denim tutarı günlük tahminden çok saparsa uyarır, küçük sapmada susar — aktarımı durdurmaz", () => {
     const docs = (denim: number) => [bi([["94010020", "Maral Rahmanova", 1038234], ["94010049", "Enes Demir", 806726]]), kpi([["94010020", "Maral Rahmanova", denim]])];
     const d = daily([["94010020", "Maral Rahmanova", 1038234.31, 349318.67], ["94010049", "Enes Demir", 806726.21, 233025.84]]);

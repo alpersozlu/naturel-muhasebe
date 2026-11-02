@@ -84,7 +84,7 @@ const STATUS: Record<PendingItem["status"], { label: string; Icon: typeof Check;
 const HOW: Record<PendingKey, string> = {
   bi_sales: "SAP BI › Çalışan Performans Raporu — satış sayfası (Net TL, UPT, tekli). PDF'i bu karta bırakın ya da \"Yükle\"ye basın.",
   bi_category: "Aynı raporun kategori sayfası (adetler). Ayrı PDF olarak gelebilir; ikincisi birincinin üstüne yazmaz, tamamlar.",
-  kpi: "SAP › Personel KPI Raporu (Excel) — bu karta bırakın. Erkek ve kadın denim sütunları prim hesabında kullanılır.",
+  kpi: "IT POS › Personel KPI Raporu (Excel) — bu karta bırakın. Denimin TL tutarı yalnız burada var; BI'ın kategori sayfası yalnız adet verir, KPI'nın yerini tutmaz.",
   itpos: "IT POS › Performans raporu (Excel) — zorunlu. Bu karta bırakın; yüklenmeden rakamlar prim tablosuna aktarılmaz.",
   daily: "Eksik günleri içeren bayi gün sonu Excel'i bu karta bırakılır (birkaç günü birden içerebilir); kişi cirosu bunlarla karşılaştırılır.",
   nebim: "Genel bakışta \"Derimod cirolarını Nebim'den al\" düğmesi; mağaza ve kişi cirosu Derimod Satışları'ndan gelir.",

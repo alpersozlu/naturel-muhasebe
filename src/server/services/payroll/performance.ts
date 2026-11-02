@@ -1331,7 +1331,18 @@ export function buildPerformanceCheck(docs: PerfParsed[], lines: PerfLineRef[], 
         : { level: "warn", text: "BI Çalışan Performans Raporu (PDF) yüklenmedi" }
     );
   }
-  if (!kpi) flags.push({ level: "warn", text: "Personel KPI Raporu (xlsx) yüklenmedi — denim ayrımı yapılamaz" });
+  if (!kpi) {
+    // BI'ın kategori sayfası yalnız ADET verir; denim / denim dışı prim oranı TL
+    // üzerinden işler, o tutar yalnız KPI'da var (sahibi sordu, 02.11.2026: "kategori
+    // var ama algılamıyor").
+    const biCat = !!bi && biPdfPagesOf(bi).category;
+    flags.push({
+      level: "warn",
+      text: biCat
+        ? "Personel KPI Raporu (Excel) yüklenmedi — BI raporunun kategori sayfası okundu ama yalnız ADET verir; denimin TL tutarı (prim oranı buna göre) yalnız KPI'da var, denim ayrımı yapılamaz"
+        : "Personel KPI Raporu (Excel) yüklenmedi — denim ayrımı yapılamaz",
+    });
+  }
   if (!itk && !itr) {
     flags.push({ level: "warn", text: "IT POS Performans (Excel) yüklenmedi — zorunlu belge; yüklenmeden prim tablosuna aktarılmaz" });
   } else if (!itk) {
