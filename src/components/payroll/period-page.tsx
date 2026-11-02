@@ -784,7 +784,11 @@ function LineRow({ line, onOpen }: { line: ComputedLine; onOpen: (id: string) =>
         </span>
         {!closed ? (
           <div className="mt-0.5 text-[10px] text-muted-foreground">
-            {c.base_paid ? "maaş ödendi · ekstra bekliyor" : `maaş eksik ${money(c.payment1_due, { cents: false })}`}
+            {c.net_remaining < -0.5 && line.employee_status === "left"
+              ? "borç — ayrıldı, iade edecek"
+              : c.base_paid
+                ? "maaş ödendi · ekstra bekliyor"
+                : `maaş eksik ${money(c.payment1_due, { cents: false })}`}
           </div>
         ) : null}
       </td>

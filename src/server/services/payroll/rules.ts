@@ -188,6 +188,7 @@ export const ADDITION_CATEGORIES = {
   bonus: "Bonus / ödül",
   correction: "Düzeltme (eksik ödeme)",
   other: "Diğer ek hak ediş",
+  refund_received: "İade alındı (fazla ödeme geri geldi)",
 } as const;
 export type AdditionCategory = keyof typeof ADDITION_CATEGORIES;
 
@@ -205,6 +206,14 @@ export type AdditionCategory = keyof typeof ADDITION_CATEGORIES;
  */
 export const CARRY_FORWARD_CATEGORY = "carry_forward";
 export const CARRY_FORWARD_LABEL = "Sonraki aya devredildi";
+
+/**
+ * İADE ALINDI (sahibi, 02.11.2026 — Dilber Günay): ayrılan personele fazla
+ * ödenen tutar sonraki aya DEVREDİLMEZ; satırda kırmızı eksi (borç) kalır.
+ * Para geri gelince "Ekleme › İade alındı" girilir: devir gibi hak ediş
+ * DEĞİLDİR (brüte ve primlere girmez), yalnız bakiyeyi kapatır.
+ */
+export const REFUND_RECEIVED_CATEGORY = "refund_received";
 
 export const PAYMENT_CATEGORIES = {
   payment1: "Ödeme 1 — baz maaş",

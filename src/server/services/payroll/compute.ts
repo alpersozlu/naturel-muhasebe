@@ -15,6 +15,7 @@
 import {
   ADVANCE_WARN_SHARE,
   CARRY_FORWARD_CATEGORY,
+  REFUND_RECEIVED_CATEGORY,
   DERI_ASISTAN_TABLE,
   DERI_MUDUR_TABLE,
   GARMENT_PREMIUM_PER_UNIT,
@@ -126,6 +127,8 @@ export type LineCalc = {
   deductions_total: number;
   /** Bu ay kesilemeyip sonraki ayın maaşına devredilen tutar (hak ediş değildir) */
   carried_forward_total: number;
+  /** Ayrılan personelin geri ödediği fazla ödeme (hak ediş değildir, bakiyeyi kapatır) */
+  refund_received_total: number;
   gross: number;
   advances_total: number;
   payments_total: number;
@@ -335,7 +338,11 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
   const carried = annotated
     .filter((e) => e.kind === "addition" && e.category === CARRY_FORWARD_CATEGORY && e.counted)
     .reduce((s, e) => s + e.amount, 0);
-  const additions = sum("addition") - carried;
+  // Geri alınan fazla ödeme de hak ediş değildir; yalnız borcu (eksi bakiyeyi) kapatır.
+  const refunded = annotated
+    .filter((e) => e.kind === "addition" && e.category === REFUND_RECEIVED_CATEGORY && e.counted)
+    .reduce((s, e) => s + e.amount, 0);
+  const additions = sum("addition") - carried - refunded;
   const deductions = sum("deduction");
   const advances = sum("advance");
   const payments = sum("payment");
@@ -346,7 +353,7 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
   const gross =
     line.base_salary + overtime + commission.final + perfume + garment + topSeller + extra + additions - deductions;
   const paid = advances + payments;
-  const net = gross + carried - paid;
+  const net = gross + carried + refunded - paid;
 
   // Ödeme 1 bakiyesi: baz + ekler − kesintiler − avanslar − MAAŞ ödemeleri.
   // Ödeme 2 (mesai/komisyon/prim) ödemeleri buraya girmez; yoksa maaşı henüz
@@ -391,7 +398,10 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
     flags.push({
       code: "overpaid",
       level: "error",
-      text: `Fazla ödeme: ${fmtTRY(-net)} — hak edişten fazla ödendi. Sonraki ayın maaşından düşmek için "Sonraki aya devret".`,
+      text:
+        line.status === "left"
+          ? `Borç: ${fmtTRY(-net)} fazla ödendi — ayrıldı, iade edecek. Sonraki aya devredilmez; para gelince "Ekleme › İade alındı".`
+          : `Fazla ödeme: ${fmtTRY(-net)} — hak edişten fazla ödendi. Sonraki ayın maaşından düşmek için "Sonraki aya devret".`,
     });
   if (carried > 0.005 && net > 0.5)
     flags.push({
@@ -434,6 +444,7 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
     additions_total: round2(additions),
     deductions_total: round2(deductions),
     carried_forward_total: round2(carried),
+    refund_received_total: round2(refunded),
     gross: round2(gross),
     advances_total: round2(advances),
     payments_total: round2(payments),

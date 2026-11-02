@@ -642,9 +642,9 @@ function StoreExtras({
                     {c.net_remaining < -0.5 ? (
                       <>
                         <div className="mt-1 text-[11px] font-medium text-rose-700">
-                          {c.deductions_total > 0.005 ? "bu ay kesilemeyen" : "fazla ödenen"}: {money(-c.net_remaining)}
+                          {l.employee_status === "left" ? "borç — iade edecek" : c.deductions_total > 0.005 ? "bu ay kesilemeyen" : "fazla ödenen"}: {money(-c.net_remaining)}
                         </div>
-                        {!closed ? (
+                        {!closed && l.employee_status !== "left" ? (
                           <Button
                             size="sm"
                             variant="outline"

@@ -300,10 +300,20 @@ export function LineDialog({
                   <Row label="Avanslar" v={-c.advances_total} tone="text-amber-800" />
                   <Row label="Ödemeler" v={-c.payments_total} />
                   {c.carried_forward_total ? <Row label="Sonraki aya devredilen" v={c.carried_forward_total} tone="text-violet-700" /> : null}
-                  <Row label="NET KALAN" v={c.net_remaining} bold tone={Math.abs(c.net_remaining) <= 0.5 ? "text-emerald-700" : "text-amber-800"} />
+                  {c.refund_received_total ? <Row label="İade alınan (borç kapandı)" v={c.refund_received_total} tone="text-emerald-700" /> : null}
+                  <Row
+                    label={c.net_remaining < -0.5 && line.employee_status === "left" ? "BORÇ (iade edecek)" : "NET KALAN"}
+                    v={c.net_remaining}
+                    bold
+                    tone={Math.abs(c.net_remaining) <= 0.5 ? "text-emerald-700" : c.net_remaining < 0 ? "text-rose-700" : "text-amber-800"}
+                  />
                 </tbody>
               </table>
-              {c.net_remaining < -0.5 && !closed ? (
+              {c.net_remaining < -0.5 && !closed && line.employee_status === "left" ? (
+                <div className="mt-2 rounded-md bg-rose-50 px-2 py-1.5 text-xs text-rose-800">
+                  Ayrıldı — {money(-c.net_remaining)} ₺ fazla ödendi, <b>borç</b>: iade edecek. Sonraki aya devredilmez; para gelince &quot;Ekleme › İade alındı&quot; girin.
+                </div>
+              ) : c.net_remaining < -0.5 && !closed ? (
                 <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-rose-50 px-2 py-1.5 text-xs text-rose-800">
                   <span>Bu ay kesilemeyen {money(-c.net_remaining)} ₺ var; ay bu satır sıfırlanmadan kapanmaz.</span>
                   <Button
