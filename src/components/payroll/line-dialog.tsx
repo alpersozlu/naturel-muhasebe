@@ -107,6 +107,27 @@ export function LineDialog({
     onError: (e) => toast.error(e.message),
   });
   const confirm = useConfirm();
+  // Aktif / pasif (sahibi, 03.11.2026: "bir buton koy, ben aktifleştireyim ya da pasifleştireyim").
+  // Personel kartındaki durum değişir; açık bütün aylarda geçerlidir.
+  const setStatus = trpc.payroll.employees.update.useMutation({
+    onSuccess: (_r, v) => {
+      toast.success(v.status === "active" ? `${line.full_name} aktif yapıldı` : `${line.full_name} pasif yapıldı — bu ay ödeme beklenmez`);
+      if (v.status === "active" && !(line.base_salary > 0)) toast.info("Baz maaş 0 — bu ayın baz maaşını girip kaydedin.", { duration: 9000 });
+      onChanged();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const toggleStatus = async () => {
+    const toActive = line.employee_status === "inactive";
+    const ok = await confirm({
+      title: toActive ? `${line.full_name} aktif yapılsın mı?` : `${line.full_name} pasif yapılsın mı?`,
+      description: toActive
+        ? "Bu ay çalışıyor sayılır; baz maaş, mesai ve prim hesaplanır. Açık bütün aylarda geçerlidir."
+        : "Bu ay çalışmıyor sayılır — ödeme beklenmez (kayıtları silinmez). Açık bütün aylarda geçerlidir; ayrıldıysa Personel sayfasından çıkış verin.",
+      confirmLabel: toActive ? "Aktif yap" : "Pasif yap",
+    });
+    if (ok) setStatus.mutate({ id: line.employee_id, status: toActive ? "active" : "inactive" });
+  };
   const carry = trpc.payroll.entries.carryForward.useMutation({
     onSuccess: (r) => {
       toast.success(`${money(r.amount)} ₺ ${r.to_label} maaşına devredildi`);
@@ -154,11 +175,32 @@ export function LineDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex flex-wrap items-center gap-2">
+          <DialogTitle className="flex flex-wrap items-center gap-2 pr-8">
             {line.full_name}
             <span className="text-sm font-normal text-muted-foreground">
               {line.position} · {line.store_name} · {PAY_METHOD_LABEL[line.pay_method]}
             </span>
+            {line.employee_status !== "left" ? (
+              <span className="ml-auto flex items-center gap-2">
+                <span
+                  className={cn(
+                    "rounded-full px-2 py-0.5 text-[11px] font-medium ring-1",
+                    line.employee_status === "active" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-slate-100 text-slate-600 ring-slate-200"
+                  )}
+                >
+                  {line.employee_status === "active" ? "aktif" : "pasif"}
+                </span>
+                <Button
+                  size="sm"
+                  variant={line.employee_status === "inactive" ? "default" : "outline"}
+                  className="h-7 px-2.5 text-xs"
+                  onClick={toggleStatus}
+                  disabled={setStatus.isPending || closed}
+                >
+                  {line.employee_status === "inactive" ? "Aktif yap" : "Pasif yap"}
+                </Button>
+              </span>
+            ) : null}
           </DialogTitle>
           <DialogDescription>{PROFILE_LABEL[p]}{line.employee_notes ? ` · ${line.employee_notes}` : ""}</DialogDescription>
         </DialogHeader>
