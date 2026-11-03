@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/ui/money-input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { ComputedLine, StoreBlock } from "@/server/services/payroll/period";
-import { PAY_METHOD_LABEL, PROFILE_LABEL } from "@/server/services/payroll/rules";
+import { dayRate, PAY_METHOD_LABEL, PROFILE_LABEL } from "@/server/services/payroll/rules";
 import { KIND_LABEL, KIND_TONE, dmy, money, pct, rate } from "./format";
 import {
   ADDITION_CATEGORIES,
@@ -28,6 +28,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   [CARRY_FORWARD_CATEGORY]: CARRY_FORWARD_LABEL,
 };
 import { EntryDialog, type EntryKind } from "./entry-dialog";
+import { StatusToggleButton } from "./status-toggle";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
 type Form = {
@@ -107,27 +108,6 @@ export function LineDialog({
     onError: (e) => toast.error(e.message),
   });
   const confirm = useConfirm();
-  // Aktif / pasif (sahibi, 03.11.2026: "bir buton koy, ben aktifleştireyim ya da pasifleştireyim").
-  // Personel kartındaki durum değişir; açık bütün aylarda geçerlidir.
-  const setStatus = trpc.payroll.employees.update.useMutation({
-    onSuccess: (_r, v) => {
-      toast.success(v.status === "active" ? `${line.full_name} aktif yapıldı` : `${line.full_name} pasif yapıldı — bu ay ödeme beklenmez`);
-      if (v.status === "active" && !(line.base_salary > 0)) toast.info("Baz maaş 0 — bu ayın baz maaşını girip kaydedin.", { duration: 9000 });
-      onChanged();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-  const toggleStatus = async () => {
-    const toActive = line.employee_status === "inactive";
-    const ok = await confirm({
-      title: toActive ? `${line.full_name} aktif yapılsın mı?` : `${line.full_name} pasif yapılsın mı?`,
-      description: toActive
-        ? "Bu ay çalışıyor sayılır; baz maaş, mesai ve prim hesaplanır. Açık bütün aylarda geçerlidir."
-        : "Bu ay çalışmıyor sayılır — ödeme beklenmez (kayıtları silinmez). Açık bütün aylarda geçerlidir; ayrıldıysa Personel sayfasından çıkış verin.",
-      confirmLabel: toActive ? "Aktif yap" : "Pasif yap",
-    });
-    if (ok) setStatus.mutate({ id: line.employee_id, status: toActive ? "active" : "inactive" });
-  };
   const carry = trpc.payroll.entries.carryForward.useMutation({
     onSuccess: (r) => {
       toast.success(`${money(r.amount)} ₺ ${r.to_label} maaşına devredildi`);
@@ -190,15 +170,7 @@ export function LineDialog({
                 >
                   {line.employee_status === "active" ? "aktif" : "pasif"}
                 </span>
-                <Button
-                  size="sm"
-                  variant={line.employee_status === "inactive" ? "default" : "outline"}
-                  className="h-7 px-2.5 text-xs"
-                  onClick={toggleStatus}
-                  disabled={setStatus.isPending || closed}
-                >
-                  {line.employee_status === "inactive" ? "Aktif yap" : "Pasif yap"}
-                </Button>
+                <StatusToggleButton line={line} closed={closed} onChanged={onChanged} />
               </span>
             ) : null}
           </DialogTitle>
@@ -330,7 +302,8 @@ export function LineDialog({
               <table className="w-full text-sm">
                 <tbody>
                   <Row label="Baz maaş" v={line.base_salary} />
-                  <Row label={`Mesai ${line.overtime_hours ? `(${line.overtime_hours} s × ${money(c.hourly_rate)})` : ""}`} v={c.overtime_amount} />
+                  {c.day_pay_amount ? <Row label={`Gün ücreti (${line.worked_days ?? 0} gün × ${money(dayRate(line.card_base_salary))}, Ödeme 2)`} v={c.day_pay_amount} /> : null}
+                  <Row label={`Mesai ${line.overtime_hours ? `(${line.overtime_hours} s × ${money(c.hourly_rate)})` : ""}`} v={c.overtime_amount - c.day_pay_amount} />
                   <Row label="Komisyon" v={c.commission.final} />
                   {c.perfume_amount ? <Row label={`Parfüm primi (${line.perfume_units} adet)`} v={c.perfume_amount} /> : null}
                   {c.garment_amount ? <Row label={`Giysi primi (${line.garment_units} adet)`} v={c.garment_amount} /> : null}

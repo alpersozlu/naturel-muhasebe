@@ -42,7 +42,7 @@ import {
   parseGarantiTalimat,
   talimatFileName,
 } from "@/server/services/payroll/talimat";
-import { batchChannelError, batchTitle, dayPaidBase, inBatchList, periodLabel } from "@/server/services/payroll/rules";
+import { batchChannelError, batchTitle, inBatchList, periodLabel } from "@/server/services/payroll/rules";
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
 import { carryForwardCore } from "@/server/services/payroll/carry";
 import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
@@ -634,10 +634,10 @@ export const payrollRouter = router({
       const line = await ctx.prisma.payrollLine.findUniqueOrThrow({ where: { id }, include: { period: true, employee: true } });
       if (line.period.status === "closed")
         throw new TRPCError({ code: "BAD_REQUEST", message: "Kapalı ay — önce dönemi yeniden aç." });
-      // Günle ödenen personelde baz maaş girilen gün sayısından hesaplanır (Alp, 03.11.2026:
-      // "ek mesai saat kısmı yerine girilen rakam gün olsun").
-      if (data.worked_days !== undefined && line.employee.paid_by_day)
-        data.base_salary = dayPaidBase(Number(line.employee.base_salary), data.worked_days ?? 0);
+      // Günle ödenen personelde maaş yoktur: gün ücreti (gün × kart bazı ÷ 26) mesai gibi
+      // Ödeme 2'de hesaplanır (Alp, 03.11.2026: "geldiği günler maaş değil, ek mesai mantığında
+      // prim kısmında hesaplanır"). Gün girilince baz 0'a çekilir.
+      if (data.worked_days !== undefined && line.employee.paid_by_day) data.base_salary = 0;
       return ctx.prisma.payrollLine.update({ where: { id }, data });
     }),
 

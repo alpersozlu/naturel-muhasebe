@@ -28,6 +28,7 @@ import { EntryDialog, type EntryKind } from "./entry-dialog";
 import { KolayikPanel } from "./kolayik-panel";
 import { SundayAuditPanel } from "./sunday-audit";
 import { IkPanel } from "./ik-panel";
+import { StatusToggleButton } from "./status-toggle";
 import { PerformanceDocs } from "./performance-docs";
 import type { KolayikMonth } from "@/server/services/kolayik/payroll-sync";
 
@@ -81,14 +82,16 @@ function fromLine(l: ComputedLine): Draft {
 const numOf = (s: string) => (s.trim() === "" ? 0 : Number(s.replace(",", ".")) || 0);
 const same = (a: Draft, b: Draft) => JSON.stringify(a) === JSON.stringify(b);
 
-/** Günle ödenende baz, girilen gün sayısından (sunucudaki hesapla aynı); boşsa satırdaki baz. */
-function baseOf(l: ComputedLine, d: Draft): number {
-  return l.paid_by_day && d.worked_days.trim() !== "" ? dayPaidBase(l.card_base_salary, numOf(d.worked_days)) : l.base_salary;
+/** Günle ödenenin gün ücreti (sunucudaki hesapla aynı) — maaş değil, Ödeme 2'de mesai gibi. */
+function dayPayOf(l: ComputedLine, d: Draft): number {
+  return l.paid_by_day && d.worked_days.trim() !== "" ? dayPaidBase(l.card_base_salary, numOf(d.worked_days)) : 0;
 }
 
 function toInput(l: ComputedLine, d: Draft): LineInput {
   return {
-    base_salary: baseOf(l, d),
+    // Gün girilince sunucu bazı 0'a çeker; ekranda da aynısı.
+    base_salary: l.paid_by_day && d.worked_days.trim() !== "" ? 0 : l.base_salary,
+    day_pay: dayPayOf(l, d),
     commission_profile: l.commission_profile,
     overtime_hours: numOf(d.overtime_hours),
     own_revenue_nd: d.own_revenue_nd ?? null,
@@ -127,14 +130,16 @@ function categoryLabel(kind: "deduction" | "addition" | "advance" | "payment", c
  * Ödeme 2'den çıkar ("Ödeme 1 ile ödenir" — compute.ts: ekler ve kesintiler önce
  * baz maaşa işler).
  */
-function Payment2Breakdown({ c, hours, nextLabel }: { c: LineCalc; hours: number; nextLabel: string }) {
+function Payment2Breakdown({ c, hours, days, nextLabel }: { c: LineCalc; hours: number; days: number; nextLabel: string }) {
   const rows: { label: string; amount: number; tone?: string }[] = [];
   if (c.commission.final) rows.push({ label: "Komisyon", amount: c.commission.final });
   if (c.top_seller_amount) rows.push({ label: "Top-seller", amount: c.top_seller_amount });
   if (c.garment_amount) rows.push({ label: "Giysi primi", amount: c.garment_amount });
   if (c.perfume_amount) rows.push({ label: "Parfüm primi", amount: c.perfume_amount });
   if (c.extra_premium) rows.push({ label: "Ek prim", amount: c.extra_premium });
-  if (c.overtime_amount) rows.push({ label: `Mesai ${hoursTr(hours)} s`, amount: c.overtime_amount });
+  if (c.day_pay_amount) rows.push({ label: `Gün ücreti ${hoursTr(days)} gün`, amount: c.day_pay_amount });
+  const otOnly = Math.round((c.overtime_amount - c.day_pay_amount) * 100) / 100;
+  if (otOnly) rows.push({ label: `Mesai ${hoursTr(hours)} s`, amount: otOnly });
   if (c.additions_total) rows.push({ label: "Eklemeler", amount: c.additions_total, tone: "text-emerald-700" });
   if (c.deductions_from_extras) rows.push({ label: "Kesintiler", amount: -c.deductions_from_extras, tone: "text-rose-700" });
   if (c.carried_forward_total) rows.push({ label: `${nextLabel} maaşına devir`, amount: c.carried_forward_total, tone: "text-violet-800" });
@@ -335,6 +340,7 @@ export function ExtrasGrid({
           onSave={(l) => saveLines([l])}
           onEntry={(line, kind) => setEntry({ line, kind })}
           onOpenLine={onOpenLine}
+          onChanged={onChanged}
           onCarry={askCarry}
           carrying={carry.isPending}
           nextLabel={nextLabel}
@@ -370,6 +376,7 @@ function StoreExtras({
   onSave,
   onEntry,
   onOpenLine,
+  onChanged,
   onCarry,
   carrying,
   nextLabel,
@@ -388,13 +395,16 @@ function StoreExtras({
   onSave: (l: ComputedLine) => void;
   onEntry: (l: ComputedLine, kind: EntryKind) => void;
   onOpenLine: (id: string) => void;
+  onChanged: () => void;
   onCarry: (l: ComputedLine) => void;
   carrying: boolean;
   nextLabel: string;
 }) {
   // Belgeler burada yüklenmez — "Bekleyen belgeler" sekmesindeki mağaza kartına bırakılır (sahibi, 02.11.2026).
   const lines = store.lines.filter((l) => l.employee_status !== "inactive");
-  if (lines.length === 0) return null;
+  // Pasif personel tabloda yer kaplamaz; mağazanın altında adıyla ve "Aktif yap" düğmesiyle durur.
+  const inactive = store.lines.filter((l) => l.employee_status === "inactive");
+  if (lines.length === 0 && inactive.length === 0) return null;
   const storeIn = { revenue: store.revenue, target: store.target };
   const live = lines.map((l) => ({ l, c: computeLine(toInput(l, draftOf(l)), storeIn, l.calc.entries) }));
   const totalP2 = live.reduce((s, x) => s + x.c.payment2_due, 0);
@@ -426,7 +436,7 @@ function StoreExtras({
           onApplied={onPerfApplied}
         />
       ) : null}
-      <div className="overflow-x-auto">
+      <div className={cn("overflow-x-auto", lines.length === 0 && "hidden")}>
         <table className="w-full min-w-[1380px] text-sm">
           <thead className="text-[11px] uppercase tracking-wider text-muted-foreground">
             <tr className="border-b">
@@ -461,15 +471,15 @@ function StoreExtras({
                     </button>
                     <div className="text-[11px] text-muted-foreground">{l.position}</div>
                     {l.paid_by_day ? (
-                      <div className="text-[11px] tabular-nums text-muted-foreground">
-                        günle ödenir · günlük {money(dayRate(l.card_base_salary))} ₺
-                        <br />
-                        maaş {money(baseOf(l, d))} ₺
+                      <div className="text-[11px] leading-snug tabular-nums text-muted-foreground">
+                        <div>günle ödenir</div>
+                        <div className="whitespace-nowrap">günlük {money(dayRate(l.card_base_salary))} ₺</div>
                       </div>
                     ) : (
-                      <div className="text-[11px] tabular-nums text-muted-foreground">saatlik {money(c.hourly_rate)} ₺</div>
+                      <div className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">saatlik {money(c.hourly_rate)} ₺</div>
                     )}
-                    {!c.base_paid ? <div className="mt-0.5 text-[10px] font-medium text-amber-800">maaş henüz ödenmedi</div> : null}
+                    {!c.base_paid && !l.paid_by_day ? <div className="mt-0.5 text-[10px] font-medium text-amber-800">maaş henüz ödenmedi</div> : null}
+                    <StatusToggleButton line={l} closed={closed} onChanged={onChanged} className="mt-2 h-6 px-2 text-[11px] text-muted-foreground" />
                   </td>
                   <td className="px-2 py-3">
                     {l.paid_by_day ? (
@@ -614,7 +624,14 @@ function StoreExtras({
                     )}
                   </td>
                   <td className="px-2 py-3 text-right tabular-nums">
-                    {hours > 0 ? (
+                    {c.day_pay_amount > 0 ? (
+                      <>
+                        <div className="font-semibold">{money(c.overtime_amount)}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {hoursTr(numOf(d.worked_days))} gün × {money(dayRate(l.card_base_salary))}
+                        </div>
+                      </>
+                    ) : hours > 0 ? (
                       <>
                         <div className="font-semibold">{money(c.overtime_amount)}</div>
                         <div className="text-[11px] text-muted-foreground">
@@ -668,7 +685,7 @@ function StoreExtras({
                     ) : null}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums">
-                    <Payment2Breakdown c={c} hours={hours} nextLabel={nextLabel} />
+                    <Payment2Breakdown c={c} hours={hours} days={numOf(d.worked_days)} nextLabel={nextLabel} />
                     {c.net_remaining < -0.5 ? (
                       <>
                         <div className="mt-1 text-[11px] font-medium text-rose-700">
@@ -703,6 +720,19 @@ function StoreExtras({
           </tbody>
         </table>
       </div>
+      {inactive.length ? (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
+          <span className="uppercase tracking-wider">Pasif · bu ay ödenmez</span>
+          {inactive.map((l) => (
+            <span key={l.id} className="flex items-center gap-2">
+              <button type="button" className="font-medium text-foreground/80 hover:underline" onClick={() => onOpenLine(l.id)}>
+                {l.full_name}
+              </button>
+              <StatusToggleButton line={l} closed={closed} onChanged={onChanged} className="h-6 px-2 text-[11px]" />
+            </span>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }

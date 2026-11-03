@@ -52,6 +52,11 @@ export type LineInput = {
   base_salary: number;
   commission_profile: CommissionProfile;
   overtime_hours: number;
+  /**
+   * Günle ödenen personelin gün ücreti toplamı (gün × kart bazı ÷ 26). Maaş değildir:
+   * mesai gibi Ödeme 2'de (primler kısmında) ödenir — Alp, 03.11.2026 (Neçirvan).
+   */
+  day_pay?: number;
   own_revenue_nd: number | null;
   own_revenue_denim: number | null;
   own_revenue: number | null;
@@ -117,7 +122,10 @@ export type AnnotatedEntry = EntryLike & { counted: boolean; counted_note: strin
 
 export type LineCalc = {
   hourly_rate: number;
+  /** Mesai ücreti — günle ödenende gün ücreti (day_pay_amount) dahil */
   overtime_amount: number;
+  /** Günle ödenenin gün ücreti (overtime_amount'un içinde) */
+  day_pay_amount: number;
   commission: CommissionCalc;
   perfume_amount: number;
   garment_amount: number;
@@ -320,7 +328,8 @@ function finish(c: CommissionCalc, line: LineInput): CommissionCalc {
 
 export function computeLine(line: LineInput, store: StoreMonthInput, entries: EntryLike[]): LineCalc {
   const hourly = line.base_salary / OVERTIME_DIVISOR;
-  const overtime = hourly * (line.overtime_hours || 0);
+  const dayPay = line.day_pay || 0;
+  const overtime = hourly * (line.overtime_hours || 0) + dayPay;
   const commission = computeCommission(line, store);
   const perfume = (line.perfume_units || 0) * PERFUME_PREMIUM_PER_UNIT;
   const garment = (line.garment_units || 0) * GARMENT_PREMIUM_PER_UNIT;
@@ -436,6 +445,7 @@ export function computeLine(line: LineInput, store: StoreMonthInput, entries: En
   return {
     hourly_rate: round2(hourly),
     overtime_amount: round2(overtime),
+    day_pay_amount: round2(dayPay),
     commission,
     perfume_amount: round2(perfume),
     garment_amount: round2(garment),

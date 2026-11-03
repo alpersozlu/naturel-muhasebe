@@ -1,7 +1,7 @@
 import "server-only";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { computeLine, type EntryLike, type LineCalc, type LineInput } from "./compute";
-import { periodLabel } from "./rules";
+import { dayPaidBase, periodLabel } from "./rules";
 import { applyLoanInstallments } from "./loans";
 
 export const num = (v: Prisma.Decimal | number | null | undefined): number | null =>
@@ -44,6 +44,7 @@ export function toLineInput(l: LineWithRels): LineInput {
     base_salary: n0(l.base_salary),
     commission_profile: l.commission_profile,
     overtime_hours: n0(l.overtime_hours),
+    day_pay: l.employee.paid_by_day && l.worked_days != null ? dayPaidBase(n0(l.employee.base_salary), n0(l.worked_days)) : 0,
     own_revenue_nd: num(l.own_revenue_nd),
     own_revenue_denim: num(l.own_revenue_denim),
     own_revenue: num(l.own_revenue),
@@ -411,7 +412,7 @@ export async function ensureLines(prisma: PrismaClient, periodId: string): Promi
         store_id: e.store_id,
         position: e.position,
         commission_profile: e.commission_profile,
-        // Günle ödenende baz, ay içinde girilen gün sayısıyla oluşur.
+        // Günle ödenende maaş yok: gün ücreti Ödeme 2'de (mesai gibi) ödenir.
         base_salary: e.paid_by_day ? 0 : e.base_salary,
       })),
     });

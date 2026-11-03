@@ -4,6 +4,7 @@ import { computeFromLine, lineInclude, num } from "@/server/services/payroll/per
 import {
   ADDITION_CATEGORIES,
   CARRY_FORWARD_CATEGORY,
+  dayRate,
   DEDUCTION_CATEGORIES,
   PAY_METHOD_LABEL,
   periodLabel,
@@ -95,7 +96,12 @@ export default async function PayslipPage({ params }: { params: { lineId: string
 
         {c.overtime_amount > 0 ? (
           <Section title="2. EK MESAİ (Fazla Çalışma)">
-            <Row label={`${line.overtime_hours} saat × ${money(c.hourly_rate)} (saatlik ücret = aylık net ÷ 208)`} v={money(c.overtime_amount)} bold />
+            {c.day_pay_amount > 0 ? (
+              <Row label={`${line.worked_days ?? 0} gün × ${money(dayRate(line.card_base_salary))} (günle ödenir: gün ücreti = aylık net ÷ 26)`} v={money(c.day_pay_amount)} bold />
+            ) : null}
+            {c.overtime_amount - c.day_pay_amount > 0 ? (
+              <Row label={`${line.overtime_hours} saat × ${money(c.hourly_rate)} (saatlik ücret = aylık net ÷ 208)`} v={money(c.overtime_amount - c.day_pay_amount)} bold />
+            ) : null}
           </Section>
         ) : null}
 
