@@ -188,11 +188,14 @@ export function ExtrasGrid({
   closed,
   onChanged,
   onOpenLine,
+  onPayStore,
 }: {
   data: PeriodView;
   closed: boolean;
   onChanged: () => void;
   onOpenLine: (id: string) => void;
+  /** Mağazanın Ödeme 2 nakit listesini aç (yalnız o mağaza) — ödendi kaydı oradan */
+  onPayStore: (storeName: string) => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [entry, setEntry] = useState<{ line: ComputedLine; kind: EntryKind } | null>(null);
@@ -341,6 +344,7 @@ export function ExtrasGrid({
           onEntry={(line, kind) => setEntry({ line, kind })}
           onOpenLine={onOpenLine}
           onChanged={onChanged}
+          onPayStore={() => onPayStore(s.store_name)}
           onCarry={askCarry}
           carrying={carry.isPending}
           nextLabel={nextLabel}
@@ -377,6 +381,7 @@ function StoreExtras({
   onEntry,
   onOpenLine,
   onChanged,
+  onPayStore,
   onCarry,
   carrying,
   nextLabel,
@@ -396,6 +401,7 @@ function StoreExtras({
   onEntry: (l: ComputedLine, kind: EntryKind) => void;
   onOpenLine: (id: string) => void;
   onChanged: () => void;
+  onPayStore: () => void;
   onCarry: (l: ComputedLine) => void;
   carrying: boolean;
   nextLabel: string;
@@ -408,6 +414,10 @@ function StoreExtras({
   const storeIn = { revenue: store.revenue, target: store.target };
   const live = lines.map((l) => ({ l, c: computeLine(toInput(l, draftOf(l)), storeIn, l.calc.entries) }));
   const totalP2 = live.reduce((s, x) => s + x.c.payment2_due, 0);
+  // Kayıtlı değerlerle (taslak değil): ödendi kaydı kaydedilmiş satırlardan yapılır.
+  const savedDue = lines.reduce((s, l) => s + l.calc.payment2_due, 0);
+  const paidP2 = lines.reduce((s, l) => s + l.calc.payment2_paid, 0);
+  const storeDirty = lines.some(isDirty);
 
   return (
     <section className="relative rounded-2xl border bg-card shadow-xs overflow-hidden">
@@ -419,9 +429,26 @@ function StoreExtras({
             {store.achievement != null ? ` · başarı ${pct(store.achievement)}` : ""} (Genel bakış sekmesinden girilir)
           </div>
         </div>
-        <div className="ml-auto text-right text-xs">
-          <div className="uppercase tracking-wider text-muted-foreground">Ödeme 2 toplamı</div>
-          <div className="text-sm font-semibold tabular-nums">{money(totalP2)} ₺</div>
+        <div className="ml-auto flex items-center gap-4">
+          <div className="text-right text-xs">
+            <div className="uppercase tracking-wider text-muted-foreground">{paidP2 > 0.005 ? "Ödeme 2 kalan" : "Ödeme 2 toplamı"}</div>
+            <div className="text-sm font-semibold tabular-nums">{money(totalP2)} ₺</div>
+            {paidP2 > 0.005 ? <div className="tabular-nums text-emerald-700">ödendi {money(paidP2)} ₺</div> : null}
+          </div>
+          {/* Sahibi (03.11.2026): "Mavi Lefkoşa'yı ödedim ama işaretleme tuşu yok" — nakit listesi bu mağazayla açılır */}
+          {savedDue > 0.005 && !closed ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onPayStore}
+              disabled={storeDirty}
+              title={storeDirty ? "Önce bu mağazadaki değişiklikleri kaydet" : "Ödeme 2 nakit listesi bu mağazayla açılır; tarihi seçip \"Bu mağaza ödendi\" de"}
+            >
+              Ödendi olarak işle
+            </Button>
+          ) : paidP2 > 0.005 && savedDue <= 0.005 ? (
+            <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">Ödeme 2 ödendi</span>
+          ) : null}
         </div>
       </header>
       {store.is_mavi ? (

@@ -11,6 +11,8 @@ import { BatchDialogView } from "./batch-dialog-view";
 export type BatchChoice = {
   kind: "advance" | "payment1" | "payment2" | "single";
   channel: "garanti" | "ziraat" | "cash";
+  /** Yalnız bu mağazanın kişileri (Prim ve mesai girişinde mağaza başlığından açılınca) */
+  store?: string;
 };
 
 type Row = {
@@ -59,7 +61,8 @@ export function BatchDialog({
   const [savingStore, setSavingStore] = useState<string | null>(null);
 
   const prepare = trpc.payroll.batches.prepare.useMutation({
-    onSuccess: (r) => {
+    onSuccess: (r0) => {
+      const r = choice.store ? { ...r0, rows: r0.rows.filter((x) => x.store_name === choice.store) } : r0;
       setRows(r.rows);
       setStoreOrder(Array.from(new Set(r.rows.map((x) => x.store_name))));
       const ck: Record<string, boolean> = {};
@@ -140,6 +143,7 @@ export function BatchDialog({
         <DialogHeader className="shrink-0 px-6 pb-3 pt-6">
           <DialogTitle>
             {BATCH_KIND_LABEL[choice.kind]} · {CHANNEL_SHORT[choice.channel]} · {periodLabel}
+            {choice.store ? ` · ${choice.store}` : ""}
           </DialogTitle>
           <DialogDescription>
             {isGaranti

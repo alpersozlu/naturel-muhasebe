@@ -367,7 +367,13 @@ export function PayrollPeriodPage() {
               />
             ))
           ) : tab === "extras" ? (
-            <ExtrasGrid data={data} closed={isClosed} onChanged={invalidate} onOpenLine={setOpenLineId} />
+            <ExtrasGrid
+              data={data}
+              closed={isClosed}
+              onChanged={invalidate}
+              onOpenLine={setOpenLineId}
+              onPayStore={(store) => setBatch({ kind: "payment2", channel: "cash", store })}
+            />
           ) : (
             <PendingDocs data={data} onChanged={invalidate} />
           )}
