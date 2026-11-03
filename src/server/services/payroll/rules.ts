@@ -10,6 +10,18 @@
 export const OVERTIME_DIVISOR = 208;
 /** Tam zamanlı personel ayda 26 gün sayılır — izin gün ücreti = net ÷ 26. */
 export const LEAVE_DAY_DIVISOR = 26;
+const r2 = (v: number) => Math.round(v * 100) / 100;
+/** Gün ücreti = aylık baz ÷ 26, kuruşa yuvarlı (70.893,00 → 2.726,65). */
+export function dayRate(monthlyBase: number): number {
+  return r2(monthlyBase / LEAVE_DAY_DIVISOR);
+}
+/**
+ * Günle ödenen personelin o ayki bazı = çalıştığı gün × gün ücreti (Neçirvan, hafta sonu
+ * çalışır; Kolay İK'ya çalıştığı günü 8 saat olarak girer — Alp, 03.11.2026).
+ */
+export function dayPaidBase(monthlyBase: number, days: number): number {
+  return r2(dayRate(monthlyBase) * days);
+}
 /** Her Mavi mağazasında ayın en çok satan TEK kişisine. */
 export const TOP_SELLER_PREMIUM = 3000;
 /**

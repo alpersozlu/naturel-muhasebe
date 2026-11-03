@@ -57,6 +57,8 @@ export const employeeCreateSchema = z.object({
     .refine((v) => v == null || /^TR\d{24}$/.test(v), "IBAN TR + 24 rakam olmalı"),
   is_registered: z.boolean().default(true),
   is_gross_minimum: z.boolean().default(false),
+  /** Günle ödenir (Neçirvan, hafta sonu çalışır): o ayki baz = çalıştığı gün × (baz ÷ 26) */
+  paid_by_day: z.boolean().default(false),
   perfume_eligible: z.boolean().default(false),
   garment_eligible: z.boolean().default(false),
   paid_month_early: z.boolean().default(false),
@@ -83,6 +85,8 @@ export const lineUpdateSchema = z.object({
   /** Satırın anlık profili — pasif personel aktif yapılıp satış asistanı olunca (Neçirvan, 03.11.2026) */
   commission_profile: commissionProfileEnum.optional(),
   overtime_hours: z.number().min(0).max(400).optional(),
+  /** Günle ödenen personel: o ay çalıştığı gün — baz maaş sunucuda bundan hesaplanır */
+  worked_days: z.number().min(0).max(31).nullable().optional(),
   overtime_note: text(500),
   own_revenue_nd: moneyNullable.optional(),
   own_revenue_denim: moneyNullable.optional(),

@@ -76,6 +76,8 @@ export type KolayikMonth = {
      * o kişide bu sayı baz maaşın gün sayısıdır (Alp, 03.11.2026).
      */
     full_day_records?: number;
+    /** Personel kartında "günle ödenir": kayıtlar mesai değil çalışılan gündür, hiçbiri ödenmez */
+    paid_by_day?: boolean;
     /** Hafta içi 8+ saatlik, tatil notu olmayan kayıt var — elle bakılmalı */
     review: boolean;
     note: string;
@@ -133,7 +135,7 @@ export type KolayikMonth = {
   }>;
 };
 
-type Emp = { id: string; full_name: string; aliases: string[]; bank_account_name: string | null; status: string; store?: { name?: string; brand?: { name: string } | null } | null };
+type Emp = { id: string; full_name: string; aliases: string[]; bank_account_name: string | null; status: string; paid_by_day?: boolean; store?: { name?: string; brand?: { name: string } | null } | null };
 
 /** Kolay İK kişisi ↔ bordro personeli: tam ad / takma ad; olmazsa ilk + son ad. */
 export function matchEmployee(person: { name: string }, employees: Emp[]): Emp | null {
@@ -233,7 +235,7 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
     if (tRes.status === "rejected") base.warnings.push(`Avans talepleri okunamadı — ${errText(tRes)}`);
     const employees: Emp[] = await prisma.payrollEmployee.findMany({
       where: { deleted_at: null },
-      select: { id: true, full_name: true, aliases: true, bank_account_name: true, status: true, store: { select: { brand: { select: { name: true } } } } },
+      select: { id: true, full_name: true, aliases: true, bank_account_name: true, status: true, paid_by_day: true, store: { select: { brand: { select: { name: true } } } } },
     });
     const period = await prisma.payrollPeriod.findUnique({ where: { year_month: { year, month } } });
     const lines = period
@@ -284,8 +286,11 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
       // Hafta içi tek kayıtta 8 saat ve üstü mesai olmaz: iş günü (hafta sonu çalışanın günleri)
       // ya da tatil / izin karşılığıdır — kendiliğinden ÖDENMEZ, elle bakılır (03.11.2026:
       // Neçirvan'ın 10 iş günü 8'er saat girilmişti → 80 saat mesai önerisi).
-      const weekdayFull = !split0.rest_day && minutes >= 480;
-      const split = weekdayFull ? { ...split0, paid_minutes: 0 } : split0;
+      // Günle ödenende (kartta işaretli) her kayıt çalışılan gündür: mesai yok, pazar hak günü yok.
+      const dayPaid = !!emp?.paid_by_day;
+      if (dayPaid) row.paid_by_day = true;
+      const weekdayFull = !dayPaid && !split0.rest_day && minutes >= 480;
+      const split = dayPaid ? { ...split0, paid_minutes: 0, credit_day: false } : weekdayFull ? { ...split0, paid_minutes: 0 } : split0;
       if (weekdayFull && t.status === "approved") row.weekday_full_records = (row.weekday_full_records ?? 0) + 1;
       if (minutes >= 480 && t.status === "approved") row.full_day_records = (row.full_day_records ?? 0) + 1;
       if (noRestDayPay && split.rest_day && t.status === "approved" && minutes > (split.credit_day ? 480 : 0)) row.rest_day_unpaid_hours = r2((row.rest_day_unpaid_hours ?? 0) + (minutes - (split.credit_day ? 480 : 0)) / 60);
@@ -297,7 +302,7 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
         if (split.rest_day) row.sunday_extra_hours = r2(row.sunday_extra_hours + paid);
       } else if (t.status === "waiting") row.waiting_hours = r2(row.waiting_hours + paid);
       else row.other_hours = r2(row.other_hours + hours);
-      if (t.status !== "rejected" && split.rest_day && !split.credit_day) row.short_sunday_records += 1;
+      if (!dayPaid && t.status !== "rejected" && split.rest_day && !split.credit_day) row.short_sunday_records += 1;
       // Hafta içi 8+ saat ve tatil notu yok: hak günü mü, ücret mi — belli değil
       if (t.status !== "rejected" && weekdayFull) row.review = true;
       row.entries.push({
@@ -325,7 +330,7 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
           ? `pazar/tatil 8 saat üstü ${hTr(row.rest_day_unpaid_hours)} s ÖDENMEZ — Mavi'de ${MAVI_NO_REST_DAY_OT_FROM.split("-").reverse().join(".")}'den itibaren pazar ek mesaisi yok`
           : "",
         row.weekday_full_records
-          ? `${row.weekday_full_records} hafta içi 8+ saatlik kayıt ödenmedi (iş günü / izin karşılığı) — elle bakın; günle ödenen personelde toplam ${row.full_day_records ?? 0} tam gün = baz maaşın gün sayısı`
+          ? `${row.weekday_full_records} hafta içi 8+ saatlik kayıt ödenmedi (iş günü / izin karşılığı) — elle bakın`
           : "",
       ].filter(Boolean);
       row.note = paidOnes.length

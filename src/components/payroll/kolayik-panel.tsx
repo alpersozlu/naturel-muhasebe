@@ -109,11 +109,11 @@ export function KolayikPanel({
                 {data.overtime.map((o) => (
                   <li key={o.person_name}>
                     <span className="font-medium">{o.person_name}</span>
-                    {!o.employee_id ? <span className="text-amber-800"> (bordroda eşleşmedi)</span> : null} — ödenecek {hoursTr(o.approved_hours)} s
+                    {!o.employee_id ? <span className="text-amber-800"> (bordroda eşleşmedi)</span> : null} — {o.paid_by_day ? `günle ödenir: ${o.full_day_records ?? 0} gün` : `ödenecek ${hoursTr(o.approved_hours)} s`}
                     {o.sunday_extra_hours ? ` (${hoursTr(o.sunday_extra_hours)} s pazar 8 saat üstü)` : ""}
                     {o.credit_days ? `, ${o.credit_days} hak günü` : ""}
                     {o.waiting_hours ? `, bekleyen ${hoursTr(o.waiting_hours)} s` : ""}
-                    {o.review ? <span className="text-amber-800"> · hafta içi 8+ saat kayıt var, bakılmalı (toplam {o.full_day_records ?? 0} tam gün — günle ödenende baz maaş gün sayısı)</span> : null}
+                    {o.review ? <span className="text-amber-800"> · hafta içi 8+ saat kayıt var, bakılmalı</span> : null}
                     <span className="text-muted-foreground">
                       {" "}
                       ·{" "}

@@ -137,6 +137,7 @@ export function EmployeesPage() {
                         e.paid_month_early ? "bir ay önceden ödenir" : null,
                         !e.is_registered ? "kayıtsız" : null,
                         e.is_gross_minimum ? "brüt asgari" : null,
+                        e.paid_by_day ? "günle ödenir" : null,
                         e.perfume_eligible ? "parfüm primi" : null,
                         e.garment_eligible ? "giysi primi" : null,
                         e.nebim_name ? `Nebim: ${e.nebim_name}` : null,
@@ -271,6 +272,7 @@ type EmpForm = {
   iban: string;
   is_registered: boolean;
   is_gross_minimum: boolean;
+  paid_by_day: boolean;
   perfume_eligible: boolean;
   garment_eligible: boolean;
   paid_month_early: boolean;
@@ -298,6 +300,7 @@ function EmployeeDialog({ employee, onClose, onSaved }: { employee: Emp | null; 
           iban: employee.iban ?? "",
           is_registered: employee.is_registered,
           is_gross_minimum: employee.is_gross_minimum,
+          paid_by_day: employee.paid_by_day,
           perfume_eligible: employee.perfume_eligible,
           garment_eligible: employee.garment_eligible,
           paid_month_early: employee.paid_month_early,
@@ -320,6 +323,7 @@ function EmployeeDialog({ employee, onClose, onSaved }: { employee: Emp | null; 
           iban: "",
           is_registered: true,
           is_gross_minimum: false,
+          paid_by_day: false,
           perfume_eligible: false,
           garment_eligible: false,
           paid_month_early: false,
@@ -363,6 +367,7 @@ function EmployeeDialog({ employee, onClose, onSaved }: { employee: Emp | null; 
       iban: f.iban || null,
       is_registered: f.is_registered,
       is_gross_minimum: f.is_gross_minimum,
+      paid_by_day: f.paid_by_day,
       perfume_eligible: f.perfume_eligible,
       garment_eligible: f.garment_eligible,
       paid_month_early: f.paid_month_early,
@@ -495,6 +500,7 @@ function EmployeeDialog({ employee, onClose, onSaved }: { employee: Emp | null; 
           <div className="col-span-2 grid grid-cols-2 gap-2 text-sm">
             <Check label="Kayıtlı personel" v={f.is_registered} on={(v) => set("is_registered", v)} />
             <Check label="Brüt asgari üzerinden nakit" v={f.is_gross_minimum} on={(v) => set("is_gross_minimum", v)} />
+            <Check label="Günle ödenir (bordroda mesai yerine gün)" v={f.paid_by_day} on={(v) => set("paid_by_day", v)} />
             <Check label="Parfüm primi alır (Mavi kasiyer)" v={f.perfume_eligible} on={(v) => set("perfume_eligible", v)} />
             <Check label="Giysi primi alır (Derimod)" v={f.garment_eligible} on={(v) => set("garment_eligible", v)} />
             <Check label="Maaşı bir ay önceden ödenir" v={f.paid_month_early} on={(v) => set("paid_month_early", v)} />

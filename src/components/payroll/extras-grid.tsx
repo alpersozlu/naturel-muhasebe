@@ -14,6 +14,8 @@ import {
   ADDITION_CATEGORIES,
   CARRY_FORWARD_CATEGORY,
   CARRY_FORWARD_LABEL,
+  dayPaidBase,
+  dayRate,
   DEDUCTION_CATEGORIES,
   GARMENT_PREMIUM_PER_UNIT,
   isOvertimeOnlyPosition,
@@ -46,6 +48,8 @@ import type { KolayikMonth } from "@/server/services/kolayik/payroll-sync";
 
 type Draft = {
   overtime_hours: string;
+  /** Günle ödenen personel: çalıştığı gün (mesai yerine) */
+  worked_days: string;
   overtime_note: string;
   own_revenue_nd: number | undefined;
   own_revenue_denim: number | undefined;
@@ -61,6 +65,7 @@ type Draft = {
 function fromLine(l: ComputedLine): Draft {
   return {
     overtime_hours: l.overtime_hours ? String(l.overtime_hours) : "",
+    worked_days: l.worked_days != null ? String(l.worked_days) : "",
     overtime_note: l.overtime_note ?? "",
     own_revenue_nd: l.own_revenue_nd ?? undefined,
     own_revenue_denim: l.own_revenue_denim ?? undefined,
@@ -76,9 +81,14 @@ function fromLine(l: ComputedLine): Draft {
 const numOf = (s: string) => (s.trim() === "" ? 0 : Number(s.replace(",", ".")) || 0);
 const same = (a: Draft, b: Draft) => JSON.stringify(a) === JSON.stringify(b);
 
+/** Günle ödenende baz, girilen gün sayısından (sunucudaki hesapla aynı); boşsa satırdaki baz. */
+function baseOf(l: ComputedLine, d: Draft): number {
+  return l.paid_by_day && d.worked_days.trim() !== "" ? dayPaidBase(l.card_base_salary, numOf(d.worked_days)) : l.base_salary;
+}
+
 function toInput(l: ComputedLine, d: Draft): LineInput {
   return {
-    base_salary: l.base_salary,
+    base_salary: baseOf(l, d),
     commission_profile: l.commission_profile,
     overtime_hours: numOf(d.overtime_hours),
     own_revenue_nd: d.own_revenue_nd ?? null,
@@ -246,6 +256,7 @@ export function ExtrasGrid({
     id: l.id,
     overtime_hours: numOf(d.overtime_hours),
     overtime_note: d.overtime_note || null,
+    worked_days: l.paid_by_day ? (d.worked_days.trim() === "" ? null : numOf(d.worked_days)) : undefined,
     own_revenue_nd: l.commission_profile === "mavi_asistan" ? (d.own_revenue_nd ?? null) : undefined,
     own_revenue_denim: l.commission_profile === "mavi_asistan" ? (d.own_revenue_denim ?? null) : undefined,
     own_revenue: l.commission_profile === "deri_asistan" ? (d.own_revenue ?? null) : undefined,
@@ -420,7 +431,7 @@ function StoreExtras({
           <thead className="text-[11px] uppercase tracking-wider text-muted-foreground">
             <tr className="border-b">
               <th className="px-4 py-2 text-left font-medium">Çalışan</th>
-              <th className="px-2 py-2 text-left font-medium">Mesai (saat)</th>
+              <th className="px-2 py-2 text-left font-medium">Mesai (saat) / gün</th>
               <th className="px-2 py-2 text-left font-medium">Ciro</th>
               <th className="px-2 py-2 text-left font-medium">Hedef</th>
               <th className="px-2 py-2 text-right font-medium">Komisyon</th>
@@ -449,57 +460,76 @@ function StoreExtras({
                       <div className="font-medium leading-tight">{l.full_name}</div>
                     </button>
                     <div className="text-[11px] text-muted-foreground">{l.position}</div>
-                    <div className="text-[11px] tabular-nums text-muted-foreground">saatlik {money(c.hourly_rate)} ₺</div>
+                    {l.paid_by_day ? (
+                      <div className="text-[11px] tabular-nums text-muted-foreground">
+                        günle ödenir · günlük {money(dayRate(l.card_base_salary))} ₺
+                        <br />
+                        maaş {money(baseOf(l, d))} ₺
+                      </div>
+                    ) : (
+                      <div className="text-[11px] tabular-nums text-muted-foreground">saatlik {money(c.hourly_rate)} ₺</div>
+                    )}
                     {!c.base_paid ? <div className="mt-0.5 text-[10px] font-medium text-amber-800">maaş henüz ödenmedi</div> : null}
                   </td>
                   <td className="px-2 py-3">
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      step="0.5"
-                      min={0}
-                      value={d.overtime_hours}
-                      onChange={(e) => patch(l, { overtime_hours: e.target.value })}
-                      className="h-8 w-20 text-right"
-                      placeholder="0"
-                      disabled={closed}
-                    />
-                    {(() => {
-                      const ot = overtimeOf(l.id);
-                      if (!ot || (ot.approved_hours <= 0 && ot.waiting_hours <= 0 && ot.credit_days <= 0)) return null;
-                      const current = hours;
-                      const differs = Math.abs(ot.approved_hours - current) > 0.001;
-                      const decision = overtimeApplyDecision(ot, current);
-                      // Pazar / tatil 8 saati hak günüdür, ücrete girmez — öneri yalnız ödenecek saattir.
-                      // Ödenecek saatin pazar kısmı (8 saatin üstü) ayrıca gösterilir.
-                      const sundayPart = ot.sunday_extra_hours;
-                      const otherPart = Math.round((ot.approved_hours - sundayPart) * 100) / 100;
-                      const onlySundayApplied = differs && sundayPart > 0 && Math.abs(current - sundayPart) < 0.001;
-                      return (
-                        <div className="mt-1 max-w-[180px] text-[11px] leading-snug text-sky-800" title={ot.note || undefined}>
-                          Kolay İK: {hoursTr(ot.approved_hours)} s ödenecek
-                          {sundayPart > 0 ? (otherPart > 0 ? ` (pazar 8 saat üstü ${hoursTr(sundayPart)} + diğer günler ${hoursTr(otherPart)})` : " (pazar 8 saat üstü)") : ""}
-                          {ot.credit_days ? ` · ${ot.credit_days} hak günü ayrı` : ""}
-                          {ot.short_sunday_records ? ` · ${ot.short_sunday_records} pazarda yalnız ek saat yazılmış` : ""}
-                          {onlySundayApplied ? " · şu an yalnız pazar kısmı işli" : ""}
-                          {ot.waiting_hours ? ` · ${hoursTr(ot.waiting_hours)} s bekliyor` : ""}
-                          {ot.review ? ` · ⚠ hafta içi 8+ saat (toplam ${ot.full_day_records ?? 0} tam gün — günle ödenende baz maaş gün sayısı)` : ""}
-                          {decision.mode === "wait" ? (
-                            <span className="ml-1 text-amber-800" title="Bordrodaki saat Kolay İK'daki onaylı saatten fazla; fark bekleyen kayıtlarda. Kolay İK'da onaylayıp paneli yenileyince öneri güncellenir.">
-                              · bekleyenler onaylanınca {hoursTr(decision.hours_after_approval)} s olur, şimdi uygulanmaz
-                            </span>
-                          ) : decision.mode === "apply" && (ot.approved_hours > 0 || hours > 0) && !closed ? (
-                            <button
-                              type="button"
-                              className="ml-1 underline"
-                              onClick={() => patch(l, { overtime_hours: String(decision.hours), overtime_note: ot.note })}
-                            >
-                              uygula
-                            </button>
-                          ) : null}
-                        </div>
-                      );
-                    })()}
+                    {l.paid_by_day ? (
+                      <DaysCell
+                        value={d.worked_days}
+                        onChange={(v) => patch(l, { worked_days: v })}
+                        kolayikDays={overtimeOf(l.id)?.full_day_records ?? null}
+                        closed={closed}
+                      />
+                    ) : (
+                      <>
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        step="0.5"
+                        min={0}
+                        value={d.overtime_hours}
+                        onChange={(e) => patch(l, { overtime_hours: e.target.value })}
+                        className="h-8 w-20 text-right"
+                        placeholder="0"
+                        disabled={closed}
+                      />
+                      {(() => {
+                        const ot = overtimeOf(l.id);
+                        if (!ot || (ot.approved_hours <= 0 && ot.waiting_hours <= 0 && ot.credit_days <= 0)) return null;
+                        const current = hours;
+                        const differs = Math.abs(ot.approved_hours - current) > 0.001;
+                        const decision = overtimeApplyDecision(ot, current);
+                        // Pazar / tatil 8 saati hak günüdür, ücrete girmez — öneri yalnız ödenecek saattir.
+                        // Ödenecek saatin pazar kısmı (8 saatin üstü) ayrıca gösterilir.
+                        const sundayPart = ot.sunday_extra_hours;
+                        const otherPart = Math.round((ot.approved_hours - sundayPart) * 100) / 100;
+                        const onlySundayApplied = differs && sundayPart > 0 && Math.abs(current - sundayPart) < 0.001;
+                        return (
+                          <div className="mt-1 max-w-[180px] text-[11px] leading-snug text-sky-800" title={ot.note || undefined}>
+                            Kolay İK: {hoursTr(ot.approved_hours)} s ödenecek
+                            {sundayPart > 0 ? (otherPart > 0 ? ` (pazar 8 saat üstü ${hoursTr(sundayPart)} + diğer günler ${hoursTr(otherPart)})` : " (pazar 8 saat üstü)") : ""}
+                            {ot.credit_days ? ` · ${ot.credit_days} hak günü ayrı` : ""}
+                            {ot.short_sunday_records ? ` · ${ot.short_sunday_records} pazarda yalnız ek saat yazılmış` : ""}
+                            {onlySundayApplied ? " · şu an yalnız pazar kısmı işli" : ""}
+                            {ot.waiting_hours ? ` · ${hoursTr(ot.waiting_hours)} s bekliyor` : ""}
+                            {ot.review ? " · ⚠ hafta içi 8+ saat" : ""}
+                            {decision.mode === "wait" ? (
+                              <span className="ml-1 text-amber-800" title="Bordrodaki saat Kolay İK'daki onaylı saatten fazla; fark bekleyen kayıtlarda. Kolay İK'da onaylayıp paneli yenileyince öneri güncellenir.">
+                                · bekleyenler onaylanınca {hoursTr(decision.hours_after_approval)} s olur, şimdi uygulanmaz
+                              </span>
+                            ) : decision.mode === "apply" && (ot.approved_hours > 0 || hours > 0) && !closed ? (
+                              <button
+                                type="button"
+                                className="ml-1 underline"
+                                onClick={() => patch(l, { overtime_hours: String(decision.hours), overtime_note: ot.note })}
+                              >
+                                uygula
+                              </button>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
+                      </>
+                    )}
                   </td>
                   <td className="px-2 py-3">
                     {p === "mavi_asistan" ? (
@@ -674,5 +704,57 @@ function StoreExtras({
         </table>
       </div>
     </section>
+  );
+}
+
+/**
+ * Günle ödenen personelin mesai kutusu yerine GÜN kutusu (Alp, 03.11.2026: "ek mesai saat
+ * kısmı yerine girilen rakam gün olsun"). Baz maaş = gün × (kart bazı ÷ 26). Kolay İK'ya
+ * çalıştığı günü 8 saat olarak girer; onaylı 8+ saatlik kayıt sayısı öneri olarak görünür.
+ */
+function DaysCell({
+  value,
+  onChange,
+  kolayikDays,
+  closed,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  kolayikDays: number | null;
+  closed: boolean;
+}) {
+  const current = numOf(value);
+  return (
+    <div>
+      <div className="flex items-center gap-1.5">
+        <Input
+          type="number"
+          inputMode="decimal"
+          step="1"
+          min={0}
+          max={31}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-8 w-20 text-right"
+          placeholder="gün"
+          disabled={closed}
+        />
+        <span className="text-xs text-muted-foreground">gün</span>
+      </div>
+      {kolayikDays != null ? (
+        <div className="mt-1 max-w-[180px] text-[11px] leading-snug text-sky-800">
+          Kolay İK: {kolayikDays} gün
+          {value.trim() === "" || Math.abs(current - kolayikDays) > 0.001 ? (
+            !closed ? (
+              <button type="button" className="ml-1 underline" onClick={() => onChange(String(kolayikDays))}>
+                uygula
+              </button>
+            ) : null
+          ) : (
+            " · bordroda aynı"
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }

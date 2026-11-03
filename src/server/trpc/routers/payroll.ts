@@ -42,7 +42,7 @@ import {
   parseGarantiTalimat,
   talimatFileName,
 } from "@/server/services/payroll/talimat";
-import { batchChannelError, batchTitle, inBatchList, periodLabel } from "@/server/services/payroll/rules";
+import { batchChannelError, batchTitle, dayPaidBase, inBatchList, periodLabel } from "@/server/services/payroll/rules";
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
 import { carryForwardCore } from "@/server/services/payroll/carry";
 import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
@@ -480,6 +480,7 @@ export const payrollRouter = router({
         has_bank_details: !!(e.bank_branch_code && e.bank_account_no),
         is_registered: e.is_registered,
         is_gross_minimum: e.is_gross_minimum,
+        paid_by_day: e.paid_by_day,
         perfume_eligible: e.perfume_eligible,
         garment_eligible: e.garment_eligible,
         paid_month_early: e.paid_month_early,
@@ -630,9 +631,13 @@ export const payrollRouter = router({
   lines: router({
     update: lineAudited.input(lineUpdateSchema).mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
-      const line = await ctx.prisma.payrollLine.findUniqueOrThrow({ where: { id }, include: { period: true } });
+      const line = await ctx.prisma.payrollLine.findUniqueOrThrow({ where: { id }, include: { period: true, employee: true } });
       if (line.period.status === "closed")
         throw new TRPCError({ code: "BAD_REQUEST", message: "Kapalı ay — önce dönemi yeniden aç." });
+      // Günle ödenen personelde baz maaş girilen gün sayısından hesaplanır (Alp, 03.11.2026:
+      // "ek mesai saat kısmı yerine girilen rakam gün olsun").
+      if (data.worked_days !== undefined && line.employee.paid_by_day)
+        data.base_salary = dayPaidBase(Number(line.employee.base_salary), data.worked_days ?? 0);
       return ctx.prisma.payrollLine.update({ where: { id }, data });
     }),
 

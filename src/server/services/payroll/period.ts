@@ -93,6 +93,11 @@ export type ComputedLine = {
   perfume_eligible: boolean;
   garment_eligible: boolean;
   employee_notes: string | null;
+  /** Günle ödenir: bordroda mesai yerine gün girilir */
+  paid_by_day: boolean;
+  worked_days: number | null;
+  /** Kartın aylık bazı (gün ücreti = bunun ÷ 26) */
+  card_base_salary: number;
   base_salary: number;
   overtime_hours: number;
   overtime_note: string | null;
@@ -139,6 +144,9 @@ export function computeFromLine(
     perfume_eligible: e.perfume_eligible,
     garment_eligible: e.garment_eligible,
     employee_notes: e.notes,
+    paid_by_day: e.paid_by_day,
+    worked_days: num(l.worked_days),
+    card_base_salary: n0(e.base_salary),
     base_salary: input.base_salary,
     overtime_hours: input.overtime_hours,
     overtime_note: l.overtime_note,
@@ -403,7 +411,8 @@ export async function ensureLines(prisma: PrismaClient, periodId: string): Promi
         store_id: e.store_id,
         position: e.position,
         commission_profile: e.commission_profile,
-        base_salary: e.base_salary,
+        // Günle ödenende baz, ay içinde girilen gün sayısıyla oluşur.
+        base_salary: e.paid_by_day ? 0 : e.base_salary,
       })),
     });
   }

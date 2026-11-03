@@ -1302,6 +1302,7 @@ model PayrollEmployee {
   iban               String?
   is_registered      Boolean                  @default(true) // kayıtsız nakit personel = false
   is_gross_minimum   Boolean                  @default(false) // brüt asgari üzerinden nakit çalışır
+  paid_by_day        Boolean                  @default(false) // günle ödenir: o ayki baz = çalıştığı gün × (baz ÷ 26)
   perfume_eligible   Boolean                  @default(false) // parfüm primi (Mavi kasiyer)
   garment_eligible   Boolean                  @default(false) // giysi primi (Derimod)
   paid_month_early   Boolean                  @default(false) // maaşı bir ay önceden ödenir (cari talimatta 0)
@@ -1384,6 +1385,7 @@ model PayrollLine {
   base_salary          Decimal                  @db.Decimal(14, 2) // o ayki NET baz (anlık kopya)
   overtime_hours       Decimal                  @default(0) @db.Decimal(8, 2)
   overtime_note        String?
+  worked_days          Decimal?                 @db.Decimal(5, 2) // günle ödenen: o ay çalıştığı gün
   own_revenue_nd       Decimal?                 @db.Decimal(14, 2) // Mavi asistan: denim dışı
   own_revenue_denim    Decimal?                 @db.Decimal(14, 2) // Mavi asistan: denim
   own_revenue          Decimal?                 @db.Decimal(14, 2) // Derimod asistan: kendi cirosu
