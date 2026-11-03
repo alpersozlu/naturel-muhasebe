@@ -132,7 +132,8 @@ function categoryLabel(kind: "deduction" | "addition" | "advance" | "payment", c
  */
 function Payment2Breakdown({ c, hours, days, nextLabel }: { c: LineCalc; hours: number; days: number; nextLabel: string }) {
   const rows: { label: string; amount: number; tone?: string }[] = [];
-  if (c.commission.final) rows.push({ label: "Komisyon", amount: c.commission.final });
+  // Sahibi (03.11.2026): "komisyon demek prim demek" — ekranda satış primi diye geçer.
+  if (c.commission.final) rows.push({ label: "Satış primi", amount: c.commission.final });
   if (c.top_seller_amount) rows.push({ label: "Top-seller", amount: c.top_seller_amount });
   if (c.garment_amount) rows.push({ label: "Giysi primi", amount: c.garment_amount });
   if (c.perfume_amount) rows.push({ label: "Parfüm primi", amount: c.perfume_amount });
@@ -301,7 +302,7 @@ export function ExtrasGrid({
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card px-4 py-3 text-sm shadow-xs">
         <div className="text-muted-foreground">
-          <b className="text-foreground">Ödeme 2</b> = mesai + komisyon + primler + eklemeler − kesintiler; nakit ödenir. Yazdıkça hesaplanır,{" "}
+          <b className="text-foreground">Ödeme 2</b> = mesai + satış primi + diğer primler + eklemeler − kesintiler; nakit ödenir. Yazdıkça hesaplanır,{" "}
           <b className="text-foreground">Kaydet</b> ile işlenir.{" "}
           <span
             className="cursor-help underline decoration-dotted underline-offset-2"
@@ -533,7 +534,7 @@ function StoreExtras({
                   {/* Ciro · hedef → komisyon */}
                   <td className="px-2 py-3">
                     {p === "none" ? (
-                      <span className="text-[11px] text-muted-foreground">komisyon yok</span>
+                      <span className="text-[11px] text-muted-foreground">satış primi yok</span>
                     ) : (
                       <div className="space-y-1">
                         {p === "mavi_asistan" ? (
@@ -550,11 +551,10 @@ function StoreExtras({
                           <div className="text-[11px] leading-snug text-muted-foreground">mağaza cirosu / hedefi</div>
                         ) : null}
                         <div className="text-[11px] tabular-nums text-muted-foreground">
-                          <span className={cn(ach != null && ach >= 1 ? "text-emerald-700" : ach != null ? "text-amber-800" : "")}>{ach != null ? pct(ach) : "hedef?"}</span>
+                          başarı{" "}
+                          <span className={cn("font-medium", ach != null && ach >= 1 ? "text-emerald-700" : ach != null ? "text-amber-800" : "")}>{ach != null ? pct(ach) : "hedef?"}</span>
                           {c.commission.special ? " ÖZEL" : ""}
                           {c.commission.overridden ? " elle" : ""}
-                          {" · komisyon "}
-                          <b className="text-foreground">{money(c.commission.final)}</b>
                         </div>
                       </div>
                     )}
@@ -566,6 +566,12 @@ function StoreExtras({
                       <div className="text-[11px] leading-snug text-muted-foreground">prim yok — yalnız mesai, kesinti düşülür</div>
                     ) : (
                       <div className="space-y-1.5">
+                        {p !== "none" ? (
+                          <div className="text-[12px] tabular-nums" title={c.commission.explanation.join("\n")}>
+                            <span className="text-muted-foreground">satış primi </span>
+                            <b>{money(c.commission.final)}</b>
+                          </div>
+                        ) : null}
                         {store.is_mavi && p !== "none" ? (
                           <label
                             className={cn(
@@ -594,7 +600,7 @@ function StoreExtras({
                           </label>
                         ) : null}
                         <div className="space-y-1">
-                          <Labeled k="prim"><MoneyInput value={d.extra_premium} onChange={(v) => patch(l, { extra_premium: v })} placeholder="0,00" className="h-8 w-28 text-right" disabled={closed} /></Labeled>
+                          <Labeled k="ek prim"><MoneyInput value={d.extra_premium} onChange={(v) => patch(l, { extra_premium: v })} placeholder="0,00" className="h-8 w-28 text-right" disabled={closed} /></Labeled>
                           {d.extra_premium ? (
                             <Input value={d.extra_premium_note} onChange={(e) => patch(l, { extra_premium_note: e.target.value })} placeholder="sebebi (zorunlu)" className={cn("h-8 w-full", !d.extra_premium_note && "border-amber-400")} disabled={closed} />
                           ) : null}
@@ -743,7 +749,7 @@ function DaysCell({
 function Labeled({ k, children }: { k: string; children: React.ReactNode }) {
   return (
     <label className="flex items-center gap-1.5">
-      <span className="w-11 shrink-0 whitespace-nowrap text-[10px] uppercase tracking-wider text-muted-foreground">{k}</span>
+      <span className="w-12 shrink-0 whitespace-nowrap text-[10px] uppercase tracking-wider text-muted-foreground">{k}</span>
       {children}
     </label>
   );

@@ -676,7 +676,7 @@ function StoreCard({
               <th className="px-4 py-2 text-left font-medium">Çalışan</th>
               <th className="px-3 py-2 text-right font-medium">Baz</th>
               <th className="px-3 py-2 text-right font-medium">Mesai</th>
-              <th className="px-3 py-2 text-right font-medium">Komisyon</th>
+              <th className="px-3 py-2 text-right font-medium">Satış primi</th>
               <th className="px-3 py-2 text-right font-medium">Primler</th>
               <th className="px-3 py-2 text-right font-medium">Kesinti</th>
               <th className="px-3 py-2 text-right font-medium">Hak ediş</th>

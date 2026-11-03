@@ -106,11 +106,11 @@ export default async function PayslipPage({ params }: { params: { lineId: string
         ) : null}
 
         {(c.commission.final > 0 || premiumsTotal > 0 || additions.length > 0) ? (
-          <Section title="3. KOMİSYON ve PRİMLER">
+          <Section title="3. SATIŞ PRİMİ ve DİĞER PRİMLER">
             {line.commission_profile !== "none" && c.commission.final > 0 ? (
               <>
                 <Row
-                  label={`Komisyon — ${c.commission.basis_label.toLocaleLowerCase("tr")} ${money(c.commission.basis)}${
+                  label={`Satış primi — ${c.commission.basis_label.toLocaleLowerCase("tr")} ${money(c.commission.basis)}${
                     c.commission.target ? ` · hedef ${money(c.commission.target)}` : ""
                   }${c.commission.achievement_used != null ? ` · başarı ${pct(c.commission.achievement_used)}` : ""}`}
                   v={money(c.commission.final)}

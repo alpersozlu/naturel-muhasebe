@@ -204,7 +204,7 @@ export function LineDialog({
             </Section>
 
             {p !== "none" ? (
-              <Section title="Komisyon">
+              <Section title="Satış primi (komisyon)">
                 {isMaviAsistan ? (
                   <>
                     <Field label="Kendi cirosu — denim dışı (ND)">
@@ -239,10 +239,10 @@ export function LineDialog({
                 <Field label="ÖZEL — kabul edilen başarı (%)">
                   <Input type="number" inputMode="decimal" step="0.1" placeholder="örn. 100" value={form.achievement_accepted} onChange={(e) => set("achievement_accepted", e.target.value)} disabled={closed} />
                 </Field>
-                <Field label="Komisyon elle (tabloyu geçersiz kılar)">
+                <Field label="Satış primi elle (tabloyu geçersiz kılar)">
                   <MoneyInput value={form.commission_override} onChange={(v) => set("commission_override", v)} disabled={closed} placeholder="boş = tablo" />
                 </Field>
-                <Field label="Komisyon notu (ÖZEL kararı: kim, ne zaman)" wide>
+                <Field label="Satış primi notu (ÖZEL kararı: kim, ne zaman)" wide>
                   <Input value={form.commission_note} onChange={(e) => set("commission_note", e.target.value)} disabled={closed} placeholder="örn. %99,7 → %100 KABUL (Alp 07.10)" />
                 </Field>
               </Section>
@@ -304,7 +304,7 @@ export function LineDialog({
                   <Row label="Baz maaş" v={line.base_salary} />
                   {c.day_pay_amount ? <Row label={`Gün ücreti (${line.worked_days ?? 0} gün × ${money(dayRate(line.card_base_salary))}, Ödeme 2)`} v={c.day_pay_amount} /> : null}
                   <Row label={`Mesai ${line.overtime_hours ? `(${line.overtime_hours} s × ${money(c.hourly_rate)})` : ""}`} v={c.overtime_amount - c.day_pay_amount} />
-                  <Row label="Komisyon" v={c.commission.final} />
+                  <Row label="Satış primi" v={c.commission.final} />
                   {c.perfume_amount ? <Row label={`Parfüm primi (${line.perfume_units} adet)`} v={c.perfume_amount} /> : null}
                   {c.garment_amount ? <Row label={`Giysi primi (${line.garment_units} adet)`} v={c.garment_amount} /> : null}
                   {c.top_seller_amount ? <Row label="Top-seller" v={c.top_seller_amount} /> : null}

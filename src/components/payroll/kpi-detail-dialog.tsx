@@ -185,7 +185,7 @@ function Payment2({ lines, onPick }: { lines: ComputedLine[]; onPick: (id: strin
               <tr className="border-b">
                 <th className="py-1 text-left font-medium">Çalışan</th>
                 <th className="py-1 text-right font-medium">Mesai</th>
-                <th className="py-1 text-right font-medium">Komisyon</th>
+                <th className="py-1 text-right font-medium">Satış primi</th>
                 <th className="py-1 text-right font-medium">Primler</th>
                 <th className="py-1 text-right font-medium">Ekleme</th>
                 <th className="py-1 text-right font-medium" title="Yalnız Ödeme 2'den düşen kesinti; maaştan kesilen ayrıca not edilir">Kesinti (Ödeme 2'den)</th>
@@ -314,7 +314,7 @@ function Extras({ lines, onPick }: { lines: ComputedLine[]; onPick: (id: string)
         <tr className="border-b">
           <th className="py-1 text-left font-medium">Çalışan</th>
           <th className="py-1 text-right font-medium">Mesai</th>
-          <th className="py-1 text-right font-medium">Komisyon</th>
+          <th className="py-1 text-right font-medium">Satış primi</th>
           <th className="py-1 text-right font-medium">Primler</th>
           <th className="py-1 text-right font-medium">Kesinti (Ödeme 2'den)</th>
           <th className="py-1 text-right font-medium">Ödeme 2</th>
