@@ -483,7 +483,7 @@ function StoreExtras({
                           {ot.short_sunday_records ? ` · ${ot.short_sunday_records} pazarda yalnız ek saat yazılmış` : ""}
                           {onlySundayApplied ? " · şu an yalnız pazar kısmı işli" : ""}
                           {ot.waiting_hours ? ` · ${hoursTr(ot.waiting_hours)} s bekliyor` : ""}
-                          {ot.review ? " · ⚠ hafta içi 8+ saat" : ""}
+                          {ot.review ? ` · ⚠ hafta içi 8+ saat (toplam ${ot.full_day_records ?? 0} tam gün — günle ödenende baz maaş gün sayısı)` : ""}
                           {decision.mode === "wait" ? (
                             <span className="ml-1 text-amber-800" title="Bordrodaki saat Kolay İK'daki onaylı saatten fazla; fark bekleyen kayıtlarda. Kolay İK'da onaylayıp paneli yenileyince öneri güncellenir.">
                               · bekleyenler onaylanınca {hoursTr(decision.hours_after_approval)} s olur, şimdi uygulanmaz

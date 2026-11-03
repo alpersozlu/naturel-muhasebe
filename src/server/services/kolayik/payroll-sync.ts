@@ -70,6 +70,12 @@ export type KolayikMonth = {
     rest_day_unpaid_hours?: number;
     /** Hafta içi 8+ saatlik onaylı kayıt sayısı — ödenmedi, elle bakılmalı */
     weekday_full_records?: number;
+    /**
+     * Onaylı 8+ saatlik kayıt sayısı (her gün). Günle ödenen personel (Neçirvan, hafta
+     * sonu çalışır) Kolay İK'ya mesai saati değil ÇALIŞTIĞI GÜNÜ 8 saat olarak girer;
+     * o kişide bu sayı baz maaşın gün sayısıdır (Alp, 03.11.2026).
+     */
+    full_day_records?: number;
     /** Hafta içi 8+ saatlik, tatil notu olmayan kayıt var — elle bakılmalı */
     review: boolean;
     note: string;
@@ -281,6 +287,7 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
       const weekdayFull = !split0.rest_day && minutes >= 480;
       const split = weekdayFull ? { ...split0, paid_minutes: 0 } : split0;
       if (weekdayFull && t.status === "approved") row.weekday_full_records = (row.weekday_full_records ?? 0) + 1;
+      if (minutes >= 480 && t.status === "approved") row.full_day_records = (row.full_day_records ?? 0) + 1;
       if (noRestDayPay && split.rest_day && t.status === "approved" && minutes > (split.credit_day ? 480 : 0)) row.rest_day_unpaid_hours = r2((row.rest_day_unpaid_hours ?? 0) + (minutes - (split.credit_day ? 480 : 0)) / 60);
       const paid = r2(split.paid_minutes / 60);
       if (t.status === "approved") {
@@ -317,7 +324,9 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
         row.rest_day_unpaid_hours
           ? `pazar/tatil 8 saat üstü ${hTr(row.rest_day_unpaid_hours)} s ÖDENMEZ — Mavi'de ${MAVI_NO_REST_DAY_OT_FROM.split("-").reverse().join(".")}'den itibaren pazar ek mesaisi yok`
           : "",
-        row.weekday_full_records ? `${row.weekday_full_records} hafta içi 8+ saatlik kayıt ödenmedi (iş günü / izin karşılığı) — elle bakın` : "",
+        row.weekday_full_records
+          ? `${row.weekday_full_records} hafta içi 8+ saatlik kayıt ödenmedi (iş günü / izin karşılığı) — elle bakın; günle ödenen personelde toplam ${row.full_day_records ?? 0} tam gün = baz maaşın gün sayısı`
+          : "",
       ].filter(Boolean);
       row.note = paidOnes.length
         ? clip(

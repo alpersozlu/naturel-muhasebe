@@ -113,7 +113,7 @@ export function KolayikPanel({
                     {o.sunday_extra_hours ? ` (${hoursTr(o.sunday_extra_hours)} s pazar 8 saat üstü)` : ""}
                     {o.credit_days ? `, ${o.credit_days} hak günü` : ""}
                     {o.waiting_hours ? `, bekleyen ${hoursTr(o.waiting_hours)} s` : ""}
-                    {o.review ? <span className="text-amber-800"> · hafta içi 8+ saat kayıt var, bakılmalı</span> : null}
+                    {o.review ? <span className="text-amber-800"> · hafta içi 8+ saat kayıt var, bakılmalı (toplam {o.full_day_records ?? 0} tam gün — günle ödenende baz maaş gün sayısı)</span> : null}
                     <span className="text-muted-foreground">
                       {" "}
                       ·{" "}
