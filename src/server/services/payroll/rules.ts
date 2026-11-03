@@ -289,3 +289,15 @@ export const MONTH_NAMES_TR = [
 export function periodLabel(year: number, month: number): string {
   return `${MONTH_NAMES_TR[month - 1] ?? month} ${year}`;
 }
+
+/**
+ * PAZAR / TATİL EK MESAİSİ — MAVİ'DE KALKTI (sahibi, 03.11.2026: "5 ekimden
+ * itibaren öncelikle pazar ek mesaiyi Maviler için kaldırdım"). Bu tarihten sonra
+ * Mavi mağazalarında pazar ve resmî tatil kayıtları YALNIZ hak günüdür (8 saat
+ * = 1 gün izin); 8 saatin üstü de ödenmez. Derimod'da eski kural sürer.
+ */
+export const MAVI_NO_REST_DAY_OT_FROM = "2026-10-05";
+export function restDayOvertimePaid(brandName: string | null | undefined, date: string): boolean {
+  const mavi = /mavi/i.test(brandName ?? "");
+  return !(mavi && date >= MAVI_NO_REST_DAY_OT_FROM);
+}

@@ -1,10 +1,10 @@
 import "server-only";
 import type { PrismaClient } from "@prisma/client";
 import { normalizeName } from "@/server/services/payroll/nebim-revenue";
+import { MAVI_NO_REST_DAY_OT_FROM, restDayOvertimePaid } from "@/server/services/payroll/rules";
 import { KolayikError, kolayikConfigured, leaveDaysWithin, leaveStatus, listLeaves, listOvertime, listPersons, pooled, type KPerson, listTransactions } from "./client";
 import {
   buildSundayAudit,
-  isHolidayNote,
   splitOvertime,
   type AuditLeave,
   type AuditOvertime,
@@ -66,6 +66,10 @@ export type KolayikMonth = {
     sunday_extra_hours: number;
     /** Pazar / tatil günü 8 saatin altında girilmiş kayıt sayısı — yalnız ek mesai yazılmış, 8 saat ayrıca girilmemiş */
     short_sunday_records: number;
+    /** Mavi 05.10.2026 sonrası: pazar / tatilde girilen ama ÖDENMEYEN 8 saat üstü (bilgi) */
+    rest_day_unpaid_hours?: number;
+    /** Hafta içi 8+ saatlik onaylı kayıt sayısı — ödenmedi, elle bakılmalı */
+    weekday_full_records?: number;
     /** Hafta içi 8+ saatlik, tatil notu olmayan kayıt var — elle bakılmalı */
     review: boolean;
     note: string;
@@ -123,7 +127,7 @@ export type KolayikMonth = {
   }>;
 };
 
-type Emp = { id: string; full_name: string; aliases: string[]; bank_account_name: string | null; status: string };
+type Emp = { id: string; full_name: string; aliases: string[]; bank_account_name: string | null; status: string; store?: { name?: string; brand?: { name: string } | null } | null };
 
 /** Kolay İK kişisi ↔ bordro personeli: tam ad / takma ad; olmazsa ilk + son ad. */
 export function matchEmployee(person: { name: string }, employees: Emp[]): Emp | null {
@@ -223,7 +227,7 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
     if (tRes.status === "rejected") base.warnings.push(`Avans talepleri okunamadı — ${errText(tRes)}`);
     const employees: Emp[] = await prisma.payrollEmployee.findMany({
       where: { deleted_at: null },
-      select: { id: true, full_name: true, aliases: true, bank_account_name: true, status: true },
+      select: { id: true, full_name: true, aliases: true, bank_account_name: true, status: true, store: { select: { brand: { select: { name: true } } } } },
     });
     const period = await prisma.payrollPeriod.findUnique({ where: { year_month: { year, month } } });
     const lines = period
@@ -269,7 +273,15 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
       const date = t.startDate.slice(0, 10);
       const minutes = t.usedMinute ?? 0;
       const hours = r2(minutes / 60);
-      const split = splitOvertime({ date, minutes, description: t.description ?? null });
+      const noRestDayPay = !restDayOvertimePaid(emp?.store?.brand?.name, date);
+      const split0 = splitOvertime({ date, minutes, description: t.description ?? null }, { noRestDayPay });
+      // Hafta içi tek kayıtta 8 saat ve üstü mesai olmaz: iş günü (hafta sonu çalışanın günleri)
+      // ya da tatil / izin karşılığıdır — kendiliğinden ÖDENMEZ, elle bakılır (03.11.2026:
+      // Neçirvan'ın 10 iş günü 8'er saat girilmişti → 80 saat mesai önerisi).
+      const weekdayFull = !split0.rest_day && minutes >= 480;
+      const split = weekdayFull ? { ...split0, paid_minutes: 0 } : split0;
+      if (weekdayFull && t.status === "approved") row.weekday_full_records = (row.weekday_full_records ?? 0) + 1;
+      if (noRestDayPay && split.rest_day && t.status === "approved" && minutes > (split.credit_day ? 480 : 0)) row.rest_day_unpaid_hours = r2((row.rest_day_unpaid_hours ?? 0) + (minutes - (split.credit_day ? 480 : 0)) / 60);
       const paid = r2(split.paid_minutes / 60);
       if (t.status === "approved") {
         row.approved_hours = r2(row.approved_hours + paid);
@@ -280,7 +292,7 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
       else row.other_hours = r2(row.other_hours + hours);
       if (t.status !== "rejected" && split.rest_day && !split.credit_day) row.short_sunday_records += 1;
       // Hafta içi 8+ saat ve tatil notu yok: hak günü mü, ücret mi — belli değil
-      if (t.status !== "rejected" && minutes >= 480 && !split.credit_day && !isHolidayNote(t.description)) row.review = true;
+      if (t.status !== "rejected" && weekdayFull) row.review = true;
       row.entries.push({
         date,
         hours,
@@ -302,6 +314,10 @@ export async function kolayikMonth(prisma: PrismaClient, year: number, month: nu
             : "tamamı pazar/tatil 8 saat üstü"
           : "",
         row.credit_days ? `${row.credit_days} pazar/tatil × 8 saat hak günüdür, ücrete girmez` : "",
+        row.rest_day_unpaid_hours
+          ? `pazar/tatil 8 saat üstü ${hTr(row.rest_day_unpaid_hours)} s ÖDENMEZ — Mavi'de ${MAVI_NO_REST_DAY_OT_FROM.split("-").reverse().join(".")}'den itibaren pazar ek mesaisi yok`
+          : "",
+        row.weekday_full_records ? `${row.weekday_full_records} hafta içi 8+ saatlik kayıt ödenmedi (iş günü / izin karşılığı) — elle bakın` : "",
       ].filter(Boolean);
       row.note = paidOnes.length
         ? clip(

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { restDayOvertimePaid } from "@/server/services/payroll/rules";
 import {
   buildSundayAudit,
   classifyLeave,
@@ -54,6 +55,40 @@ describe("pazar çalışması ↔ hak günü", () => {
     expect(splitOvertime({ date: "2026-08-25", minutes: 480, description: "Resmi tatil" })).toEqual({ credit_day: true, paid_minutes: 0, rest_day: true });
     // hafta içi 8 saat, tatil notu yok: hak günü sayılmaz
     expect(splitOvertime({ date: "2026-10-02", minutes: 480, description: null })).toEqual({ credit_day: false, paid_minutes: 480, rest_day: false });
+  });
+
+  it("pazarın karşılığı ertesi gün girilse de hak günüdür; 'pazartesi' pazar değildir", () => {
+    // Didem Aydoğan 12.10.2026 (pazartesi): "11ekim pazar mesaisi içindir" 8 saat
+    expect(splitOvertime({ date: "2026-10-12", minutes: 480, description: "11ekim pazar mesaisi içindir" })).toEqual({ credit_day: true, paid_minutes: 0, rest_day: true });
+    expect(splitOvertime({ date: "2026-10-13", minutes: 120, description: "Pazartesi kapanış" })).toEqual({ credit_day: false, paid_minutes: 120, rest_day: false });
+    expect(splitOvertime({ date: "2026-10-29", minutes: 480, description: "29ekim cumhuriyet bayramı" })).toEqual({ credit_day: true, paid_minutes: 0, rest_day: true });
+  });
+
+  it("Mavi'de 05.10.2026'dan itibaren pazar / tatilin 8 saat üstü ödenmez (Didem: Ekim 9,5 → 1,5 saat)", () => {
+    const D = [
+      { date: "2026-10-04", minutes: 570, description: "Pazar mesai" },
+      { date: "2026-10-12", minutes: 480, description: "11ekim pazar mesaisi içindir" },
+      { date: "2026-10-18", minutes: 480, description: "Pazar mesaisi" },
+      { date: "2026-10-29", minutes: 480, description: "29ekim cumhuriyet bayramı" },
+    ];
+    const paid = D.map((o) => splitOvertime(o, { noRestDayPay: !restDayOvertimePaid("Mavi Jeans", o.date) }));
+    expect(paid.reduce((t, p) => t + p.paid_minutes, 0)).toBe(90);
+    expect(paid.filter((p) => p.credit_day)).toHaveLength(4);
+    expect(restDayOvertimePaid("Mavi Jeans", "2026-10-04")).toBe(true);
+    expect(restDayOvertimePaid("Mavi Jeans", "2026-10-05")).toBe(false);
+    expect(restDayOvertimePaid("DERIMOD", "2026-10-25")).toBe(true);
+    expect(splitOvertime({ date: "2026-10-25", minutes: 600, description: "Pazar" }, { noRestDayPay: true })).toEqual({ credit_day: true, paid_minutes: 0, rest_day: true });
+    // hafta içi mesai bu kuraldan etkilenmez
+    expect(splitOvertime({ date: "2026-10-21", minutes: 90, description: "kapanış" }, { noRestDayPay: true }).paid_minutes).toBe(90);
+  });
+
+  it("resmî tatil tarihten ya da açıklamadaki tarihten tanınır (29 Ekim)", () => {
+    // açıklamasız, "29 ekım", "29 Ekim mesaisi": hepsi tatil → 8 saat hak günü
+    for (const d of [null, "29 ekım", "29 Ekim mesaisi", "Cumhuriyet"]) expect(splitOvertime({ date: "2026-10-29", minutes: 480, description: d })).toEqual({ credit_day: true, paid_minutes: 0, rest_day: true });
+    // tatilin ertesine girilmiş: "29 Ekim mesaisi — bu tarihe girdim"
+    expect(splitOvertime({ date: "2026-10-30", minutes: 480, description: "29 Ekim mesaisi O gün mesai saatim var olduğu için bu tarihe girdim" }).credit_day).toBe(true);
+    // tatil olmayan bir tarih anılırsa etkisi yok
+    expect(splitOvertime({ date: "2026-10-27", minutes: 120, description: "26 ekim kapanış" }).rest_day).toBe(false);
   });
 
   it("pazar ek saati kayıtta zaten iki katıdır: yazılan saat aynen ödenir, ayrıca çarpılmaz", () => {

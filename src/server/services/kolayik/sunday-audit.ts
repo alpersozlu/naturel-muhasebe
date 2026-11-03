@@ -1,3 +1,5 @@
+import { isPublicHoliday, mentionsPublicHoliday } from "@/lib/public-holidays";
+
 /**
  * PAZAR ÇALIŞMASI ↔ HAK GÜNÜ DENETİMİ — saf hesap, ağ ve veritabanı yok.
  *
@@ -132,7 +134,17 @@ export function sundaysOfMonth(year: number, month: number): string[] {
 
 /** Resmî tatilde çalışma da hak günüdür (açıklamadan anlaşılır). */
 export function isHolidayNote(description: string | null | undefined): boolean {
-  return /resmi tatil|bayram/.test(fold(description));
+  return /resmi tatil|bayram|cumhuriyet|yilbasi|ozel gun/.test(fold(description));
+}
+
+/**
+ * Kayıt bir PAZAR çalışması için mi? Bazıları pazarın karşılığını ertesi gün
+ * girer: 12.10 (pazartesi) "11ekim pazar mesaisi içindir" 8 saat = 11 Ekim'in
+ * hak günüdür, hafta içi mesai değildir (Didem Aydoğan, 03.11.2026). "Pazartesi"
+ * pazar sayılmaz.
+ */
+export function isSundayNote(description: string | null | undefined): boolean {
+  return /pazar(?!tesi)/.test(fold(description));
 }
 
 /**
@@ -141,14 +153,25 @@ export function isHolidayNote(description: string | null | undefined): boolean {
  * `rest_day`: kayıt pazar / resmî tatil gününe ait — ödenen kısmı "pazar 8 saat
  * üstü" mesaisidir (8 saatin altında girilmişse yalnız ek saat yazılmış demektir).
  */
-export function splitOvertime(o: Pick<AuditOvertime, "date" | "minutes" | "description">): {
+export function splitOvertime(
+  o: Pick<AuditOvertime, "date" | "minutes" | "description">,
+  opts: { noRestDayPay?: boolean } = {}
+): {
   credit_day: boolean;
   paid_minutes: number;
   rest_day: boolean;
 } {
-  const rest = isSunday(o.date) || isHolidayNote(o.description);
+  const rest =
+    isSunday(o.date) ||
+    isPublicHoliday(o.date) ||
+    isHolidayNote(o.description) ||
+    isSundayNote(o.description) ||
+    mentionsPublicHoliday(fold(o.description), Number(o.date.slice(0, 4)));
   const credit = rest && o.minutes >= CREDIT_MINUTES;
-  return { credit_day: credit, paid_minutes: credit ? o.minutes - CREDIT_MINUTES : o.minutes, rest_day: rest };
+  // noRestDayPay: pazar / tatil çalışması yalnız hak günüdür, 8 saatin üstü de ücrete girmez
+  // (Mavi, 05.10.2026'dan itibaren — rules.ts restDayOvertimePaid).
+  const paid = rest && opts.noRestDayPay ? 0 : credit ? o.minutes - CREDIT_MINUTES : o.minutes;
+  return { credit_day: credit, paid_minutes: paid, rest_day: rest };
 }
 
 /** 120 → "2", 90 → "1,5" */
