@@ -80,6 +80,8 @@ export const employeeLeaveSchema = z.object({
 export const lineUpdateSchema = z.object({
   id: z.string().uuid(),
   base_salary: money.optional(),
+  /** Satırın anlık profili — pasif personel aktif yapılıp satış asistanı olunca (Neçirvan, 03.11.2026) */
+  commission_profile: commissionProfileEnum.optional(),
   overtime_hours: z.number().min(0).max(400).optional(),
   overtime_note: text(500),
   own_revenue_nd: moneyNullable.optional(),

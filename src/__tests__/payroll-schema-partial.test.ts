@@ -11,6 +11,12 @@ describe("kısmi güncelleme gönderilmeyen alanlara dokunmaz", () => {
     expect(v.own_target).toBe(2065000);
     for (const f of ["note", "commission_note", "overtime_note", "extra_premium_note"] as const) expect(v[f]).toBeUndefined();
   });
+  it("satırın komisyon profili tek başına güncellenebilir (pasiften aktife geçen satış asistanı)", () => {
+    const v = lineUpdateSchema.parse({ id: ID, commission_profile: "mavi_asistan" });
+    expect(v.commission_profile).toBe("mavi_asistan");
+    expect(v.note).toBeUndefined();
+    expect(lineUpdateSchema.safeParse({ id: ID, commission_profile: "yok" }).success).toBe(false);
+  });
   it("boş metin alanı açıkça boşaltır, dolu metin kırpılır", () => {
     const v = lineUpdateSchema.parse({ id: ID, note: "", commission_note: "  ÖZEL  " });
     expect(v.note).toBeNull();
