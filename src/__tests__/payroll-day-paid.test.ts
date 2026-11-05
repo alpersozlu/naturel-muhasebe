@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayPaidBase, dayRate } from "@/server/services/payroll/rules";
+import { dayPaidBase, dayRate, workedDaysInPeriod } from "@/server/services/payroll/rules";
 import { lineUpdateSchema } from "@/lib/zod-schemas/payroll";
 import { computeLine, type LineInput } from "@/server/services/payroll/compute";
 
@@ -32,5 +32,14 @@ describe("günle ödenen personel", () => {
     expect(c.overtime_amount).toBe(38173.1);
     expect(c.payment1_due).toBe(0);
     expect(c.payment2_due).toBe(38173.1);
+  });
+
+  it("kısmi ay: giriş/çıkış aralığında pazarsız gün sayısı", () => {
+    expect(workedDaysInPeriod(2026, 10, "2026-10-05", null)).toBe(24); // Semanur
+    expect(workedDaysInPeriod(2026, 10, "2026-10-12", null)).toBe(18); // Büşra
+    expect(workedDaysInPeriod(2026, 10, null, "2026-10-23")).toBe(20); // Ali: 1–23, pazar 4/11/18 hariç
+    expect(workedDaysInPeriod(2026, 10, "2026-09-01", null)).toBeNull(); // tam ay
+    expect(workedDaysInPeriod(2026, 10, null, null)).toBeNull();
+    expect(dayPaidBase(70893, 24)).toBe(65439.6);
   });
 });

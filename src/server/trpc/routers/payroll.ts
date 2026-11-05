@@ -42,7 +42,7 @@ import {
   parseGarantiTalimat,
   talimatFileName,
 } from "@/server/services/payroll/talimat";
-import { batchChannelError, batchTitle, inBatchList, periodLabel } from "@/server/services/payroll/rules";
+import { batchChannelError, batchTitle, dayPaidBase, inBatchList, periodLabel } from "@/server/services/payroll/rules";
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
 import { carryForwardCore } from "@/server/services/payroll/carry";
 import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
@@ -637,7 +637,12 @@ export const payrollRouter = router({
       // Günle ödenen personelde maaş yoktur: gün ücreti (gün × kart bazı ÷ 26) mesai gibi
       // Ödeme 2'de hesaplanır (Alp, 03.11.2026: "geldiği günler maaş değil, ek mesai mantığında
       // prim kısmında hesaplanır"). Gün girilince baz 0'a çekilir.
-      if (data.worked_days !== undefined && line.employee.paid_by_day) data.base_salary = 0;
+      // Kısmi ay (Alp, 05.11.2026: "ayın ortasında başlayana kaç gün çalıştığını gireyim, 70.893'ten
+      // hesaplasın"): gün girilince maaş = gün × (kart bazı ÷ 26); gün silinince tam kart bazı.
+      if (data.worked_days !== undefined) {
+        const cardBase = Number(line.employee.base_salary);
+        data.base_salary = line.employee.paid_by_day ? 0 : data.worked_days == null ? cardBase : dayPaidBase(cardBase, data.worked_days);
+      }
       return ctx.prisma.payrollLine.update({ where: { id }, data });
     }),
 

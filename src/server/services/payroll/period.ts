@@ -1,7 +1,7 @@
 import "server-only";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { computeLine, type EntryLike, type LineCalc, type LineInput } from "./compute";
-import { dayPaidBase, periodLabel } from "./rules";
+import { dayPaidBase, periodLabel, workedDaysInPeriod } from "./rules";
 import { applyLoanInstallments } from "./loans";
 
 export const num = (v: Prisma.Decimal | number | null | undefined): number | null =>
@@ -89,6 +89,7 @@ export type ComputedLine = {
   bank_account_name: string | null;
   has_bank_details: boolean;
   employee_status: "active" | "inactive" | "left";
+  start_date: string | null;
   end_date: string | null;
   paid_month_early: boolean;
   perfume_eligible: boolean;
@@ -140,6 +141,7 @@ export function computeFromLine(
     bank_account_name: e.bank_account_name,
     has_bank_details: !!(e.bank_branch_code && e.bank_account_no),
     employee_status: e.status,
+    start_date: e.start_date ? isoDate(e.start_date) : null,
     end_date: e.end_date ? isoDate(e.end_date) : null,
     paid_month_early: e.paid_month_early,
     perfume_eligible: e.perfume_eligible,
@@ -406,15 +408,22 @@ export async function ensureLines(prisma: PrismaClient, periodId: string): Promi
   }
   if (missing.length > 0) {
     await prisma.payrollLine.createMany({
-      data: missing.map((e) => ({
-        period_id: periodId,
-        employee_id: e.id,
-        store_id: e.store_id,
-        position: e.position,
-        commission_profile: e.commission_profile,
-        // Günle ödenende maaş yok: gün ücreti Ödeme 2'de (mesai gibi) ödenir.
-        base_salary: e.paid_by_day ? 0 : e.base_salary,
-      })),
+      data: missing.map((e) => {
+        // Ay içinde işe giren / ayrılan: satır kısmi ayla açılır (pazarsız gün × baz ÷ 26); ekranda değiştirilebilir.
+        const partial = e.paid_by_day
+          ? null
+          : workedDaysInPeriod(period.year, period.month, e.start_date ? isoDate(e.start_date) : null, e.end_date ? isoDate(e.end_date) : null);
+        return {
+          period_id: periodId,
+          employee_id: e.id,
+          store_id: e.store_id,
+          position: e.position,
+          commission_profile: e.commission_profile,
+          // Günle ödenende maaş yok: gün ücreti Ödeme 2'de (mesai gibi) ödenir.
+          base_salary: e.paid_by_day ? 0 : partial != null ? dayPaidBase(n0(e.base_salary), partial) : e.base_salary,
+          worked_days: partial,
+        };
+      }),
     });
   }
   const stores = await prisma.store.findMany({ where: { deleted_at: null }, select: { id: true } });

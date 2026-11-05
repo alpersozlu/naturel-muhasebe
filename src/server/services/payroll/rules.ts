@@ -22,6 +22,25 @@ export function dayRate(monthlyBase: number): number {
 export function dayPaidBase(monthlyBase: number, days: number): number {
   return r2(dayRate(monthlyBase) * days);
 }
+/**
+ * Kısmi ay: ayın içinde işe giren / ayrılan için çalıştığı gün sayısı önerisi —
+ * giriş–çıkış aralığının ay içindeki kısmı, PAZARLAR SAYILMAZ (Alp, 02.11.2026:
+ * Semanur 5–31 Ekim = 24 gün). Maaş = gün × (baz ÷ 26). Tarih yoksa tam ay (null).
+ */
+export function workedDaysInPeriod(year: number, month: number, start: string | null | undefined, end: string | null | undefined): number | null {
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const mm = String(month).padStart(2, "0");
+  const first = `${year}-${mm}-01`;
+  const lastIso = `${year}-${mm}-${String(last).padStart(2, "0")}`;
+  const s = start && start > first ? start : null;
+  const e = end && end < lastIso ? end : null;
+  if (!s && !e) return null;
+  const from = s ? Number(s.slice(8, 10)) : 1;
+  const to = e ? Number(e.slice(8, 10)) : last;
+  let days = 0;
+  for (let d = from; d <= to; d++) if (new Date(Date.UTC(year, month - 1, d)).getUTCDay() !== 0) days++;
+  return days;
+}
 /** Her Mavi mağazasında ayın en çok satan TEK kişisine. */
 export const TOP_SELLER_PREMIUM = 3000;
 /**

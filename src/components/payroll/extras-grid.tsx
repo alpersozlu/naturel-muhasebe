@@ -20,6 +20,7 @@ import {
   GARMENT_PREMIUM_PER_UNIT,
   isOvertimeOnlyPosition,
   periodLabel,
+  workedDaysInPeriod,
 } from "@/server/services/payroll/rules";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { hoursTr, money, nextMonthOf, pct } from "./format";
@@ -87,10 +88,16 @@ function dayPayOf(l: ComputedLine, d: Draft): number {
   return l.paid_by_day && d.worked_days.trim() !== "" ? dayPaidBase(l.card_base_salary, numOf(d.worked_days)) : 0;
 }
 
+/** Kısmi ay (sunucudaki hesapla aynı): gün girilmişse gün × (kart bazı ÷ 26); silinmişse tam kart bazı. */
+function lineBase(l: ComputedLine, d: Draft): number {
+  if (l.paid_by_day) return d.worked_days.trim() !== "" ? 0 : l.base_salary;
+  if (d.worked_days.trim() !== "") return dayPaidBase(l.card_base_salary, numOf(d.worked_days));
+  return l.worked_days != null ? l.card_base_salary : l.base_salary;
+}
+
 function toInput(l: ComputedLine, d: Draft): LineInput {
   return {
-    // Gün girilince sunucu bazı 0'a çeker; ekranda da aynısı.
-    base_salary: l.paid_by_day && d.worked_days.trim() !== "" ? 0 : l.base_salary,
+    base_salary: lineBase(l, d),
     day_pay: dayPayOf(l, d),
     commission_profile: l.commission_profile,
     overtime_hours: numOf(d.overtime_hours),
@@ -265,7 +272,8 @@ export function ExtrasGrid({
     id: l.id,
     overtime_hours: numOf(d.overtime_hours),
     overtime_note: d.overtime_note || null,
-    worked_days: l.paid_by_day ? (d.worked_days.trim() === "" ? null : numOf(d.worked_days)) : undefined,
+    // Yalnız değiştiyse gönderilir: sunucu gün sayısından bazı yeniden kurar.
+    worked_days: d.worked_days !== fromLine(l).worked_days ? (d.worked_days.trim() === "" ? null : numOf(d.worked_days)) : undefined,
     own_revenue_nd: l.commission_profile === "mavi_asistan" ? (d.own_revenue_nd ?? null) : undefined,
     own_revenue_denim: l.commission_profile === "mavi_asistan" ? (d.own_revenue_denim ?? null) : undefined,
     own_revenue: l.commission_profile === "deri_asistan" ? (d.own_revenue ?? null) : undefined,
@@ -328,6 +336,7 @@ export function ExtrasGrid({
           store={s}
           overtimeOf={(id) => otByLine.get(id)}
           periodId={data.period.id}
+          period={data.period}
           perf={perf.data?.find((x) => x.store_id === s.store_id)}
           onPerfChanged={() => void perf.refetch()}
           onPerfApplied={() => {
@@ -374,6 +383,7 @@ function StoreExtras({
   store,
   overtimeOf,
   periodId,
+  period,
   perf,
   onPerfChanged,
   onPerfApplied,
@@ -394,6 +404,7 @@ function StoreExtras({
   store: StoreBlock;
   overtimeOf: (lineId: string) => KolayikMonth["overtime"][number] | undefined;
   periodId: string;
+  period: { year: number; month: number };
   perf: React.ComponentProps<typeof PerformanceDocs>["perf"];
   onPerfChanged: () => void;
   onPerfApplied: () => void;
@@ -509,7 +520,8 @@ function StoreExtras({
                         {l.paid_by_day ? `günle · ${money(dayRate(l.card_base_salary))} ₺/gün` : `saatlik ${money(c.hourly_rate)} ₺`}
                       </span>
                     </div>
-                    {!c.base_paid && !l.paid_by_day ? <div className="mt-0.5 text-xs font-medium text-amber-800">maaş henüz ödenmedi</div> : null}
+                    {!l.paid_by_day ? <PartialMonth l={l} value={d.worked_days} period={period} closed={closed} onChange={(v) => patch(l, { worked_days: v })} /> : null}
+                    {!c.base_paid && !l.paid_by_day ? <div className="mt-1 text-xs font-medium text-amber-800">maaş henüz ödenmedi</div> : null}
                     <StatusToggleButton line={l} closed={closed} onChanged={onChanged} className="mt-2 h-6 px-2 text-xs font-normal text-muted-foreground" />
                   </td>
 
@@ -824,6 +836,70 @@ function OvertimeCell({
             ) : null}
           </div>
           {parts.length ? <div className="text-muted-foreground">{parts.join(" · ")}</div> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const dm = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+
+/**
+ * Kısmi ay (Alp, 05.11.2026: "ayın ortasında başlayana kaç gün çalıştığını gireyim, 70.893'ten
+ * hesaplasın"). Gün girilince maaş = gün × (kart bazı ÷ 26). İşe giriş / çıkış bu aydaysa
+ * pazarsız gün sayısı önerilir; yeni satır zaten bu öneriyle açılır.
+ */
+function PartialMonth({
+  l,
+  value,
+  period,
+  closed,
+  onChange,
+}: {
+  l: ComputedLine;
+  value: string;
+  period: { year: number; month: number };
+  closed: boolean;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const suggested = workedDaysInPeriod(period.year, period.month, l.start_date, l.end_date);
+  const filled = value.trim() !== "";
+  if (!open && !filled && suggested == null) {
+    return closed ? null : (
+      <button type="button" className="mt-1 text-xs text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground" onClick={() => setOpen(true)}>
+        kısmi ay
+      </button>
+    );
+  }
+  const n = numOf(value);
+  const first = `${period.year}-${String(period.month).padStart(2, "0")}-01`;
+  const why = l.start_date && l.start_date > first ? `işe giriş ${dm(l.start_date)}` : l.end_date ? `çıkış ${dm(l.end_date)}` : "";
+  return (
+    <div className="mt-1.5 text-xs">
+      <label className="flex items-center gap-1.5">
+        <span className="text-muted-foreground">çalıştı</span>
+        <Input type="number" inputMode="numeric" min={0} max={31} step="1" value={value} onChange={(e) => onChange(e.target.value)} className="h-7 w-14 text-right" placeholder="tam" disabled={closed} />
+        <span className="text-muted-foreground">gün</span>
+      </label>
+      {filled ? (
+        <div className="mt-1 tabular-nums">
+          maaş <b className="text-sm">{money(dayPaidBase(l.card_base_salary, n))}</b>
+          <span className="text-muted-foreground"> = {hoursTr(n)} × {money(dayRate(l.card_base_salary))}</span>
+        </div>
+      ) : (
+        <div className="mt-1 text-muted-foreground">boş: tam ay {money(l.card_base_salary)}</div>
+      )}
+      {suggested != null && (!filled || Math.abs(n - suggested) > 0.001) ? (
+        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-sky-800">
+          <span>
+            {why} → <b>{suggested} gün</b> (pazar hariç)
+          </span>
+          {!closed ? (
+            <button type="button" className="rounded border px-1.5 py-0.5 text-[11px] font-medium hover:bg-muted" onClick={() => onChange(String(suggested))}>
+              uygula
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
