@@ -158,7 +158,10 @@ function PartyCard({
             <div className="text-lg font-semibold tabular-nums text-indigo-700">
               {fmt(party.month_total)}
             </div>
-            {party.month_debt > 0.005 ? (
+            {/* "ödendi" = bu dönemde ödenmemiş alım yok; alım hiç yoksa yanıltmasın (sahibi, 06.11.2026) */}
+            {party.month_total <= 0.005 ? (
+              <div className="text-[11px] text-muted-foreground">bu dönem alım yok</div>
+            ) : party.month_debt > 0.005 ? (
               <div className="text-[11px] text-rose-600 font-medium">
                 borç {fmt(party.month_debt)}
               </div>
