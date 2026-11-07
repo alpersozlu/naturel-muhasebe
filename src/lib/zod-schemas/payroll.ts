@@ -217,3 +217,20 @@ export const performanceApplySchema = z.object({
 
 export const idSchema = z.object({ id: z.string().uuid() });
 export const periodIdSchema = z.object({ period_id: z.string().uuid() });
+
+/**
+ * Yeni başlayan (sahibi, 07.11.2026): ad, mağaza, pozisyon, işe giriş; o ayın maaşı çalıştığı
+ * gün × (baz ÷ 26). Gün verilmezse pazarsız gün sayısı kendiliğinden.
+ */
+export const starterCreateSchema = z.object({
+  period_id: z.string().uuid(),
+  store_id: z.string().uuid(),
+  full_name: z.string().trim().min(2, "Ad soyad gir").max(80),
+  position: z.string().trim().min(2).max(40),
+  commission_profile: commissionProfileEnum,
+  base_salary: money,
+  pay_method: payMethodEnum.default("cash"),
+  is_gross_minimum: z.boolean().default(true),
+  start_date: dateStr,
+  worked_days: z.number().min(0).max(31).nullable().optional(),
+});

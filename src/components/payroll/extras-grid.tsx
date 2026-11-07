@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CornerDownRight, Save } from "lucide-react";
+import { CornerDownRight, Save, UserPlus } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ import { KolayikPanel } from "./kolayik-panel";
 import { SundayAuditPanel } from "./sunday-audit";
 import { IkPanel } from "./ik-panel";
 import { StatusToggleButton } from "./status-toggle";
+import { NewStarterDialog } from "./new-starter-dialog";
 import { PerformanceDocs } from "./performance-docs";
 import type { KolayikMonth } from "@/server/services/kolayik/payroll-sync";
 
@@ -207,6 +208,7 @@ export function ExtrasGrid({
 }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [entry, setEntry] = useState<{ line: ComputedLine; kind: EntryKind } | null>(null);
+  const [starterOpen, setStarterOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const update = trpc.payroll.lines.update.useMutation();
   const confirm = useConfirm();
@@ -320,6 +322,11 @@ export function ExtrasGrid({
           </span>
         </div>
         <div className="flex-1" />
+        {/* Sahibi (07.11.2026): yeni başlayanı buradan ekleyip gününü girsin, o ayın maaşı çıksın */}
+        <Button size="sm" variant="outline" onClick={() => setStarterOpen(true)} disabled={closed}>
+          <UserPlus className="h-4 w-4 mr-2" />
+          Yeni başlayan
+        </Button>
         <Button size="sm" onClick={() => saveLines(dirtyLines)} disabled={saving || closed || dirtyLines.length === 0}>
           <Save className="h-4 w-4 mr-2" />
           Tümünü kaydet{dirtyLines.length ? ` (${dirtyLines.length})` : ""}
@@ -365,6 +372,7 @@ export function ExtrasGrid({
         />
       ))}
 
+      {starterOpen ? <NewStarterDialog period={data.period} onClose={() => setStarterOpen(false)} onCreated={onChanged} /> : null}
       {entry ? (
         <EntryDialog
           lineId={entry.line.id}

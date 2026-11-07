@@ -21,6 +21,7 @@ import {
   performanceApplySchema,
   performanceUploadSchema,
   periodIdSchema,
+  starterCreateSchema,
   periodKeySchema,
   storeMonthUpsertSchema,
 } from "@/lib/zod-schemas/payroll";
@@ -42,7 +43,7 @@ import {
   parseGarantiTalimat,
   talimatFileName,
 } from "@/server/services/payroll/talimat";
-import { batchChannelError, batchTitle, dayPaidBase, inBatchList, periodLabel } from "@/server/services/payroll/rules";
+import { batchChannelError, batchTitle, dayPaidBase, inBatchList, periodLabel, workedDaysInPeriod } from "@/server/services/payroll/rules";
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
 import { carryForwardCore } from "@/server/services/payroll/carry";
 import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
@@ -501,6 +502,35 @@ export const payrollRouter = router({
             0
           ),
       }));
+    }),
+
+    /**
+     * Yeni başlayan: personel kartı + açık dönem satırları; seçilen dönemde çalıştığı gün
+     * (pazarsız öneri ya da elle) × (baz ÷ 26) = o ayın maaşı. Sahibi (07.11.2026):
+     * "yeni başlayanları gün olarak ödediğimiz için isimlerini ekleyip gün gireyim, maaş çıksın".
+     */
+    createStarter: employeeAudited.input(starterCreateSchema).mutation(async ({ ctx, input }) => {
+      const { period_id, worked_days, start_date, ...rest } = input;
+      const period = await ctx.prisma.payrollPeriod.findUniqueOrThrow({ where: { id: period_id } });
+      if (period.status === "closed") throw new TRPCError({ code: "BAD_REQUEST", message: "Kapalı ay — önce dönemi yeniden aç." });
+      const created = await ctx.prisma.payrollEmployee.create({
+        data: { ...rest, start_date: dateOnly(start_date), status: "active" },
+      });
+      const open = await ctx.prisma.payrollPeriod.findMany({ where: { status: "open" } });
+      for (const p of open) await ensureLines(ctx.prisma, p.id);
+      const line = await ctx.prisma.payrollLine.findUniqueOrThrow({ where: { period_id_employee_id: { period_id, employee_id: created.id } } });
+      const auto = workedDaysInPeriod(period.year, period.month, start_date, null);
+      const days = worked_days === undefined ? auto : worked_days;
+      const base = days == null ? Number(created.base_salary) : dayPaidBase(Number(created.base_salary), days);
+      const updated = await ctx.prisma.payrollLine.update({
+        where: { id: line.id },
+        data: {
+          worked_days: days,
+          base_salary: base,
+          note: days == null ? undefined : `İlk ay: işe giriş ${start_date.split("-").reverse().join(".")}, ${days} gün × ${(Number(created.base_salary) / 26).toFixed(2)} (baz ${Number(created.base_salary).toFixed(2)} ÷ 26) = ${base.toFixed(2)}.`,
+        },
+      });
+      return { employee_id: created.id, line_id: updated.id, worked_days: days, base_salary: Number(updated.base_salary) };
     }),
 
     create: employeeAudited.input(employeeCreateSchema).mutation(async ({ ctx, input }) => {
