@@ -386,6 +386,13 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
     },
     onError: (e) => toast.error(e.message),
   });
+  const acceptOnThisDay = trpc.upload.acceptOnThisDay.useMutation({
+    onSuccess: () => {
+      toast.success("Bu güne kabul edildi, yeniden okunuyor");
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const retry = trpc.upload.retry.useMutation({
     onSuccess: () => {
       toast.success("Yeniden okunuyor…");
@@ -555,6 +562,22 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                       }
                     : undefined
                 }
+                onAcceptOnThisDay={
+                  isAdmin
+                    ? async () => {
+                        if (
+                          await confirmDialog({
+                            title: "Belge bu günün belgesi mi?",
+                            description:
+                              "Belgedeki tarih bu günden farklı (ör. para bir gün sonra geçmiş). Bu günün belgesi olduğundan eminseniz kabul edin: günün tarihiyle kaydedilir, yüklemede 'tarih farklı' izi kalır.",
+                            confirmLabel: "Bu güne kabul et",
+                          })
+                        ) {
+                          acceptOnThisDay.mutate({ id: u.id });
+                        }
+                      }
+                    : undefined
+                }
                 onAcceptGap={
                   isAdmin
                     ? async () => {
@@ -648,6 +671,7 @@ function UploadRowItem({
   onAcceptGap,
   onAcceptDayEnd,
   onAcceptDistinct,
+  onAcceptOnThisDay,
   expectedDate,
 }: {
   upload: UploadRow;
@@ -667,6 +691,7 @@ function UploadRowItem({
   onAcceptDayEnd?: () => void;
   /** Admin only; set on an upload refused as a replay of an earlier document. */
   onAcceptDistinct?: () => void;
+  onAcceptOnThisDay?: () => void;
   expectedDate: string;
 }) {
   const meta = TYPE_META[upload.type];
@@ -901,6 +926,15 @@ function UploadRowItem({
                 className="block mt-2 text-[11px] underline underline-offset-2 text-rose-800 hover:text-rose-900"
               >
                 Farklı belge, kabul et
+              </button>
+            ) : null}
+            {onAcceptOnThisDay && upload.error_message.includes("gününe yüklenmeye çalışıldı") ? (
+              <button
+                type="button"
+                onClick={onAcceptOnThisDay}
+                className="block mt-2 text-[11px] underline underline-offset-2 text-rose-800 hover:text-rose-900"
+              >
+                Bu günün belgesi, kabul et
               </button>
             ) : null}
             {onAcceptGap &&

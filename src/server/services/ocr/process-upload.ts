@@ -79,13 +79,13 @@ function fmtMoneyTr(v: number): string {
  * Dönen değer: kullanılacak (gerekirse düzeltilmiş) tarih.
  */
 async function assertDateMatch(
-  dailyRecordId: string,
+  upload: Pick<Upload, "id" | "daily_record_id" | "user_meta_json">,
   docDate: string | null,
   docLabel: string,
   docDateRaw?: string | null
 ): Promise<string> {
   const dr = await prisma.dailyRecord.findUnique({
-    where: { id: dailyRecordId },
+    where: { id: upload.daily_record_id },
     select: { date: true },
   });
   const expectedIso = dr ? dr.date.toISOString().slice(0, 10) : null;
@@ -96,6 +96,14 @@ async function assertDateMatch(
     throw new Error(
       `${docLabel} tarihi okunamadı — manuel kontrol gerekli. Lütfen tarihi okunaklı olan bir görsel yükleyin.`
     );
+  }
+  // Yönetici istisnası (sahibi, 07.11.2026: IBAN dekontu 05.10 tarihli ama para 04.10
+  // gönderildi, ertesi gün geçti): belge bu GÜNÜN belgesi sayılır, günün tarihiyle
+  // kaydedilir; yükleme "tarih uyuşmazlığı" işaretini taşır (denetim izi).
+  const override = !!(upload.user_meta_json as { accept_date_mismatch?: boolean } | null)?.accept_date_mismatch;
+  if (expectedIso && !r.matches && override) {
+    await prisma.upload.update({ where: { id: upload.id }, data: { date_mismatch: true } });
+    return expectedIso;
   }
   if (expectedIso && !r.matches) {
     throw new Error(
@@ -371,7 +379,7 @@ async function runPosSlip(upload: Upload, buffer: Buffer, cachedRaw?: unknown): 
     );
   }
   parsed.date = await assertDateMatch(
-    upload.daily_record_id,
+    upload,
     parsed.date,
     "POS slibi",
     parsed.date_raw
@@ -653,7 +661,7 @@ async function runStoreSummary(upload: Upload, buffer: Buffer, cachedRaw?: unkno
       );
     }
     parsed.summary_date = await assertDateMatch(
-      upload.daily_record_id,
+      upload,
       parsed.summary_date,
       "Mağaza özeti"
     );
@@ -987,7 +995,7 @@ async function runBankReceipt(upload: Upload, buffer: Buffer, cachedRaw?: unknow
     parsed.bank_name = "Local Pay";
     parsed.iban = `Local Pay No ${ref}`;
   }
-  parsed.deposit_date = await assertDateMatch(upload.daily_record_id, parsed.deposit_date, localPay ? "Local Pay ödemesi" : "İban dekontu");
+  parsed.deposit_date = await assertDateMatch(upload, parsed.deposit_date, localPay ? "Local Pay ödemesi" : "İban dekontu");
   if (parsed.amount === null) {
     throw new Error(
       "İban dekontundan tutar okunamadı — manuel düzenleme gerekli"
@@ -1045,7 +1053,7 @@ async function runExpense(upload: Upload, buffer: Buffer, cachedRaw?: unknown): 
     );
   }
   parsed.expense_date = await assertDateMatch(
-    upload.daily_record_id,
+    upload,
     parsed.expense_date,
     "Fatura",
     parsed.expense_date_raw
@@ -1156,7 +1164,7 @@ async function runZReport(upload: Upload, buffer: Buffer, cachedRaw?: unknown): 
   }
 
   parsed.report_date = await assertDateMatch(
-    upload.daily_record_id,
+    upload,
     parsed.report_date,
     "Z raporu",
     parsed.report_date_raw

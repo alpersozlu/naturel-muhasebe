@@ -671,6 +671,37 @@ export const uploadRouter = router({
       return { ok: true };
     }),
 
+  /**
+   * Belge tarihi güne uymuyor ama yönetici "bu günün belgesi" diyor (sahibi, 07.11.2026:
+   * dekont 05.10 tarihli, para 04.10 gönderildi). Tarih kontrolü istisnayla geçilir, belge
+   * günün tarihiyle kaydedilir, yükleme date_mismatch işaretini taşır.
+   */
+  acceptOnThisDay: adminProcedure
+    .input(uploadIdSchema)
+    .mutation(async ({ ctx, input }) => {
+      const upload = await ctx.prisma.upload.findUnique({ where: { id: input.id } });
+      if (!upload) throw new TRPCError({ code: "NOT_FOUND" });
+      if (upload.status !== "failed" || !/gününe yüklenmeye çalışıldı/.test(upload.error_message ?? "")) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Yalnız tarih uyuşmazlığıyla reddedilmiş bir yükleme için kullanılabilir." });
+      }
+      const meta = (upload.user_meta_json as Record<string, unknown> | null) ?? {};
+      await ctx.prisma.upload.update({
+        where: { id: input.id },
+        data: {
+          status: "pending",
+          error_message: null,
+          uploaded_at: new Date(),
+          user_meta_json: { ...meta, accept_date_mismatch: true, accepted_date_by: ctx.user.id },
+        },
+      });
+      waitUntil(
+        processUpload(upload.id).catch((e) => {
+          console.error("[upload.acceptOnThisDay] async OCR failed", e);
+        })
+      );
+      return { ok: true };
+    }),
+
   acceptNebimGap: adminProcedure
     .input(uploadIdSchema)
     .mutation(async ({ ctx, input }) => {
