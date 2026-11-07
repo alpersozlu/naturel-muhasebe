@@ -185,6 +185,7 @@ export function NebimHareketOzeti({ filters }: { filters: NebimSalesSelection })
     store_id: filters.storeId || undefined,
     date_from: filters.dateFrom || undefined,
     date_to: filters.dateTo || undefined,
+    dates: filters.dates.length ? filters.dates : undefined,
   });
 
   if (q.isLoading) {
@@ -215,9 +216,11 @@ export function NebimHareketOzeti({ filters }: { filters: NebimSalesSelection })
   }
 
   const tekGun = d.date_from && d.date_from === d.date_to;
-  const donem = tekGun
-    ? fmtDateTr(d.date_from)
-    : `${fmtDateTr(d.date_from)} – ${fmtDateTr(d.date_to)}`;
+  const donem = d.dates?.length
+    ? `${d.dates.map(fmtDateTr).join(" + ")} (seçili günler, birleşik)`
+    : tekGun
+      ? fmtDateTr(d.date_from)
+      : `${fmtDateTr(d.date_from)} – ${fmtDateTr(d.date_to)}`;
 
   return (
     <div className="space-y-6">

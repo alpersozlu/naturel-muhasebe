@@ -62,6 +62,8 @@ export type MagazaHareketi = {
 export type StoreMovementSonuc = {
   date_from: string | null;
   date_to: string | null;
+  /** Seçili günler modunda: özetin kapsadığı günler (aralık değil) */
+  dates?: string[] | null;
   stores: MagazaHareketi[];
   /** Tüm mağazaların toplamı — "Tümü" seçiliyken üst şeritte gösterilir. */
   grand: { total: HareketSatiri; cash: number; card: number };
@@ -121,7 +123,7 @@ export function bankFromCardType(cardType: string): string {
 export async function buildStoreMovement(
   prisma: PrismaClient,
   where: Prisma.NebimSaleLineWhereInput,
-  range: { date_from?: string; date_to?: string }
+  range: { date_from?: string; date_to?: string; dates?: string[] }
 ): Promise<StoreMovementSonuc> {
   const lines = await prisma.nebimSaleLine.findMany({
     where,
@@ -215,9 +217,12 @@ export async function buildStoreMovement(
     .map((k) => k.store_id)
     .filter(Boolean) as string[];
   if (storeIds.length > 0) voucherWhere.store_id = { in: storeIds };
-  const tarih: { gte?: Date; lte?: Date } = {};
-  if (range.date_from) tarih.gte = new Date(`${range.date_from}T00:00:00.000Z`);
-  if (range.date_to) tarih.lte = new Date(`${range.date_to}T00:00:00.000Z`);
+  const tarih: { gte?: Date; lte?: Date; in?: Date[] } = {};
+  if (range.dates?.length) tarih.in = range.dates.map((d) => new Date(`${d}T00:00:00.000Z`));
+  else {
+    if (range.date_from) tarih.gte = new Date(`${range.date_from}T00:00:00.000Z`);
+    if (range.date_to) tarih.lte = new Date(`${range.date_to}T00:00:00.000Z`);
+  }
   if (Object.keys(tarih).length > 0) voucherWhere.txn_date = tarih;
 
   // Issuing lines of cards Nebim has since deleted (cancelled returns) are
@@ -293,6 +298,7 @@ export async function buildStoreMovement(
   return {
     date_from: range.date_from ?? null,
     date_to: range.date_to ?? null,
+    dates: range.dates ?? null,
     stores,
     grand: {
       total: yuvarla(grandSales),

@@ -28,6 +28,7 @@ function defaultSelection(): NebimSalesSelection {
     storeId: "",
     dateFrom: `${y}-${m}-01`,
     dateTo: `${y}-${m}-${String(last).padStart(2, "0")}`,
+    dates: [],
     onlyReturns: false,
     onlyPending: false,
     discountBand: "",

@@ -673,7 +673,7 @@ const DISCOUNT_BAND_LABEL: Record<string, string> = {
 /** Filtre (mağaza kapsamı + tarih + iade) → Prisma where. Erişim yoksa null. */
 async function buildWhere(
   ctx: { user: unknown; prisma: unknown },
-  input: { store_id?: string; date_from?: string; date_to?: string; only_returns?: boolean }
+  input: { store_id?: string; date_from?: string; date_to?: string; dates?: string[]; only_returns?: boolean }
 ): Promise<Prisma.NebimSaleLineWhereInput | null> {
   // ctx tiplerini gevşek aldık; gerçek erişim kontrolü aşağıda.
   const c = ctx as { user: Parameters<typeof isAdmin>[0] };
@@ -686,9 +686,13 @@ async function buildWhere(
   if (input.store_id) storeFilter = [input.store_id];
   else if (allowed) storeFilter = allowed;
 
-  const dateFilter: { gte?: Date; lte?: Date } = {};
-  if (input.date_from) dateFilter.gte = new Date(`${input.date_from}T00:00:00.000Z`);
-  if (input.date_to) dateFilter.lte = new Date(`${input.date_to}T00:00:00.000Z`);
+  // Seçili günler verildiyse aralık değil, yalnız o günler (1-3-5 gibi).
+  const dateFilter: { gte?: Date; lte?: Date; in?: Date[] } = {};
+  if (input.dates?.length) dateFilter.in = input.dates.map((d) => new Date(`${d}T00:00:00.000Z`));
+  else {
+    if (input.date_from) dateFilter.gte = new Date(`${input.date_from}T00:00:00.000Z`);
+    if (input.date_to) dateFilter.lte = new Date(`${input.date_to}T00:00:00.000Z`);
+  }
 
   return {
     ...(storeFilter ? { store_id: { in: storeFilter } } : {}),
@@ -1748,15 +1752,18 @@ export const nebimSalesRouter = router({
   storeMovement: adminProcedure
     .input(nebimAnalizSchema)
     .query(async ({ ctx, input }): Promise<StoreMovementSonuc> => {
+      const dates = input.dates?.length ? [...input.dates].sort() : undefined;
       const where = await buildWhere(ctx, {
         store_id: input.store_id,
         date_from: input.date_from,
         date_to: input.date_to,
+        dates,
       });
       if (!where) {
         return {
           date_from: input.date_from ?? null,
           date_to: input.date_to ?? null,
+          dates: dates ?? null,
           stores: [],
           grand: {
             total: { qty: 0, amount_vi: 0, discount: 0, tax_base: 0, vat: 0, net: 0 },
@@ -1766,8 +1773,9 @@ export const nebimSalesRouter = router({
         };
       }
       return buildStoreMovement(ctx.prisma, where, {
-        date_from: input.date_from,
-        date_to: input.date_to,
+        date_from: dates ? dates[0] : input.date_from,
+        date_to: dates ? dates[dates.length - 1] : input.date_to,
+        dates,
       });
     }),
 

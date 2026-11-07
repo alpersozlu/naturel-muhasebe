@@ -42,6 +42,8 @@ export const nebimAnalizSchema = z.object({
   store_id: z.string().uuid().optional(),
   date_from: dateOnly.optional(),
   date_to: dateOnly.optional(),
+  /** Seçili (ardışık olmayan) günler — verilirse aralık yerine yalnız bu günler (sahibi, 07.11.2026: 1-3-5 Ekim özeti). */
+  dates: z.array(dateOnly).min(1).max(3).optional(),
   only_returns: z.boolean().optional(),
 });
 

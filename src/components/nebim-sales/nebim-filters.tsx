@@ -18,6 +18,8 @@ export type NebimSalesSelection = {
   storeId: string;
   dateFrom: string;
   dateTo: string;
+  /** Seçili günler (ardışık olmayan, en çok 3): doluysa dateFrom/dateTo = ilk/son gün, sorgu yalnız bu günleri alır */
+  dates: string[];
   onlyReturns: boolean;
   /** Askıda (POS'ta park edilmiş, tamamlanmamış) satışlar — normalde hiçbir yerde sayılmaz. */
   onlyPending: boolean;
@@ -94,9 +96,10 @@ function monthOptions(): string[] {
  * İki görünüm: "month" (birincil — ay gezgini) ve "custom" (Özel aralık).
  * Tek gün ayrı mod değil: özel aralıkta Bugün/Dün çipleri from=to set eder.
  */
-type DateMode = "month" | "custom";
+type DateMode = "month" | "custom" | "picked";
 
-function deriveMode(from: string, to: string): DateMode {
+function deriveMode(from: string, to: string, dates?: string[]): DateMode {
+  if (dates && dates.length > 0) return "picked";
   return isFullMonth(from, to) ? "month" : "custom";
 }
 
@@ -129,19 +132,28 @@ export function NebimFilters({
 
   const months = useMemo(monthOptions, []);
   const [mode, setMode] = useState<DateMode>(() =>
-    deriveMode(value.dateFrom, value.dateTo)
+    deriveMode(value.dateFrom, value.dateTo, value.dates)
   );
+  // Seçili günler kutuları (3 adet; boşlar yok sayılır)
+  const [picks, setPicks] = useState<[string, string, string]>(() => [value.dates?.[0] ?? "", value.dates?.[1] ?? "", value.dates?.[2] ?? ""]);
 
   // Tarih dışarıdan değişirse (başka sekmenin kısayolu) modu senkron tut.
   useEffect(() => {
     if (mode === "month" && !isFullMonth(value.dateFrom, value.dateTo)) {
-      setMode(deriveMode(value.dateFrom, value.dateTo));
+      setMode(deriveMode(value.dateFrom, value.dateTo, value.dates));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value.dateFrom, value.dateTo]);
 
   const setDates = (from: string, to: string) =>
-    onChange({ ...value, dateFrom: from, dateTo: to });
+    onChange({ ...value, dateFrom: from, dateTo: to, dates: [] });
+
+  // Seçili günler (sahibi, 07.11.2026: "3 farklı günün mağaza özetini birleşik alayım")
+  const applyPicks = (p: [string, string, string]) => {
+    setPicks(p);
+    const dates = Array.from(new Set(p.filter(Boolean))).sort();
+    onChange({ ...value, dates, dateFrom: dates[0] ?? value.dateFrom, dateTo: dates[dates.length - 1] ?? value.dateTo });
+  };
 
   const switchMode = (m: DateMode) => {
     setMode(m);
@@ -151,8 +163,12 @@ export function NebimFilters({
       const target = months.includes(ym) ? ym : months[0]!;
       const b = monthBounds(target);
       setDates(b.from, b.to);
+    } else if (m === "picked") {
+      applyPicks([picks[0] || value.dateFrom || todayIso(), picks[1], picks[2]]);
+    } else if (value.dates.length) {
+      // "custom": seçili günler bırakılır, ilk/son gün aralık olur.
+      setDates(value.dateFrom, value.dateTo);
     }
-    // "custom": mevcut değerler korunur, kullanıcı düzenler.
   };
 
   const currentMonth = isFullMonth(value.dateFrom, value.dateTo)
@@ -166,6 +182,7 @@ export function NebimFilters({
 
   // Sağ üstteki dönem özeti — sunum kalitesinde tek bakışta durum.
   const summary = (() => {
+    if (value.dates.length) return `${value.dates.map((d) => fmtDayTr(d).replace(/ \d{4}$/, "")).join(" · ")} ${value.dates[0]!.slice(0, 4)} · seçili günler`;
     if (!value.dateFrom && !value.dateTo) return "Tüm zaman";
     if (currentMonth) return fmtMonth(currentMonth);
     if (value.dateFrom && value.dateFrom === value.dateTo)
@@ -235,10 +252,12 @@ export function NebimFilters({
             className="h-7 text-xs text-muted-foreground ml-auto"
             onClick={() => {
               setMode("custom");
+              setPicks(["", "", ""]);
               onChange({
                 storeId: "",
                 dateFrom: "",
                 dateTo: "",
+                dates: [],
                 onlyReturns: false,
                 onlyPending: false,
                 discountBand: "",
@@ -347,6 +366,37 @@ export function NebimFilters({
               >
                 Özel aralık
               </Button>
+              <Button variant="secondary" size="sm" className="h-10 text-muted-foreground" onClick={() => switchMode("picked")}>
+                Seçili günler
+              </Button>
+            </div>
+          ) : mode === "picked" ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {([0, 1, 2] as const).map((i) => (
+                  <Input
+                    key={i}
+                    type="date"
+                    className="h-10 w-40"
+                    value={picks[i]}
+                    aria-label={`${i + 1}. gün`}
+                    onChange={(e) => {
+                      const n: [string, string, string] = [...picks];
+                      n[i] = e.target.value;
+                      applyPicks(n);
+                    }}
+                  />
+                ))}
+                <Button variant="secondary" size="sm" className="h-10" onClick={() => switchMode("month")}>
+                  <CalendarDays className="h-4 w-4 mr-1.5" />
+                  Aya dön
+                </Button>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {value.dates.length
+                  ? `${value.dates.length} gün seçili — özet ve listeler yalnız bu günleri kapsar, aradaki günler girmez.`
+                  : "En çok 3 gün seç; ardışık olması gerekmez (ör. 1, 3 ve 5 Ekim)."}
+              </div>
             </div>
           ) : (
             <div className="space-y-2">
@@ -372,6 +422,9 @@ export function NebimFilters({
                 >
                   <CalendarDays className="h-4 w-4 mr-1.5" />
                   Aya dön
+                </Button>
+                <Button variant="secondary" size="sm" className="h-10 text-muted-foreground" onClick={() => switchMode("picked")}>
+                  Seçili günler
                 </Button>
               </div>
               <div className="flex flex-wrap gap-1.5">
