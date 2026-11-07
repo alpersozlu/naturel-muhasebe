@@ -106,3 +106,9 @@ export const manualPosSlipSchema = z.object({
   amount: z.number().finite().positive("Tutar 0'dan büyük olmalı").max(100_000_000),
   note: z.string().trim().min(5, "Kaynağı yazın (ör. banka ekstresi, kim öğrendi)").max(500),
 });
+
+/** Yönetici: okunamayan fatura tutarını elle verip yüklemeyi yeniden okut (upload.fixExpenseAmount). */
+export const uploadFixExpenseAmountSchema = z.object({
+  id: z.string().uuid(),
+  amount: z.number().finite().positive("Tutar 0'dan büyük olmalı").max(10_000_000),
+});

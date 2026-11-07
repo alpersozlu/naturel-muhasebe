@@ -7,6 +7,7 @@ import {
   manualBankReceiptSchema,
   uploadCreateSchema,
   uploadIdSchema,
+  uploadFixExpenseAmountSchema,
   uploadsForStoreDateSchema,
 } from "@/lib/zod-schemas/upload";
 import { withAudit } from "../middleware/audit";
@@ -697,6 +698,37 @@ export const uploadRouter = router({
       waitUntil(
         processUpload(upload.id).catch((e) => {
           console.error("[upload.acceptOnThisDay] async OCR failed", e);
+        })
+      );
+      return { ok: true };
+    }),
+
+  /**
+   * Fatura tutarı okunamadı (el yazısı vb.): yönetici tutarı elle verir, belge aynı
+   * fotoğrafla yeniden okunur; tarih okunuşu güne uymazsa da bu günün belgesi sayılır
+   * (sahibi, 07.11.2026: Önce Döner 1191, el yazısı 1.140, model "2016" okudu).
+   */
+  fixExpenseAmount: adminProcedure
+    .input(uploadFixExpenseAmountSchema)
+    .mutation(async ({ ctx, input }) => {
+      const upload = await ctx.prisma.upload.findUnique({ where: { id: input.id } });
+      if (!upload) throw new TRPCError({ code: "NOT_FOUND" });
+      if (upload.type !== "expense" || upload.status !== "failed") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Yalnız reddedilmiş bir fatura yüklemesi için kullanılabilir." });
+      }
+      const meta = (upload.user_meta_json as Record<string, unknown> | null) ?? {};
+      await ctx.prisma.upload.update({
+        where: { id: input.id },
+        data: {
+          status: "pending",
+          error_message: null,
+          uploaded_at: new Date(),
+          user_meta_json: { ...meta, expense_amount: input.amount, accept_date_mismatch: true, amount_fixed_by: ctx.user.id },
+        },
+      });
+      waitUntil(
+        processUpload(upload.id).catch((e) => {
+          console.error("[upload.fixExpenseAmount] async OCR failed", e);
         })
       );
       return { ok: true };

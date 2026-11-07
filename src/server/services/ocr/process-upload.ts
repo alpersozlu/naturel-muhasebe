@@ -1058,16 +1058,21 @@ async function runExpense(upload: Upload, buffer: Buffer, cachedRaw?: unknown): 
     "Fatura",
     parsed.expense_date_raw
   );
+  // Kullanıcı yükleme öncesi kategori/açıklama girdiyse OCR sonucunu override et;
+  // yönetici okunamayan tutarı elle vermişse (upload.fixExpenseAmount) o tutar geçerlidir.
+  const userMeta = upload.user_meta_json as
+    | { expense_category?: string; expense_description?: string; expense_amount?: number }
+    | null;
+  if (typeof userMeta?.expense_amount === "number" && userMeta.expense_amount > 0) {
+    parsed.amount = userMeta.expense_amount;
+    parsed.currency = parsed.currency ?? "TRY";
+  }
   if (parsed.amount === null) {
     throw new Error(
       "Faturadan tutar okunamadı — manuel düzenleme gerekli"
     );
   }
 
-  // Kullanıcı yükleme öncesi kategori/açıklama girdiyse OCR sonucunu override et
-  const userMeta = upload.user_meta_json as
-    | { expense_category?: string; expense_description?: string }
-    | null;
   const finalCategory =
     (userMeta?.expense_category as typeof parsed.category) || parsed.category;
   const finalDescription =
@@ -1086,7 +1091,7 @@ async function runExpense(upload: Upload, buffer: Buffer, cachedRaw?: unknown): 
     vat_rate: parsed.vat_rate,
     vat_included: parsed.vat_included,
     // Kullanıcı girdiği bilgi varsa user_corrected işaretle
-    user_corrected: !!(userMeta?.expense_category || userMeta?.expense_description),
+    user_corrected: !!(userMeta?.expense_category || userMeta?.expense_description || userMeta?.expense_amount),
   };
   // Same receipt (vendor + date + amount) already on file in this store —
   // a second photo of the same fatura must not count twice. Sahibi (17.10.2026):

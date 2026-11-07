@@ -393,6 +393,13 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
     },
     onError: (e) => toast.error(e.message),
   });
+  const fixAmount = trpc.upload.fixExpenseAmount.useMutation({
+    onSuccess: () => {
+      toast.success("Tutar alındı, fatura yeniden okunuyor");
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const retry = trpc.upload.retry.useMutation({
     onSuccess: () => {
       toast.success("Yeniden okunuyor…");
@@ -562,6 +569,20 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                       }
                     : undefined
                 }
+                onFixAmount={
+                  isAdmin
+                    ? () => {
+                        const raw = window.prompt("Faturanın toplam tutarı (₺) — fotoğraftan okuyup yazın, ör. 1140 veya 1.140,00:");
+                        if (raw == null) return;
+                        const n = Number(raw.trim().replace(/\./g, "").replace(",", "."));
+                        if (!Number.isFinite(n) || n <= 0) {
+                          toast.error("Tutar anlaşılamadı");
+                          return;
+                        }
+                        fixAmount.mutate({ id: u.id, amount: Math.round(n * 100) / 100 });
+                      }
+                    : undefined
+                }
                 onAcceptOnThisDay={
                   isAdmin
                     ? async () => {
@@ -672,6 +693,7 @@ function UploadRowItem({
   onAcceptDayEnd,
   onAcceptDistinct,
   onAcceptOnThisDay,
+  onFixAmount,
   expectedDate,
 }: {
   upload: UploadRow;
@@ -692,6 +714,7 @@ function UploadRowItem({
   /** Admin only; set on an upload refused as a replay of an earlier document. */
   onAcceptDistinct?: () => void;
   onAcceptOnThisDay?: () => void;
+  onFixAmount?: () => void;
   expectedDate: string;
 }) {
   const meta = TYPE_META[upload.type];
@@ -926,6 +949,15 @@ function UploadRowItem({
                 className="block mt-2 text-[11px] underline underline-offset-2 text-rose-800 hover:text-rose-900"
               >
                 Farklı belge, kabul et
+              </button>
+            ) : null}
+            {onFixAmount && upload.type === "expense" && upload.error_message.includes("tutar okunamadı") ? (
+              <button
+                type="button"
+                onClick={onFixAmount}
+                className="block mt-2 text-[11px] underline underline-offset-2 text-rose-800 hover:text-rose-900"
+              >
+                Tutarı elle gir, kabul et
               </button>
             ) : null}
             {onAcceptOnThisDay && upload.error_message.includes("gününe yüklenmeye çalışıldı") ? (
