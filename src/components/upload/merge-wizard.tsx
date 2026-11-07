@@ -70,6 +70,9 @@ export function MergeWizard({
   const utils = trpc.useUtils();
   const [start, setStart] = useState(todayIso());
   const [end, setEnd] = useState(todayIso());
+  // Ardışık aralık mı, seçili günler mi (sahibi, 07.11.2026: "1-3-5 Ekim'i birleştireceğim")
+  const [mode, setMode] = useState<"range" | "picked">("range");
+  const [picks, setPicks] = useState<[string, string, string]>([todayIso(), "", ""]);
   // Aktif grup (oluşturulduktan sonra)
   const [days, setDays] = useState<GroupDay[] | null>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
@@ -98,11 +101,11 @@ export function MergeWizard({
   }, [openGroup.data, days]);
 
   const create = trpc.mergeGroup.create.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (_g, vars) => {
       // Oluşturulan grubu çek (günleriyle)
       const grp = await utils.mergeGroup.getForStoreDate.fetch({
         store_id: storeId,
-        date: start,
+        date: vars.start_date,
       });
       if (!grp) {
         toast.error("Grup oluşturuldu ama yüklenemedi");
@@ -153,6 +156,24 @@ export function MergeWizard({
     if (e < s) return 0;
     return Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1;
   })();
+  // Seçili günler: boşlar atılır, sıralanır; tekrar ve 7 günden geniş aralık engellenir
+  const picked = Array.from(new Set(picks.filter(Boolean))).sort();
+  const pickedSpan = picked.length
+    ? Math.round((new Date(`${picked[picked.length - 1]}T00:00:00.000Z`).getTime() - new Date(`${picked[0]}T00:00:00.000Z`).getTime()) / 86_400_000) + 1
+    : 0;
+  const pickedProblem =
+    picks.filter(Boolean).length !== picked.length
+      ? "Aynı gün iki kez seçilmiş."
+      : picked.length < 2
+        ? "En az 2 gün seçilmeli."
+        : pickedSpan > 7
+          ? "Seçili günler en fazla 7 günlük bir aralıkta olmalı."
+          : null;
+  const startMerge = () =>
+    mode === "picked"
+      ? create.mutate({ store_id: storeId, start_date: picked[0]!, end_date: picked[picked.length - 1]!, dates: picked })
+      : create.mutate({ store_id: storeId, start_date: start, end_date: end });
+  const canStart = !!storeId && !create.isPending && (mode === "picked" ? !pickedProblem : dayCount >= 2 && dayCount <= 3);
 
   // ── Kurulum ekranı: aralık seçimi ──
   if (!days || !groupId) {
@@ -175,59 +196,88 @@ export function MergeWizard({
               <div className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
                 Birden fazla günü tek mağaza özetiyle uzlaştır. Her gün kendi
                 fiş/Z/nakit/masrafını ayrı girersin; mağaza özeti son güne
-                yüklenir ve tüm aralığı kapsar. (En fazla 3 gün)
+                yüklenir ve bütün günleri kapsar. (En fazla 3 gün)
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Başlangıç Tarihi</Label>
-              <Input
-                type="date"
-                value={start}
-                onChange={(e) => {
-                  setStart(e.target.value);
-                  if (e.target.value > end) setEnd(e.target.value);
-                }}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Bitiş Tarihi</Label>
-              <Input
-                type="date"
-                value={end}
-                min={start}
-                onChange={(e) => setEnd(e.target.value)}
-              />
-            </div>
-            <Button
-              onClick={() =>
-                create.mutate({ store_id: storeId, start_date: start, end_date: end })
-              }
-              disabled={
-                !storeId ||
-                create.isPending ||
-                dayCount < 2 ||
-                dayCount > 3
-              }
-            >
-              {create.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <CalendarRange className="h-4 w-4 mr-2" />
-              )}
-              Birleşmeyi Başlat
-            </Button>
+          <div className="mb-4 inline-flex rounded-full border bg-muted/40 p-0.5 text-xs">
+            {(
+              [
+                ["range", "Ardışık günler"],
+                ["picked", "Seçili günler"],
+              ] as const
+            ).map(([m, label]) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={`rounded-full px-3 py-1.5 font-medium transition-colors ${mode === m ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
+          {mode === "range" ? (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Başlangıç Tarihi</Label>
+                <Input
+                  type="date"
+                  value={start}
+                  onChange={(e) => {
+                    setStart(e.target.value);
+                    if (e.target.value > end) setEnd(e.target.value);
+                  }}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Bitiş Tarihi</Label>
+                <Input type="date" value={end} min={start} onChange={(e) => setEnd(e.target.value)} />
+              </div>
+              <Button onClick={startMerge} disabled={!canStart}>
+                {create.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CalendarRange className="h-4 w-4 mr-2" />}
+                Birleşmeyi Başlat
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+              {([0, 1, 2] as const).map((i) => (
+                <div key={i} className="space-y-1.5">
+                  <Label className="text-xs">
+                    {i + 1}. gün{i === 2 ? " (isteğe bağlı)" : ""}
+                  </Label>
+                  <Input
+                    type="date"
+                    value={picks[i]}
+                    onChange={(e) => setPicks((p) => { const n: [string, string, string] = [...p]; n[i] = e.target.value; return n; })}
+                  />
+                </div>
+              ))}
+              <Button onClick={startMerge} disabled={!canStart}>
+                {create.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CalendarRange className="h-4 w-4 mr-2" />}
+                Birleşmeyi Başlat
+              </Button>
+            </div>
+          )}
+
           <div className="text-xs mt-3">
-            {dayCount < 2 ? (
+            {mode === "picked" ? (
+              pickedProblem ? (
+                <span className="text-amber-600">{pickedProblem}</span>
+              ) : (
+                <span className="text-violet-700">
+                  {picked.length} gün birleştirilecek: {picked.map(fmtDate).join(" · ")}
+                  {pickedSpan > picked.length ? " — aradaki günler birleşmeye girmez, kendi günleri olarak kalır." : ""}
+                </span>
+              )
+            ) : dayCount < 2 ? (
               <span className="text-amber-600">
                 En az 2 gün seçilmeli (tek gün için normal akışı kullan).
               </span>
             ) : dayCount > 3 ? (
-              <span className="text-rose-600">En fazla 3 gün birleştirilebilir.</span>
+              <span className="text-rose-600">En fazla 3 gün birleştirilebilir — ardışık değilse “Seçili günler”i kullan.</span>
             ) : (
               <span className="text-violet-700">
                 {dayCount} gün birleştirilecek: {fmtDate(start)} → {fmtDate(end)}

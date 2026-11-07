@@ -107,9 +107,12 @@ export const mergeGroupRouter = router({
       });
       if (!store) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const dates = eachDateInclusive(input.start_date, input.end_date);
+      // Seçili günler verildiyse grup yalnız onlardan oluşur (1-3-5 gibi); yoksa aralık.
+      const dates = input.dates
+        ? [...input.dates].sort().map((d) => new Date(`${d}T00:00:00.000Z`))
+        : eachDateInclusive(input.start_date, input.end_date);
 
-      // Aralıktaki günlerden herhangi biri zaten BAŞKA bir gruba/kilide aitse engelle
+      // Gruptaki günlerden herhangi biri zaten BAŞKA bir gruba/kilide aitse engelle
       const existing = await ctx.prisma.dailyRecord.findMany({
         where: {
           store_id: input.store_id,

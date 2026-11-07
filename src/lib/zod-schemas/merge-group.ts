@@ -9,6 +9,12 @@ export const mergeGroupCreateSchema = z
     store_id: z.string().uuid(),
     start_date: dateOnly,
     end_date: dateOnly,
+    /**
+     * Seçili (ardışık olmayan) günler — sahibi, 07.11.2026: "1-3-5 Ekim'i birleştireceğim".
+     * Verilirse grup YALNIZ bu günlerden oluşur; start/end = ilk/son seçili gün. Aradaki
+     * günler gruba girmez (kendi günleri olarak kalır).
+     */
+    dates: z.array(dateOnly).min(2, "En az 2 gün seçilmeli").max(3, "En fazla 3 gün birleştirilebilir").optional(),
   })
   .superRefine((val, ctx) => {
     const start = new Date(`${val.start_date}T00:00:00.000Z`);
@@ -19,6 +25,15 @@ export const mergeGroupCreateSchema = z
         path: ["end_date"],
         message: "Bitiş tarihi başlangıçtan önce olamaz",
       });
+      return;
+    }
+    if (val.dates) {
+      const sorted = [...val.dates].sort();
+      if (new Set(sorted).size !== sorted.length) ctx.addIssue({ code: "custom", path: ["dates"], message: "Aynı gün iki kez seçilemez" });
+      if (sorted[0] !== val.start_date || sorted[sorted.length - 1] !== val.end_date)
+        ctx.addIssue({ code: "custom", path: ["dates"], message: "Başlangıç ve bitiş, seçili günlerin ilki ve sonuncusu olmalı" });
+      const span = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+      if (span > 7) ctx.addIssue({ code: "custom", path: ["dates"], message: "Seçili günler en fazla 7 günlük bir aralıkta olmalı" });
       return;
     }
     const days =
