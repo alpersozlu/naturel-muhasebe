@@ -352,7 +352,7 @@ function oneDigitApart(a: number, b: number): boolean {
  * at least two; otherwise the model's own net_amount stands. Mutates the
  * section; returns a one-line note for diagnostics, or null if untouched.
  */
-function reconcileSectionTotal(sec: {
+export function reconcileSectionTotal(sec: {
   net_amount: number | null;
   sales_amount: number | null;
   sales_count: number | null;
@@ -378,7 +378,18 @@ function reconcileSectionTotal(sec: {
 
   const rows = (sec.breakdown ?? []).filter((r) => r.amount != null);
   const isRefund = (l: string) => /iade|iptal/i.test(l);
-  if (rows.length > 0) {
+  const tx = (sec.transaction_amounts ?? []).filter((a) => a > 0);
+  // Derimod Lefkoşa 03.11.2026 (TechPOS "SLİP BİLGİ"): the slip has no card
+  // breakdown, only the transaction list, and the model copied that list
+  // into `breakdown` (SATIŞ 1..8, count 1 each) as well. The two "kinds"
+  // were the same eight numbers; one of them misread (2.000 → 21.000) and
+  // they outvoted the printed Toplam 48.040 together: 67.040 was recorded.
+  // A breakdown that is the transaction list is ONE source, not two.
+  const bdIsTxList =
+    rows.length > 0 &&
+    rows.length === tx.length &&
+    rows.every((r, i) => near(r.amount ?? 0, tx[i]!)) ;
+  if (rows.length > 0 && !bdIsTxList) {
     const sales = rows.filter((r) => !isRefund(r.label));
     const sum = sales.reduce((a, r) => a + (r.amount ?? 0), 0);
     const cnt = sales.reduce((a, r) => a + (r.count ?? 0), 0);
@@ -387,7 +398,6 @@ function reconcileSectionTotal(sec: {
       vote(sum, "breakdown", `kırılım toplamı (${sales.length} satır${countOk ? `, adet ${cnt} tutuyor` : ""})`);
     }
   }
-  const tx = (sec.transaction_amounts ?? []).filter((a) => a > 0);
   if (tx.length >= 3) {
     const sum = tx.reduce((a, b) => a + b, 0);
     vote(sum, "transactions", `işlem listesi toplamı (${tx.length} satır)`);
@@ -411,6 +421,46 @@ function reconcileSectionTotal(sec: {
       ([, x]) => x.kinds.has("breakdown") && x.why.some((w) => w.includes("adet"))
     );
     if (printed && broken && oneDigitApart(printed[0], broken[0])) return TIE;
+    // No two sources agree. If every printed total says the same number and
+    // the model's net is instead the SUM OF LINES (transaction list or
+    // breakdown), the net came from adding up many small reads, each with
+    // its own misread risk; the device's own printed total is the figure
+    // the bank settles. Printed wins; the line that explains the gap by
+    // itself is named for the human check.
+    const printedVals = (sec.total_candidates ?? []).filter((c) => c > 0);
+    const printedAgree = printedVals.length > 0 && printedVals.every((c) => near(c, printedVals[0]!));
+    if (printedAgree && sec.net_amount != null && !near(sec.net_amount, printedVals[0]!)) {
+      const P = printedVals[0]!;
+      const txSum = tx.reduce((a, b) => a + b, 0);
+      const bdSum = rows.filter((r) => !isRefund(r.label)).reduce((a, r) => a + (r.amount ?? 0), 0);
+      const netIsLineSum = (tx.length >= 3 && near(sec.net_amount, txSum)) || (rows.length > 0 && near(sec.net_amount, bdSum));
+      if (netIsLineSum) {
+        const lines = tx.length >= 3 && near(sec.net_amount, txSum) ? tx : rows.map((r) => r.amount ?? 0);
+        const sum = lines.reduce((a, b) => a + b, 0);
+        // Which single line, re-read, would make the list add up to P? Only
+        // lines large enough to absorb the gap qualify; among several, the one
+        // whose corrected value looks like a misread of it (a dropped digit,
+        // 21000 → 2000, or one digit changed) is named; otherwise none is.
+        const fixed = (t: number) => Math.round((P - (sum - t)) * 100) / 100;
+        const looksMisread = (t: number, f: number) => {
+          const a = String(Math.round(t)), b = String(Math.round(f));
+          if (oneDigitApart(t, f)) return true;
+          if (a.length === b.length + 1) { let j = 0; for (const ch of a) if (ch === b[j]) j++; return j === b.length; }
+          return false;
+        };
+        const cands = lines.map((t, i) => ({ i, t, f: fixed(t) })).filter((c) => c.f > 0 && !near(c.f, c.t));
+        const pick = cands.length === 1 ? cands[0] : cands.find((c) => looksMisread(c.t, c.f));
+        const culpritIdx = pick ? pick.i : -1;
+        const culprit =
+          culpritIdx >= 0
+            ? `; satır ${culpritIdx + 1} ${lines[culpritIdx]} okundu, basılı toplama göre ${Math.round((P - (sum - lines[culpritIdx]!)) * 100) / 100} olmalı`
+            : "";
+        const before = sec.net_amount;
+        sec.net_amount = Math.round(P * 100) / 100;
+        if (sec.sales_amount == null || near(sec.sales_amount, before)) sec.sales_amount = sec.net_amount;
+        return `net ${before} → ${sec.net_amount} (basılı toplam esas alındı; satır toplamı ${Math.round(sum * 100) / 100} uyuşmuyor${culprit})`;
+      }
+    }
     return null;
   }
   if (sec.net_amount != null && near(sec.net_amount, best.v)) return null;

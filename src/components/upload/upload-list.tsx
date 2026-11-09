@@ -400,6 +400,13 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
     },
     onError: (e) => toast.error(e.message),
   });
+  const reread = trpc.upload.reread.useMutation({
+    onSuccess: () => {
+      toast.success("Belge yeniden okunuyor…");
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const retry = trpc.upload.retry.useMutation({
     onSuccess: () => {
       toast.success("Yeniden okunuyor…");
@@ -507,6 +514,21 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                 }}
                 onConfirm={() => confirmMut.mutate({ id: u.id })}
                 onRetry={() => retry.mutate({ id: u.id })}
+                onReread={
+                  isAdmin && (u.status === "parsed" || u.status === "confirmed")
+                    ? async () => {
+                        if (
+                          await confirmDialog({
+                            title: "Belge yeniden okunsun mu?",
+                            description: "Aynı fotoğraf güncel okuyucuyla baştan okunur; bu belgeden çıkan rakamlar yeni okumayla değişir.",
+                            confirmLabel: "Yeniden oku",
+                          })
+                        ) {
+                          reread.mutate({ id: u.id });
+                        }
+                      }
+                    : undefined
+                }
                 onForwardIskonto={
                   isAdmin && !forwardIskonto.isPending ? () => forwardIskonto.mutate({ id: u.id }) : undefined
                 }
@@ -686,6 +708,7 @@ function UploadRowItem({
   onDelete,
   onConfirm,
   onRetry,
+  onReread,
   onForwardIskonto,
   forwardingIskonto,
   onReviewAuthenticity,
@@ -702,6 +725,8 @@ function UploadRowItem({
   onConfirm: () => void;
   /** Failed rows: run the OCR again on the same file. */
   onRetry?: () => void;
+  /** Admin only, accepted rows: read the same file again with the current reader. */
+  onReread?: () => void;
   /** Admin only: hand the dealer report to the discount-control system (again). */
   onForwardIskonto?: () => void;
   forwardingIskonto?: boolean;
@@ -809,6 +834,17 @@ function UploadRowItem({
                 className="h-8 w-8"
                 title="Yeniden analiz et"
                 onClick={onRetry}
+              >
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            ) : null}
+            {onReread ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                title="Yeniden oku (yönetici)"
+                onClick={onReread}
               >
                 <RefreshCw className="h-4 w-4" />
               </Button>

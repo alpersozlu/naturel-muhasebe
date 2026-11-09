@@ -385,6 +385,32 @@ export const uploadRouter = router({
     }),
 
   /**
+   * Admin: read an already-accepted document again with the current reader
+   * (sahibi, 09.11.2026: Derimod Lefkoşa 03.11 Yapı Kredi slibi 48.040 iken
+   * 67.040 kaydedilmişti — okuyucu düzeltilince aynı fotoğraf yeniden okunur,
+   * yeni yükleme gerekmez). Rows read from it are replaced by the new reading.
+   */
+  reread: adminProcedure
+    .input(uploadIdSchema)
+    .mutation(async ({ ctx, input }) => {
+      const upload = await ctx.prisma.upload.findUnique({ where: { id: input.id }, include: { daily_record: true } });
+      if (!upload) throw new TRPCError({ code: "NOT_FOUND" });
+      if (upload.status === "pending" || upload.status === "processing") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Bu belge zaten okunuyor." });
+      }
+      await ctx.prisma.upload.update({
+        where: { id: input.id },
+        data: { status: "pending", error_message: null, duplicate_of_id: null, uploaded_at: new Date() },
+      });
+      waitUntil(
+        processUpload(upload.id).catch((e) => {
+          console.error("[upload.reread] async OCR failed", e);
+        })
+      );
+      return { ok: true };
+    }),
+
+  /**
    * Admin: close an authenticity flag after looking at the document.
    * "cleared" accepts it (a refused upload is read again, this time without
    * screening); "confirmed_fake" keeps it out for good.
