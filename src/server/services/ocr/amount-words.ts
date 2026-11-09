@@ -114,7 +114,7 @@ export function parsePrintedAmount(text: string | null | undefined): number | nu
 
 export type AmountReconciliation = {
   amount: number | null;
-  source: "model" | "words" | "raw";
+  source: "model" | "words" | "raw" | "total";
   words_value: number | null;
   raw_value: number | null;
   note: string | null;
@@ -130,10 +130,56 @@ export function reconcileReceiptAmount(input: {
   amount: number | null;
   amount_raw?: string | null;
   amount_in_words?: string | null;
+  fee_amounts?: number[] | null;
+  total_debited?: number | null;
+  total_debited_raw?: string | null;
 }): AmountReconciliation {
   const words_value = parseTurkishAmountWords(input.amount_in_words);
   const raw_value = parsePrintedAmount(input.amount_raw);
   const a = input.amount;
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+
+  // Ücretli dekont (TEB 07.11.2026: FAST 15,96 + FİV 0,48): yazıyla tutar ve
+  // "Hesaptan toplam" transfer + ücretlerdir. Model 13.847,00'ı 13.047,00 okudu,
+  // yazıyı da bozuk yazdı; ama basılı toplam 13.863,44 − ücretler = 13.847,00
+  // denklemi tek başına doğruyu verir. Toplam: yazı çözülüyorsa yazı, yoksa
+  // basılı toplam (metin, sonra sayı).
+  const fees = (input.fee_amounts ?? []).filter((f) => Number.isFinite(f) && f >= 0);
+  const feeSum = r2(fees.reduce((x, y) => x + y, 0));
+  const printedTotal = parsePrintedAmount(input.total_debited_raw) ?? input.total_debited ?? null;
+  if (fees.length > 0 && feeSum > 0) {
+    const total =
+      words_value != null && words_value > 0 && (printedTotal == null || Math.abs(words_value - printedTotal) <= 0.5)
+        ? words_value
+        : printedTotal;
+    if (total != null && total > feeSum) {
+      const transfer = r2(total - feeSum);
+      if (a != null && Math.abs(a - transfer) <= 0.5) {
+        return { amount: a, source: "model", words_value, raw_value, note: null };
+      }
+      // Rakam denklemi bozuyor. Yazı toplamı doğruluyorsa ya da rakam
+      // yalnız bir hanede sapıyorsa (13.047 ↔ 13.847) denklem kazanır.
+      const wordsBackTotal = words_value != null && Math.abs(words_value - total) <= 0.5;
+      const sa = a == null ? "" : String(Math.round(a * 100)), sb = String(Math.round(transfer * 100));
+      const oneDigit = sa.length === sb.length && Array.from(sa).filter((c, i) => c !== sb[i]).length === 1;
+      if (a == null || wordsBackTotal || oneDigit) {
+        return {
+          amount: transfer,
+          source: "total",
+          words_value,
+          raw_value,
+          note: `Rakam ${a ?? "—"} denklemi bozdu: hesaptan toplam ${total} − ücretler ${feeSum} = ${transfer}${wordsBackTotal ? " (yazıyla tutar toplamı doğruluyor)" : ""}; denklem esas alındı`,
+        };
+      }
+      return {
+        amount: a,
+        source: "model",
+        words_value,
+        raw_value,
+        note: `UYARI: rakam ${a} ile hesaptan toplam ${total} − ücretler ${feeSum} = ${transfer} uyuşmuyor; rakam bırakıldı, elle kontrol`,
+      };
+    }
+  }
   if (words_value != null && words_value > 0 && (a == null || Math.abs(a - words_value) > 0.5)) {
     return {
       amount: words_value,

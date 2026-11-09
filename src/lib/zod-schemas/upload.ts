@@ -112,3 +112,9 @@ export const uploadFixExpenseAmountSchema = z.object({
   id: z.string().uuid(),
   amount: z.number().finite().positive("Tutar 0'dan büyük olmalı").max(10_000_000),
 });
+
+/** Yönetici: İban dekontunun tutarını elle düzelt (09.11.2026) */
+export const uploadFixReceiptAmountSchema = z.object({
+  id: z.string().uuid(),
+  amount: z.number().finite().positive("Tutar 0'dan büyük olmalı").max(10_000_000),
+});

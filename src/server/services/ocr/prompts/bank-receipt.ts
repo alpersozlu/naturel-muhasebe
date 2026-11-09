@@ -50,6 +50,9 @@ Eğer İban dekontu DEĞİLSE:
   "amount": null,
   "amount_raw": null,
   "amount_in_words": null,
+  "fee_amounts": null,
+  "total_debited": null,
+  "total_debited_raw": null,
   "deposit_date": null,
   "currency": "TRY"
 }
@@ -67,6 +70,9 @@ Eğer İban dekontu ya da Local Pay ödeme onayı İSE:
   "amount": "ondalık sayı veya null (yatırılan/transfer edilen tutar)",
   "amount_raw": "tutarın belgede BASILDIĞI haliyle metin, örn. \"3,100.00\" veya \"3.100,00\" (yoksa null)",
   "amount_in_words": "tutar YAZIYLA basılmışsa o satırın tamamı, örn. \"Y/(TL) UÇBİNYÜZ %00\" (yoksa null)",
+  "fee_amounts": "transfer tutarının ALTINDA ayrı satır olarak basılan ücretler: \"FAST Ücreti\", \"EFT Ücreti\", \"BSMV\", \"FİV\", \"Komisyon\" tutarları sırayla, örn. [15.96, 0.48] (yoksa null)",
+  "total_debited": "\"Hesaptan toplam TL.13.863,44 … ödenmiştir\" gibi hesaptan çıkan TOPLAM (transfer + ücretler) — ondalık sayı (yoksa null)",
+  "total_debited_raw": "o toplamın basıldığı haliyle metin, örn. \"13.863,44\" (yoksa null)",
   "deposit_date": "YYYY-MM-DD veya null (işlem tarihi)",
   "currency": "TRY | USD | EUR | GBP (TRY varsayılan)"
 }
@@ -74,7 +80,13 @@ Eğer İban dekontu ya da Local Pay ödeme onayı İSE:
 Eşleştirme rehberi:
 - "İşlem Tarihi" / "Valör Tarihi" / "Tarih" → deposit_date
 - "Tutar" / "İşlem Tutarı" / "Yatırılan Tutar" / "Toplam" → amount (ve amount_raw: basıldığı gibi)
-- "Y/(TL)" / "Yalnız" / "Yazıyla" satırı → amount_in_words
+- "Y/(TL)" / "Yalnız" / "Yazıyla" satırı → amount_in_words. DİKKAT: TEB/İş Bankası gibi
+  dekontlarda bu yazı "Hesaptan toplam" satırındadır, yani transfer + ücretlerin toplamıdır;
+  amount'a YİNE DE transfer satırını yaz (alıcı bankanın karşısındaki tutar), toplamı total_debited'a.
+- "FAST Ücreti" / "EFT Ücreti" / "BSMV" / "FİV" satırları → fee_amounts (her biri ayrı)
+- "Hesaptan toplam … ödenmiştir" → total_debited (+ total_debited_raw basıldığı gibi)
+- Rakamları HANE HANE oku; 0 ile 8 karışmasın (13.847,00 ile 13.047,00 farklıdır) — sunucu
+  transfer + ücretler = toplam denklemini kurup kontrol eder.
 - "Alıcı IBAN" / "IBAN" / "Hesap No" → iban
 - "Local Pay No -10258-" → reference_no "10258", kind "local_pay", bank_name "Local Pay"
 - Local Pay'de "Ödeme Gerçekleşti" → success true; ödeyen adı → payer_name

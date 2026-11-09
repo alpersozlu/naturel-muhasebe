@@ -53,3 +53,29 @@ describe("reconcileReceiptAmount", () => {
     expect(r.source).toBe("model");
   });
 });
+
+describe("reconcileReceiptAmount — ücretli dekont (TEB 07.11.2026)", () => {
+  const teb = { amount_raw: "13.047,00", fee_amounts: [15.96, 0.48], total_debited: 13863.44, total_debited_raw: "13.863,44" };
+  it("rakam 13.047 okundu, yazı bozuk: hesaptan toplam − ücretler = 13.847 kazanır", () => {
+    const r = reconcileReceiptAmount({ amount: 13047, amount_in_words: "Yalnız onüçbinelliyzaltmışüçTLkırkdörtkr", ...teb });
+    expect(r.amount).toBe(13847);
+    expect(r.source).toBe("total");
+  });
+  it("yazı toplamı doğru çözülürse yine transfer = toplam − ücretler", () => {
+    const r = reconcileReceiptAmount({ amount: 13047, amount_in_words: "Yalnız onüçbinsekizyüzaltmışüçTLkırkdörtKr", ...teb });
+    expect(r.amount).toBe(13847);
+  });
+  it("rakam denklemi tutuyorsa dokunmaz; yazı toplamı diye rakamı değiştirmez", () => {
+    const r = reconcileReceiptAmount({ amount: 13847, amount_in_words: "Yalnız onüçbinsekizyüzaltmışüçTLkırkdörtKr", ...teb });
+    expect(r.amount).toBe(13847);
+    expect(r.source).toBe("model");
+  });
+  it("rakam çok farklı ve yazı yoksa rakam kalır, uyarı notu düşer", () => {
+    const r = reconcileReceiptAmount({ amount: 9000, amount_in_words: null, ...teb });
+    expect(r.amount).toBe(9000);
+    expect(r.note).toContain("UYARI");
+  });
+  it("ücret yoksa eski davranış: yazı kazanır", () => {
+    expect(reconcileReceiptAmount({ amount: 3168.68, amount_raw: "3,100.00", amount_in_words: "Y/(TL) UÇBİNYÜZ %00" }).amount).toBe(3100);
+  });
+});

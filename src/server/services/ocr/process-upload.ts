@@ -1015,6 +1015,15 @@ async function runBankReceipt(upload: Upload, buffer: Buffer, cachedRaw?: unknow
     parsed.iban = `Local Pay No ${ref}`;
   }
   parsed.deposit_date = await assertDateMatch(upload, parsed.deposit_date, localPay ? "Local Pay ödemesi" : "İban dekontu");
+  // Yönetici tutarı elle verdiyse (sahibi, 09.11.2026: TEB dekontu 13.847,00 iken 13.047,00
+  // okunmuştu) belgedeki okuma yerine o tutar yazılır; iz raw'da kalır.
+  const receiptMeta = upload.user_meta_json as { receipt_amount?: number } | null;
+  if (typeof receiptMeta?.receipt_amount === "number" && receiptMeta.receipt_amount > 0) {
+    if (raw && typeof raw === "object") {
+      (raw as Record<string, unknown>).amount_fixed_by_admin = { from: parsed.amount, to: receiptMeta.receipt_amount };
+    }
+    parsed.amount = receiptMeta.receipt_amount;
+  }
   if (parsed.amount === null) {
     throw new Error(
       "İban dekontundan tutar okunamadı — manuel düzenleme gerekli"

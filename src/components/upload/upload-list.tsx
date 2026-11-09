@@ -400,6 +400,13 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
     },
     onError: (e) => toast.error(e.message),
   });
+  const fixReceipt = trpc.upload.fixReceiptAmount.useMutation({
+    onSuccess: () => {
+      toast.success("Tutar alındı, dekont yeniden okunuyor");
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const reread = trpc.upload.reread.useMutation({
     onSuccess: () => {
       toast.success("Belge yeniden okunuyor…");
@@ -514,6 +521,20 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                 }}
                 onConfirm={() => confirmMut.mutate({ id: u.id })}
                 onRetry={() => retry.mutate({ id: u.id })}
+                onFixReceiptAmount={
+                  isAdmin && u.type === "bank_receipt" && u.status !== "pending" && u.status !== "processing"
+                    ? () => {
+                        const raw = window.prompt("Dekonttaki transfer tutarı (₺) — ücretler hariç, ör. 13847 veya 13.847,00:");
+                        if (raw == null) return;
+                        const n = Number(raw.trim().replace(/\./g, "").replace(",", "."));
+                        if (!Number.isFinite(n) || n <= 0) {
+                          toast.error("Tutar anlaşılamadı");
+                          return;
+                        }
+                        fixReceipt.mutate({ id: u.id, amount: Math.round(n * 100) / 100 });
+                      }
+                    : undefined
+                }
                 onReread={
                   isAdmin && (u.status === "parsed" || u.status === "confirmed")
                     ? async () => {
@@ -709,6 +730,7 @@ function UploadRowItem({
   onConfirm,
   onRetry,
   onReread,
+  onFixReceiptAmount,
   onForwardIskonto,
   forwardingIskonto,
   onReviewAuthenticity,
@@ -727,6 +749,8 @@ function UploadRowItem({
   onRetry?: () => void;
   /** Admin only, accepted rows: read the same file again with the current reader. */
   onReread?: () => void;
+  /** Admin only, bank receipts: write the transfer amount by hand and re-read. */
+  onFixReceiptAmount?: () => void;
   /** Admin only: hand the dealer report to the discount-control system (again). */
   onForwardIskonto?: () => void;
   forwardingIskonto?: boolean;
@@ -847,6 +871,17 @@ function UploadRowItem({
                 onClick={onReread}
               >
                 <RefreshCw className="h-4 w-4" />
+              </Button>
+            ) : null}
+            {onFixReceiptAmount ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-xs"
+                title="Dekont tutarını elle düzelt (yönetici)"
+                onClick={onFixReceiptAmount}
+              >
+                Tutarı düzelt
               </Button>
             ) : null}
             <Button

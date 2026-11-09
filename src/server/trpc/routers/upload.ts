@@ -8,6 +8,7 @@ import {
   uploadCreateSchema,
   uploadIdSchema,
   uploadFixExpenseAmountSchema,
+  uploadFixReceiptAmountSchema,
   uploadsForStoreDateSchema,
 } from "@/lib/zod-schemas/upload";
 import { withAudit } from "../middleware/audit";
@@ -755,6 +756,38 @@ export const uploadRouter = router({
       waitUntil(
         processUpload(upload.id).catch((e) => {
           console.error("[upload.fixExpenseAmount] async OCR failed", e);
+        })
+      );
+      return { ok: true };
+    }),
+
+  /**
+   * Yönetici: İban dekontunun tutarını elle düzelt (sahibi, 09.11.2026: TEB dekontu
+   * 13.847,00 iken 13.047,00 okundu). Aynı fotoğraf yeniden okunur, tutar verilen
+   * rakamla yazılır; eski okuma ham kayıtta kalır.
+   */
+  fixReceiptAmount: adminProcedure
+    .input(uploadFixReceiptAmountSchema)
+    .mutation(async ({ ctx, input }) => {
+      const upload = await ctx.prisma.upload.findUnique({ where: { id: input.id } });
+      if (!upload) throw new TRPCError({ code: "NOT_FOUND" });
+      if (upload.type !== "bank_receipt" || upload.status === "pending" || upload.status === "processing") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Yalnız okunmuş ya da reddedilmiş bir İban dekontu için kullanılabilir." });
+      }
+      const meta = (upload.user_meta_json as Record<string, unknown> | null) ?? {};
+      await ctx.prisma.upload.update({
+        where: { id: input.id },
+        data: {
+          status: "pending",
+          error_message: null,
+          duplicate_of_id: null,
+          uploaded_at: new Date(),
+          user_meta_json: { ...meta, receipt_amount: input.amount, amount_fixed_by: ctx.user.id },
+        },
+      });
+      waitUntil(
+        processUpload(upload.id).catch((e) => {
+          console.error("[upload.fixReceiptAmount] async OCR failed", e);
         })
       );
       return { ok: true };
