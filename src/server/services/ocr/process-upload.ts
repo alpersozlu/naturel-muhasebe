@@ -850,7 +850,11 @@ async function runStoreSummary(upload: Upload, buffer: Buffer, cachedRaw?: unkno
       periodEnd &&
       !meta?.skip_nebim_check
     ) {
-      await assertNebimNetMatch(dr.store_id, periodStart, periodEnd, salesTotal);
+      // Seçili günler birleşmesi (1-3-5 gibi): Nebim neti yalnız gruptaki
+      // günlerden toplanır, aradaki günler sayılmaz (sahibi, 09.11.2026:
+      // Derimod Girne 1-3-5 Ekim; Nebim 1→5 çıktısı 2 Ekim'i de içerdiği için yanlıştı).
+      const groupDates = dr.merge_group?.daily_records.map((r) => r.date) ?? null;
+      await assertNebimNetMatch(dr.store_id, periodStart, periodEnd, salesTotal, nebimDatesForGroup(periodStart, periodEnd, groupDates));
     }
   }
 
@@ -894,14 +898,29 @@ async function runStoreSummary(upload: Upload, buffer: Buffer, cachedRaw?: unkno
  * intra-day pull is partial and must not block the upload; no rows at all
  * means the bridge has not reached that day yet.
  */
+/**
+ * Gruptaki günler aralığın tamamını kapsamıyorsa (seçili günler birleşmesi)
+ * yalnız o günler; aksi hâlde null = aralık. Dışa açık: sınanıyor.
+ */
+export function nebimDatesForGroup(periodStart: Date, periodEnd: Date, groupDates: Date[] | null): Date[] | null {
+  if (!groupDates || groupDates.length === 0) return null;
+  const spanDays = Math.round((periodEnd.getTime() - periodStart.getTime()) / 86_400_000) + 1;
+  if (groupDates.length >= spanDays) return null;
+  return groupDates;
+}
+
 async function assertNebimNetMatch(
   storeId: string,
   periodStart: Date,
   periodEnd: Date,
-  ocrSales: number
+  ocrSales: number,
+  onlyDates: Date[] | null = null
 ): Promise<void> {
   const lines = await prisma.nebimSaleLine.findMany({
-    where: { store_id: storeId, invoice_date: { gte: periodStart, lte: periodEnd } },
+    where: {
+      store_id: storeId,
+      invoice_date: onlyDates ? { in: onlyDates } : { gte: periodStart, lte: periodEnd },
+    },
     select: {
       net_amount: true,
       is_return: true,
