@@ -8,7 +8,6 @@ import {
   CARRY_FORWARD_CATEGORY,
   CARRY_FORWARD_LABEL,
   DEDUCTION_CATEGORIES,
-  PAYMENT_CATEGORIES,
 } from "@/server/services/payroll/rules";
 
 /** Durum dili — sayfanın her yerinde aynı beş ton. Renk yanında hep metin vardır. */
@@ -101,10 +100,18 @@ export function otherPremiums(c: LineCalc): number {
 export function categoryLabel(kind: "deduction" | "addition" | "advance" | "payment", category: string | null): string {
   if (category === CARRY_FORWARD_CATEGORY) return CARRY_FORWARD_LABEL;
   if (kind === "advance") return "Avans";
-  const dict: Record<string, string> =
-    kind === "deduction" ? DEDUCTION_CATEGORIES : kind === "addition" ? ADDITION_CATEGORIES : PAYMENT_CATEGORIES;
-  return dict[category ?? ""] ?? (kind === "deduction" ? "Kesinti" : kind === "addition" ? "Ek hak ediş" : "Ödeme");
+  if (kind === "payment") return PAYMENT_SHORT[category ?? ""] ?? "Ödeme";
+  const dict: Record<string, string> = kind === "deduction" ? DEDUCTION_CATEGORIES : ADDITION_CATEGORIES;
+  return dict[category ?? ""] ?? (kind === "deduction" ? "Kesinti" : "Ek hak ediş");
 }
+
+/** Ödeme kayıtlarının kısa adları — adımların adlarıyla aynı dil. */
+const PAYMENT_SHORT: Record<string, string> = {
+  payment1: "Maaş ödemesi",
+  payment2: "Prim ödemesi",
+  single: "Tekil ödeme",
+  cash: "Nakit ödeme",
+};
 
 /** Açılır-kapanır bölüm başlığı (yerel <details> — klavye ve ekran okuyucu hazır). */
 export function Disclosure({

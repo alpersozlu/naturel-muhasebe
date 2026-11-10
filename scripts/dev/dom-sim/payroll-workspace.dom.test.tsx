@@ -101,37 +101,47 @@ describe("yeni Maaşlar sayfası (jsdom)", () => {
     calls.confirm.length = 0;
   });
 
-  it("kişi paneli: mesai yazınca hesap güncellenir, Kaydet yalnız değişen alanı gönderir", async () => {
+  const tab = (name: string) => click(q('button[role="tab"]').find((b) => (b.textContent ?? "").trim().startsWith(name)));
+
+  it("kişi paneli: Özet salt okunur; Düzenle'de mesai yazınca hesap güncellenir, Kaydet yalnız değişen alanı gönderir", async () => {
     const { PersonSheet } = await import("@/components/payroll/v2/person-sheet");
     const { line, store } = find("Emre At");
     await mount(React.createElement(PersonSheet, { line, store, period: DATA[10].view.period, closed: false, nextLabel: "Kasım 2026", onClose: noop, onChanged: noop }));
     expect(text()).toContain("Emre Atılgan");
-    expect(text()).toContain("Maaş — Ödeme 1");
-    const save = byText("button", "Kaydet") as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
+    expect(text()).toContain("Maaş Ödeme 1");
+    expect(text()).toContain("Kalan maaş");
+    expect(q("input").length).toBe(0); // Özet'te giriş alanı yok
+    expect(q("button").some((b) => b.textContent?.trim() === "Kaydet")).toBe(false); // değişiklik yokken alt çubuk yok
+    await tab("Düzenle");
+    expect((byText("button", "Kaydet") as HTMLButtonElement).disabled).toBe(true);
     await type(q('input[aria-label="Mesai saati"]')[0] as HTMLInputElement, "4");
     expect(text()).toContain("1.186,10"); // 4 saat × (61.677 ÷ 208)
-    expect(text()).toContain("Mesai (4 saat)");
-    expect(text()).toContain("Kaydedilmemiş değişiklik");
-    expect((byText("button", "Kaydet") as HTMLButtonElement).disabled).toBe(false);
+    expect(text()).toContain("Kaydedilmemiş değişiklik var");
+    await tab("Özet");
+    expect(text()).toContain("Mesai 4 saat");
+    expect(text()).toContain("Ödenecek prim");
+    expect((byText("button", "Kaydet") as HTMLButtonElement).disabled).toBe(false); // değişiklik varken her sekmede görünür
     await click(byText("button", "Kaydet"));
     const u = calls.list.find((c) => c.path === "payroll.lines.update")!;
     expect(Object.keys(u.vars).filter((k) => u.vars[k] !== undefined).sort()).toEqual(["id", "overtime_hours"]);
     expect(u.vars).toMatchObject({ id: line.id, overtime_hours: 4 });
   });
 
-  it("kişi paneli: Kesinti düğmesi kayıt penceresini açar; iptal nedeni yazılmadan iptal edilemez", async () => {
+  it("kişi paneli: Kayıtlar'da iptal nedeni yazılmadan iptal edilemez; Kesinti düğmesi kayıt penceresini açar", async () => {
     const { PersonSheet } = await import("@/components/payroll/v2/person-sheet");
     const { line, store } = find("Halit Ozan");
     await mount(React.createElement(PersonSheet, { line, store, period: DATA[10].view.period, closed: false, nextLabel: "Kasım 2026", onClose: noop, onChanged: noop }));
-    expect(text()).toContain("Kasım 2026 maaşına devredildi");
+    expect(text()).toContain("Sonraki aya devir");
+    await tab("Kayıtlar");
+    expect(text()).toContain("Kasım 2026 maaşına devir");
     expect(text()).toContain("Fiyat farkı");
-    await click(byText("button", "İptal et"));
+    expect(text()).toContain("Maaş ödemesi");
+    await click(q("button").find((b) => b.textContent?.trim() === "İptal et"));
     expect(text()).toContain("Bu bir devir kaydı");
-    const confirmBtn = q("button").filter((b) => b.textContent?.trim() === "İptal et" && b.className.includes("destructive"))[0] as HTMLButtonElement;
-    expect(confirmBtn.disabled).toBe(true);
+    const confirmBtn = () => q("button").find((b) => b.textContent?.trim() === "Kaydı iptal et") as HTMLButtonElement;
+    expect(confirmBtn().disabled).toBe(true);
     await type(q('input[aria-label="İptal nedeni"]')[0] as HTMLInputElement, "yanlış girildi");
-    await click(q("button").filter((b) => b.textContent?.trim() === "İptal et" && b.className.includes("destructive"))[0]);
+    await click(confirmBtn());
     expect(calls.list.find((c) => c.path === "payroll.entries.void")!.vars.note).toBe("yanlış girildi");
     await click(q("button").find((b) => b.textContent?.trim() === "Kesinti"));
     expect(text()).toContain("Kesinti — Halit Ozan Koçoğlu");
@@ -141,8 +151,11 @@ describe("yeni Maaşlar sayfası (jsdom)", () => {
     const { PersonSheet } = await import("@/components/payroll/v2/person-sheet");
     const { line, store } = find("Emre At");
     await mount(React.createElement(PersonSheet, { line, store, period: DATA[10].view.period, closed: true, nextLabel: "Kasım 2026", onClose: noop, onChanged: noop }));
+    expect(q("button").some((b) => b.textContent?.trim() === "Kesinti ekle")).toBe(false);
+    await tab("Düzenle");
     expect((q('input[aria-label="Mesai saati"]')[0] as HTMLInputElement).disabled).toBe(true);
     expect(text()).toContain("Kapalı ay: değişiklik yapılamaz");
+    await tab("Kayıtlar");
     expect(q("button").some((b) => b.textContent?.trim() === "İptal et")).toBe(false);
   });
 
