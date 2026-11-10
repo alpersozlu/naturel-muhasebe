@@ -20,7 +20,6 @@ import {
   Pencil,
   Radio,
   CalendarClock,
-  MoonStar,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -187,7 +186,7 @@ export function ReconciliationPanel({
         <CardContent className="p-6">
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
-              <MoonStar className="h-5 w-5" />
+              <Lock className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-base font-semibold leading-tight">Satış olmadı</div>
@@ -367,11 +366,7 @@ export function ReconciliationPanel({
                 }
               }}
             >
-              {closeNoSales.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <MoonStar className="mr-2 h-4 w-4" />
-              )}
+              {closeNoSales.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Hiç satış olmadı
             </Button>
           </div>
