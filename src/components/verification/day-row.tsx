@@ -164,7 +164,10 @@ function FilledRow({
   const isLocked = status === "locked";
   const meta = STATUS_META[status];
 
-  const previewQuery = trpc.verification.preview.useQuery({ daily_record_id: record.id }, { enabled: open });
+  const previewQuery = trpc.verification.preview.useQuery(
+    { daily_record_id: record.id },
+    { enabled: open && !(days.length === 1 && record.no_sales) }
+  );
 
   const approve = trpc.dailyRecord.approveAndLock.useMutation({
     onSuccess: () => {
@@ -189,6 +192,9 @@ function FilledRow({
   const thirdStage = hasSummary ? checkThirdStage(record) : { ok: true, reason: null };
   const verification = (isGroup ? (summaryDay ?? record) : record).verification;
   const diff = verification ? num(verification.difference) : null;
+  // "Satış olmadı": gün 0,00 ile kapatıldı; belge de mutabakat da yoktur.
+  const noSales = !isGroup && !!record.no_sales;
+  const noSalesNebim = noSales ? (record.no_sales_nebim_net ?? 0) : 0;
 
   const askUnlock = async () => {
     if (
@@ -239,6 +245,11 @@ function FilledRow({
                 {isGroup ? `${days.length} gün birleşik · özet ${dayOf(summaryDay!)}. günde` : "mağaza özeti"}
               </div>
             </div>
+          ) : noSales ? (
+            <div>
+              <div className="text-sm font-semibold tabular-nums">0,00 ₺</div>
+              <div className="text-xs text-muted-foreground">satış olmadı</div>
+            </div>
           ) : (
             <div className="text-xs italic text-muted-foreground/80">{isGroup ? `${days.length} gün birleşik · özet yok` : "Özet yüklenmedi"}</div>
           )}
@@ -254,6 +265,8 @@ function FilledRow({
                 </span>
               ))}
             </div>
+          ) : noSales && docPiecesOf(record).length === 0 ? (
+            <span className="text-xs text-muted-foreground">Belge beklenmez</span>
           ) : (
             <DocChips pieces={docPiecesOf(record)} />
           )}
@@ -288,6 +301,12 @@ function FilledRow({
               <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800" title={flags.sapIssue}>
                 <AlertTriangle className="h-3 w-3" aria-hidden />
                 SAP
+              </span>
+            ) : null}
+            {noSalesNebim !== 0 ? (
+              <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-xs font-medium text-rose-800">
+                <AlertTriangle className="h-3 w-3" aria-hidden />
+                Nebim&apos;de satış var
               </span>
             ) : null}
             <StatusChip status={status} />
@@ -337,7 +356,18 @@ function FilledRow({
                   <OptimumShareCard share={record.optimum} compact />
                 </div>
               ) : null}
-              {previewQuery.isLoading ? (
+              {noSales ? (
+                <div className="text-sm leading-relaxed text-muted-foreground">
+                  <span className="font-medium text-foreground">Bu gün hiç satış olmadı.</span> Gün 0,00 ₺ ile kapatıldı;
+                  karşılaştırılacak belge yok.
+                  {noSalesNebim !== 0 ? (
+                    <p className="mt-2 flex items-start gap-1.5 text-rose-800">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                      Nebim&apos;de bu gün net {fmt(noSalesNebim)} ₺ satış görünüyor. Kilidi açıp belgeleri yükletin.
+                    </p>
+                  ) : null}
+                </div>
+              ) : previewQuery.isLoading ? (
                 <div className="py-6 text-center text-sm text-muted-foreground" role="status">
                   <Loader2 className="mr-2 inline h-4 w-4 animate-spin" aria-hidden />
                   Mutabakat hesaplanıyor
@@ -353,7 +383,9 @@ function FilledRow({
                   <meta.Icon className="h-4 w-4 shrink-0" aria-hidden />
                   {isGroup && status === "locked" ? "Günler kilitli" : meta.label}
                 </div>
-                <p className="mt-1 text-xs leading-relaxed opacity-90">{meta.explain}</p>
+                <p className="mt-1 text-xs leading-relaxed opacity-90">
+                  {noSales ? "Gün satışsız kapatıldı ve kilitlendi. Kilidi yalnız yönetici açar." : meta.explain}
+                </p>
                 {isLocked && verification?.status === "mismatch" && diff !== null ? (
                   <p className="mt-1.5 flex items-start gap-1 text-xs leading-relaxed text-rose-800">
                     <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />

@@ -415,6 +415,15 @@ export async function revenueSummary(
     mom: compareSide(curWin.total, curWin.storeDays, momWin.total, momWin.storeDays),
     yoy: compareSide(curWin.total, curWin.storeDays, yoyWin.total, yoyWin.storeDays),
   };
+  // "Satış olmadı" diye 0,00 ile kapatılan gün veri eksiği değildir: kapsamda
+  // dolu gün sayılır. Ciroya ve günlük ortalamalara dokunmaz (0 ekler).
+  const noSaleDays = await prisma.dailyRecord.findMany({
+    where: { no_sales: true, date: { gte: currentStart, lt: currentEnd }, ...storeScope },
+    select: { store_id: true, date: true, store: { select: { name: true } } },
+  });
+  for (const r of noSaleDays) {
+    (coverageMap[r.store_id] ??= { name: r.store.name, days: new Set() }).days.add(r.date.getUTCDate());
+  }
   const coverage: RevenueSummary["coverage"] = {
     elapsed_days,
     ongoing,

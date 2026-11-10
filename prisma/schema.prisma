@@ -323,6 +323,12 @@ model DailyRecord {
   mavi_gift_voucher_note String?
   mavi_gift_voucher_at   DateTime?
 
+  // SATIŞ OLMADI (sahibi, 10.11.2026): mağaza açıktı ama o gün hiç satış
+  // yapılmadı. Belge (Z, POS, özet) istenmez; gün tek tuşla 0,00 ile kapanır
+  // ve kilitlenir. Kilit açılınca işaret de kalkar. İşaretli güne belge
+  // eklenemez (getOrCreateDailyRecord reddeder) — önce kilit açılır.
+  no_sales Boolean @default(false)
+
   // Mutabakat farkı için açıklayıcı not (müdür ya da admin).
   // Örn. "müşteri 500 TL fazla nakit verdi, üstü unutulmuş";
   //      "POS terminali geri ödeme yaptı, raporlanmadı".

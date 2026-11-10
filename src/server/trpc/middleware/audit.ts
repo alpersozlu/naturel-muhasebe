@@ -20,7 +20,7 @@ function inferAction(path: string): AuditAction {
   if (last === "assign") return "assign";
   if (last === "unassign") return "unassign";
   if (last === "approve") return "approve";
-  if (last === "lock") return "lock";
+  if (last === "lock" || last === "closeNoSales") return "lock";
   if (last === "unlock") return "unlock";
   return "update";
 }

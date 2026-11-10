@@ -12,6 +12,8 @@ import { num, type DayRecord } from "./types";
 function needsAttention(status: DayStatusKey, flags: DayFlags, lead: DayRecord): boolean {
   if (status === "mismatch" || status === "pending") return true;
   if (flags.optimumLow || !!flags.sapIssue) return true;
+  // Satışsız kapatılmış günde Nebim'de satış görünüyorsa çelişki.
+  if (lead.no_sales && (lead.no_sales_nebim_net ?? 0) !== 0) return true;
   return status === "locked" && lead.verification?.status === "mismatch";
 }
 

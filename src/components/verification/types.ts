@@ -22,6 +22,10 @@ export type DayRecord = {
   } | null;
   merge_group_id?: string | null;
   merge_index?: number | null;
+  /** Gün "satış olmadı" olarak 0,00 ile kapatıldı (belge beklenmez). */
+  no_sales?: boolean;
+  /** Satışsız kapatılan günde Nebim'de görünen net satış (0 değilse çelişki). */
+  no_sales_nebim_net?: number;
   /** Optimum payı (sahibi, 29.10.2026) — düşükse amber rozet. */
   optimum?: OptimumShare | null;
   _count: {

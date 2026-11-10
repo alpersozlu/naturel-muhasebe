@@ -1,6 +1,11 @@
 import { zBelowVisa, zFloorMessage } from "@/server/services/verification/z-floor";
 import { TRPCError } from "@trpc/server";
-import { assertPriorDaysLocked } from "@/server/services/daily-record";
+import {
+  assertPriorDaysLocked,
+  closeDayNoSales,
+  loadNoSalesFacts,
+  noSalesBlocker,
+} from "@/server/services/daily-record";
 import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
 import {
@@ -257,6 +262,19 @@ export const dailyRecordRouter = router({
     }),
 
   /**
+   * SATIŞ OLMADI — mağaza açıktı ama gün boyu hiç satış yapılmadı. Belge
+   * istenmez; gün 0,00 ile kapanır ve kilitlenir (sahibi, 10.11.2026).
+   * Mağaza kullanıcısına da açık; kilidi açmak (ve işareti kaldırmak) yöneticide.
+   */
+  closeNoSales: dailyScoped
+    .input(setReportedCashSchema.pick({ store_id: true, date: true }))
+    .mutation(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      await assertPriorDaysLocked(ctx.prisma, ctx.user, input.store_id, input.date);
+      return closeDayNoSales(ctx.prisma, ctx.user.id, input.store_id, input.date);
+    }),
+
+  /**
    * Gün uzlaşması özeti — /upload sayfasında "Gün Uzlaşması" panelinde
    * kullanılır. Hangi belgeler var, hangileri eksik, mutabakat durumu
    * (yapılabiliyorsa) ve müdür kasa sayım tespiti.
@@ -300,8 +318,11 @@ export const dailyRecordRouter = router({
       });
 
       if (!dr) {
+        const facts = await loadNoSalesFacts(ctx.prisma, input.store_id, input.date);
         return {
           exists: false,
+          no_sales: false,
+          can_close_no_sales: noSalesBlocker(facts) === null,
           status: "empty" as const,
           has_z: false,
           has_z_report: false,
@@ -420,8 +441,17 @@ export const dailyRecordRouter = router({
       else if (verification.status === "match") status = "match";
       else status = "mismatch";
 
+      // "Satış olmadı" tuşu yalnız içi boş, açık günde sunulur (kuralın
+      // tamamı sunucuda: noSalesBlocker).
+      const canCloseNoSales =
+        dr.status !== "locked" && !hasSummary && !hasZ && posCount === 0
+          ? noSalesBlocker(await loadNoSalesFacts(ctx.prisma, input.store_id, input.date)) === null
+          : false;
+
       return {
         exists: true,
+        no_sales: dr.no_sales,
+        can_close_no_sales: canCloseNoSales,
         status,
         has_z: hasZ,
         has_z_report: hasZReport,
@@ -1004,6 +1034,8 @@ export const dailyRecordRouter = router({
         approved_by: null,
         approved_at: null,
         locked_at: null,
+        // "Satış olmadı" kapanışı kilitle birlikte kalkar: gün yeniden boş taslaktır.
+        no_sales: false,
       };
       // Locking closes every day of a merge group together; opening only one
       // of them would leave the siblings refusing the documents that belong

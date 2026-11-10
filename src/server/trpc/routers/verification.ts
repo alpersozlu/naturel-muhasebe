@@ -55,8 +55,22 @@ export const verificationRouter = router({
         g.push(r);
         byGroup.set(r.merge_group_id, g);
       }
+      // A day closed as "satış olmadı" must stay empty in Nebim too. Sales
+      // that surface there afterwards (late bridge, wrong claim) are shown.
+      const noSaleDates = records.filter((r) => r.no_sales).map((r) => r.date);
+      const nebimOnNoSale = noSaleDates.length
+        ? await ctx.prisma.nebimSaleLine.groupBy({
+            by: ["invoice_date"],
+            where: { store_id: input.store_id, invoice_date: { in: noSaleDates } },
+            _sum: { net_amount: true },
+          })
+        : [];
+      const nebimNetByDay = new Map(
+        nebimOnNoSale.map((g) => [g.invoice_date.getTime(), Math.round((g._sum.net_amount?.toNumber() ?? 0) * 100) / 100])
+      );
       return records.map(({ pos_slips: _slips, ...r }) => ({
         ...r,
+        no_sales_nebim_net: r.no_sales ? (nebimNetByDay.get(r.date.getTime()) ?? 0) : 0,
         optimum: optimumShareOfRecords(r.merge_group_id ? (byGroup.get(r.merge_group_id) ?? []) : [{ pos_slips: _slips }]),
       }));
     }),

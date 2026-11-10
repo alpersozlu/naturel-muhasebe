@@ -20,6 +20,7 @@ import {
   Pencil,
   Radio,
   CalendarClock,
+  MoonStar,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -82,6 +83,16 @@ export function ReconciliationPanel({
   const lockDay = trpc.dailyRecord.approveAndLock.useMutation({
     onSuccess: () => {
       toast.success("Gün kilitlendi — artık değişiklik yapılamaz");
+      utils.dailyRecord.reconciliation.invalidate({ store_id: storeId, date });
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // "Hiç satış olmadı": the day closes with 0,00 and locks, no document asked.
+  const closeNoSales = trpc.dailyRecord.closeNoSales.useMutation({
+    onSuccess: () => {
+      toast.success("Gün satışsız olarak 0,00 ₺ ile kapatıldı");
       utils.dailyRecord.reconciliation.invalidate({ store_id: storeId, date });
       utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
     },
@@ -168,6 +179,77 @@ export function ReconciliationPanel({
 
   const isLocked = data.daily_record_status === "locked";
   const v = data.verification;
+
+  if (data.no_sales) {
+    const nebimLines = data.nebim_summary?.line_count ?? 0;
+    return (
+      <Card className="mt-6">
+        <CardContent className="p-6">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+              <MoonStar className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-base font-semibold leading-tight">Satış olmadı</div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                {fmtDateShort(date)} günü <span className="font-medium text-foreground tabular-nums">0,00 ₺</span> ile
+                kapatıldı ve kilitlendi. Bu gün için belge beklenmez.
+              </div>
+              {"locked_at" in data && data.locked_at ? (
+                <div className="mt-2 text-xs text-muted-foreground tabular-nums">
+                  {data.locked_by_name ? `${data.locked_by_name} · ` : ""}
+                  {new Date(data.locked_at).toLocaleString("tr-TR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </div>
+              ) : null}
+            </div>
+            {isAdminUser && data.daily_record_id ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                disabled={unlockDay.isPending}
+                onClick={async () => {
+                  if (
+                    await confirmDialog({
+                      title: "Kilit açılsın mı?",
+                      description:
+                        "\"Satış olmadı\" kapanışı kalkar; gün yeniden boş ve açık olur, belge yüklenebilir.",
+                      confirmLabel: "Kilidi aç",
+                    })
+                  ) {
+                    unlockDay.mutate({ id: data.daily_record_id! });
+                  }
+                }}
+              >
+                {unlockDay.isPending ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <LockOpen className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                Kilidi aç
+              </Button>
+            ) : null}
+          </div>
+          {nebimLines > 0 ? (
+            <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-rose-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="text-sm">
+                <span className="font-semibold">Nebim&apos;de bu gün satış görünüyor:</span>{" "}
+                net <span className="tabular-nums">{TRY_FMT.format(data.nebim_summary?.net ?? 0)} ₺</span> ({nebimLines} satır).
+                Gün satışsız kapatılmış olamaz — yönetici kilidi açmalı, belgeler yüklenmeli.
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="mt-6 border-primary/30">
@@ -262,6 +344,38 @@ export function ReconciliationPanel({
 
         {/* Status banner — incomplete/error/locked durumları */}
         <StatusBanner data={data} />
+
+        {/* Hiç satış olmadı — yalnız içi boş, açık günde (kural sunucuda) */}
+        {data.can_close_no_sales && !isLocked ? (
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-muted-foreground">
+              Mağaza açıktı ama hiç satış yapılmadıysa belge yüklemeden günü kapatın.
+            </div>
+            <Button
+              variant="outline"
+              className="shrink-0"
+              disabled={closeNoSales.isPending}
+              onClick={async () => {
+                if (
+                  await confirmDialog({
+                    title: "Gün satışsız kapatılsın mı?",
+                    description: `${fmtDateShort(date)} günü 0,00 ₺ ile kapanır ve kilitlenir. Bu güne belge eklenemez; kilidi yalnızca yönetici açabilir.`,
+                    confirmLabel: "Satış olmadı, kapat",
+                  })
+                ) {
+                  closeNoSales.mutate({ store_id: storeId, date });
+                }
+              }}
+            >
+              {closeNoSales.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <MoonStar className="mr-2 h-4 w-4" />
+              )}
+              Hiç satış olmadı
+            </Button>
+          </div>
+        ) : null}
 
         {/* Z eksik — özel kritik uyarı (Toplam Z sıfır = büyük eksiklik) */}
         {data.exists && !data.has_z && !isLocked ? (
