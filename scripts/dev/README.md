@@ -41,6 +41,7 @@ salt okunur uca (`/api/jobs/kolayik`) yönlenir (anahtar yalnız Vercel'de).
 - `payroll_restore_overtime.mts` — AuditLog'dan önceki değeri bulup geri yazma.
 - `expense_accept_once.mts` — tarih kuralına takılan masrafı tek seferlik kabul (yükleme kimliği içinde).
 - `dom-sim/extras-grid.dom.test.tsx` — Prim ve mesai girişi tablosu (sütun sırası, sebep etiketleri, Ödeme 2 dökümü).
+- `dom-sim/payroll-workspace.dom.test.tsx` — yeni Maaşlar sayfası (v2): kişi paneli kaydı, toplu kesinti, ciro ve hedefler, adımlar arası geçiş. Gerçek dönem görünümü dökümüyle çalışır (`loadPeriodView` + `performance.get` + `periods.list` → `vpreview/data.json`).
 - `dom-sim/*.dom.test.tsx` — gerçek React bileşenlerini jsdom'da sürme (giriş gerektiren ekranlar
   için). jsdom projeye DEĞİL geçici bir klasöre kurulur (`npm install jsdom`), dosyadaki `SCRATCH`
   yolu ona çevrilir, dosya `src/__tests__/` altına kopyalanıp `npx vitest run <dosya>` ile çalıştırılır,
