@@ -46,3 +46,10 @@ salt okunur uca (`/api/jobs/kolayik`) yönlenir (anahtar yalnız Vercel'de).
   için). jsdom projeye DEĞİL geçici bir klasöre kurulur (`npm install jsdom`), dosyadaki `SCRATCH`
   yolu ona çevrilir, dosya `src/__tests__/` altına kopyalanıp `npx vitest run <dosya>` ile çalıştırılır,
   sonra silinir (commit edilmez).
+  RADIX TUZAĞI (13.11.2026): Select / Dialog gibi Radix bileşenlerini süreceksen jsdom'un
+  pencere özelliklerini TEK TEK değil TOPLUCA globalThis'e yaz — Node'un kendi `CustomEvent`,
+  `Event`, `DocumentFragment` sınıfları jsdom'unkilerle karışınca Radix
+  "parameter 1 is not of type 'Event'" ile patlar. `Object.getOwnPropertyNames(window)` üzerinde
+  dönüp `location/top/self/parent/frames/process/console/setTimeout...` dışındakileri üzerine yaz;
+  ayrıca `ResizeObserver` ve `scrollIntoView` / `hasPointerCapture` / `setPointerCapture` /
+  `releasePointerCapture` saplamaları gerekir.

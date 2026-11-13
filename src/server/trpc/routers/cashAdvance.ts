@@ -51,20 +51,41 @@ export const cashAdvanceRouter = router({
     }),
 
   /**
-   * Mağazanın bordro kadrosu — Maaş / Prim-Avans ödemesinde kişi buradan
-   * seçilir, ödeme kendiliğinden o kişinin bordrosuna düşer. Mağaza
-   * kullanıcısına da açık (yalnız kendi mağazası, yalnız ad ve ünvan).
+   * BORDRO KADROSUNUN TAMAMI — Maaş / Prim-Avans ödemesinde kişi buradan
+   * seçilir, ödeme kendiliğinden o kişinin bordrosuna düşer.
+   *
+   * Liste mağazayla sınırlı DEĞİLDİR (sahibi, 13.11.2026: "bordro listesinde
+   * olan bütün kişilerin maaş/primi işlenebilsin"): depo personeli ya da
+   * başka mağazadan biri de o günün kasasından ödeme alabiliyor. Ödemenin
+   * yapıldığı mağazanın kadrosu başa gelir; gerisi mağaza mağaza gruplanır.
+   *
+   * Mağaza kullanıcısına da açık; yalnız ad, ünvan ve mağaza döner.
    */
   staffOptions: protectedProcedure
     .input(z.object({ store_id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       await assertCanAccessStore(ctx.user, input.store_id);
       const people = await ctx.prisma.payrollEmployee.findMany({
-        where: { store_id: input.store_id, deleted_at: null, status: { in: ["active", "inactive"] } },
-        select: { id: true, full_name: true, position: true },
+        where: { deleted_at: null, status: { in: ["active", "inactive"] } },
+        select: { id: true, full_name: true, position: true, store_id: true, store: { select: { name: true } } },
         orderBy: [{ sort_order: "asc" }, { full_name: "asc" }],
       });
-      return people.map((p) => ({ ...p, staff_role: staffRoleFromPosition(p.position) }));
+      return people
+        .map((p) => ({
+          id: p.id,
+          full_name: p.full_name,
+          position: p.position,
+          store_id: p.store_id,
+          store_name: p.store.name,
+          same_store: p.store_id === input.store_id,
+          staff_role: staffRoleFromPosition(p.position),
+        }))
+        .sort(
+          (a, b) =>
+            Number(b.same_store) - Number(a.same_store) ||
+            a.store_name.localeCompare(b.store_name, "tr") ||
+            a.full_name.localeCompare(b.full_name, "tr")
+        );
     }),
 
   create: protectedProcedure
@@ -98,12 +119,14 @@ export const cashAdvanceRouter = router({
       let staffRole = toPayroll ? input.staff_role ?? null : null;
       let payrollEmployeeId: string | null = null;
       if (toPayroll && input.payroll_employee_id) {
+        // Kişi başka mağazanın kadrosundan olabilir (depo, görevli personel) —
+        // para bu kasadan çıkar, bordro kaydı kendi mağazasındaki satırına düşer.
         const person = await ctx.prisma.payrollEmployee.findUnique({
           where: { id: input.payroll_employee_id },
           select: { id: true, store_id: true, full_name: true, position: true, deleted_at: true },
         });
-        if (!person || person.deleted_at || person.store_id !== input.store_id) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Seçilen personel bu mağazanın kadrosunda değil." });
+        if (!person || person.deleted_at) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Seçilen personel bordro kadrosunda bulunamadı." });
         }
         payrollEmployeeId = person.id;
         staffName = person.full_name;

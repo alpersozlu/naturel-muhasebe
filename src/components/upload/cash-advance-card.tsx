@@ -21,7 +21,9 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -162,6 +164,18 @@ export function CashAdvanceCard({
   // Bordro kadrosunda olmayan biri (dışarıdan, yeni başlayan) için elle isim.
   const [manualName, setManualName] = useState(false);
   const useList = isPersonal && !manualName && (staff ?? []).length > 0;
+  const pickedId = useWatch({ control, name: "payroll_employee_id" });
+  const picked = (staff ?? []).find((p) => p.id === pickedId) ?? null;
+  // Kadro mağaza mağaza gruplanır; ödemenin yapıldığı mağaza başta.
+  const staffGroups = (() => {
+    const out: { store_name: string; same_store: boolean; people: NonNullable<typeof staff> }[] = [];
+    for (const p of staff ?? []) {
+      const last = out[out.length - 1];
+      if (last && last.store_name === p.store_name) last.people.push(p);
+      else out.push({ store_name: p.store_name, same_store: p.same_store, people: [p] });
+    }
+    return out;
+  })();
 
   // store_id ve date form alanı değil — prop olarak gelir, submit anında eklenir.
   // Bu sayede prop değişimine bağlı stale form state sorunu yaşanmaz.
@@ -276,10 +290,17 @@ export function CashAdvanceCard({
                       <SelectValue placeholder="Personel seç" />
                     </SelectTrigger>
                     <SelectContent>
-                      {(staff ?? []).map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.full_name} — {p.position}
-                        </SelectItem>
+                      {staffGroups.map((g) => (
+                        <SelectGroup key={g.store_name}>
+                          <SelectLabel className="text-xs text-muted-foreground">
+                            {g.same_store ? g.store_name : `${g.store_name} (başka mağaza)`}
+                          </SelectLabel>
+                          {g.people.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.full_name} — {p.position}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
                       ))}
                     </SelectContent>
                   </Select>
@@ -290,9 +311,11 @@ export function CashAdvanceCard({
               ) : null}
               <div className="mt-1 flex items-center justify-between gap-2">
                 <p className="text-xs text-muted-foreground leading-snug">
-                  {category === "salary"
-                    ? "Bu ayki maaşından düşülür."
-                    : "Bu ayki maaşından avans olarak düşülür."}
+                  {picked && !picked.same_store
+                    ? `${picked.store_name} kadrosu — kendi bordrosundan düşülür.`
+                    : category === "salary"
+                      ? "Bu ayki maaşından düşülür."
+                      : "Bu ayki maaşından avans olarak düşülür."}
                 </p>
                 <button
                   type="button"
