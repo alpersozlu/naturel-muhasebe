@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { ingestCorporateReceipt } from "@/server/services/ocr/corporate-receipt-ingest";
+import { splitPaymentNote } from "@/lib/corporate-receipt-match";
 import { router, protectedProcedure } from "../trpc";
 import {
   corporatePurchaseCreateSchema,
@@ -65,6 +66,7 @@ export const corporatePurchaseRouter = router({
         .includes("mavi");
 
       let receiptUploadId: string | null = null;
+      let splitNote: string | null = null;
       if (isMavi) {
         if (!input.receipt_base64 || !input.receipt_mime_type) {
           throw new TRPCError({
@@ -73,7 +75,7 @@ export const corporatePurchaseRouter = router({
               "Mavi mağazalarında alışveriş fişi (bilgi fişi) yüklemek zorunludur.",
           });
         }
-        receiptUploadId = await ingestCorporateReceipt({
+        const receipt = await ingestCorporateReceipt({
           prisma: ctx.prisma,
           userId: ctx.user.id,
           storeId: input.store_id,
@@ -82,6 +84,11 @@ export const corporatePurchaseRouter = router({
           base64: input.receipt_base64,
           mimeType: input.receipt_mime_type,
         });
+        receiptUploadId = receipt.uploadId;
+        // Bölünmüş ödeme: kaydın yanında fişin tamamı ve kişinin ödediği kısım yazsın.
+        if (receipt.match.kind === "cash_part") {
+          splitNote = splitPaymentNote(receipt.match, receipt.payable_total);
+        }
       }
 
       // TODO: çoklu para birimi desteklenirse FX dönüşümü; şimdilik TRY varsayımı.
@@ -99,7 +106,7 @@ export const corporatePurchaseRouter = router({
           currency: input.currency,
           amount_try,
           is_paid: input.is_paid,
-          note: input.note ?? null,
+          note: [input.note, splitNote].filter(Boolean).join(" · ") || null,
         },
       });
     }),

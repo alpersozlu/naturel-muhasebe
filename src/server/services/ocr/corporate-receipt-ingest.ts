@@ -7,16 +7,7 @@ import {
   uploadBufferToStorage,
 } from "@/server/services/storage";
 import { parseCorporateReceipt } from "./parsers/corporate-receipt";
-
-/** Girilen tutar ile fişteki tutar arasında kabul edilen fark (₺). */
-const AMOUNT_TOLERANCE = 0.5;
-
-function fmt(n: number): string {
-  return n.toLocaleString("tr-TR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
+import { matchReceiptAmount, type ReceiptMatch } from "@/lib/corporate-receipt-match";
 
 /**
  * Kurumsal/yönetim alışverişinin bilgi fişini yükler, OKUR ve girilen tutarla
@@ -25,7 +16,10 @@ function fmt(n: number): string {
  * OCR burada SENKRON çalışır (diğer yüklemelerin aksine): tutar doğrulanmadan
  * alışveriş kaydı yazılmamalı, dolayısıyla arka plana atılamaz.
  *
- * @returns oluşturulan Upload kaydının id'si
+ * Ödeme bölünmüşse (kısmı nakit = yönetim/kurumsal, kısmı kişinin kartı)
+ * girilen tutar fişin NAKİT satırıyla karşılaştırılır.
+ *
+ * @returns oluşturulan Upload kaydının id'si + eşleşmenin türü
  */
 export async function ingestCorporateReceipt(opts: {
   prisma: PrismaClient;
@@ -35,7 +29,7 @@ export async function ingestCorporateReceipt(opts: {
   amount: number;
   base64: string;
   mimeType: string;
-}): Promise<string> {
+}): Promise<{ uploadId: string; match: Extract<ReceiptMatch, { ok: true }>; payable_total: number }> {
   const buffer = Buffer.from(opts.base64, "base64");
   const file_hash = createHash("sha256").update(buffer).digest("hex");
 
@@ -91,15 +85,13 @@ export async function ingestCorporateReceipt(opts: {
     });
   }
 
-  const diff = Math.abs(parsed.payable_total - opts.amount);
-  if (diff > AMOUNT_TOLERANCE) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message:
-        `Girilen tutar (${fmt(opts.amount)} ₺) fişteki Ödenecek Tutar ile ` +
-        `(${fmt(parsed.payable_total)} ₺) uyuşmuyor. ` +
-        `Fark: ${fmt(diff)} ₺. Doğru tutarı girin ya da doğru fişi yükleyin.`,
-    });
+  const match = matchReceiptAmount({
+    amount: opts.amount,
+    payable_total: parsed.payable_total,
+    payments: parsed.payments,
+  });
+  if (!match.ok) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: match.message });
   }
 
   const path = buildUploadPath({
@@ -121,8 +113,8 @@ export async function ingestCorporateReceipt(opts: {
       uploaded_by: opts.userId,
       // Tutar doğrulandığı için doğrudan onaylı: ayrıca elle onay beklemez.
       status: "confirmed",
-      parsed_data_json: parsed,
+      parsed_data_json: { ...parsed, matched: match.kind },
     },
   });
-  return upload.id;
+  return { uploadId: upload.id, match, payable_total: parsed.payable_total };
 }

@@ -24,6 +24,14 @@ export const corporateReceiptOcrSchema = z.object({
   /** Fişin üstündeki mağaza satırı, örn "9402 - KIB NATURAL MAGOSA CD" */
   store_line: z.string().nullable(),
   payment_type: z.string().nullable(),
+  /**
+   * "Ödeme Tipi" bölümündeki HER satır (ad + tutar). Ödeme bölünmüşse
+   * (kısmı nakit, kısmı kart) iki satır olur — bkz. corporate-receipt-match.
+   */
+  payments: z
+    .array(z.object({ label: z.string(), amount: z.number() }))
+    .nullish()
+    .transform((v) => v ?? []),
   currency: z.enum(["TRY", "USD", "EUR", "GBP"]).default("TRY"),
 });
 

@@ -426,9 +426,10 @@ export function CorporatePurchaseCard({
                   </div>
                 )}
               </div>
-              <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+              <p className="text-xs text-muted-foreground mt-1 leading-snug">
                 Fişteki &quot;Ödenecek Tutar&quot; girdiğin tutarla aynı olmalı —
-                tutmazsa kayıt oluşmaz.
+                tutmazsa kayıt oluşmaz. Kişi bir kısmını kendi kartıyla ödediyse
+                yalnız fişteki <span className="font-medium">nakit</span> tutarını gir.
               </p>
             </div>
           ) : null}

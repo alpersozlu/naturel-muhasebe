@@ -35,8 +35,20 @@ faturası, tek satırlık yazarkasa fişi.
   "customer_name": "string veya null",
   "store_line": "string veya null",
   "payment_type": "string veya null",
+  "payments": [ { "label": "ödeme satırının adı", "amount": ondalık sayı } ],
   "currency": "TRY | USD | EUR | GBP"
 }
+
+ÖDEME SATIRLARI (payments): "Ödeme Tipi / Tutar" başlığının altındaki HER
+satırı ayrı ayrı yaz. Çoğu fişte tek satır vardır. Ödeme bölünmüşse iki satır
+olur, örnek:
+  T.C.ZİRAAT BANKASI A.Ş.(TEK ÇEKİM)   799,94
+  NAKİT                               8.440,00
+→ "payments": [ { "label": "T.C. ZİRAAT BANKASI A.Ş. (TEK ÇEKİM)", "amount": 799.94 },
+                { "label": "NAKİT", "amount": 8440.00 } ]
+Satırların toplamı Ödenecek Tutar'a eşit olmalıdır. "Para Üstü" bir ödeme
+satırı DEĞİLDİR, yazma. Satır okunamıyorsa o satırı atla; hiçbiri
+okunamıyorsa boş liste [] döndür.
 
 ═══════════════════════════════════════════════════════════════
 EN KRİTİK ALAN: payable_total
@@ -49,7 +61,9 @@ KARIŞTIRMA:
 - "Toplam İndirim" → discount_total
 - "Hesaplanan KDV(%16)" → payable_total DEĞİL
 - "Ödeme Tipi" altındaki tutar genelde Ödenecek Tutar ile aynıdır — bir
-  doğrulama fırsatıdır, ikisi tutmuyorsa "Ödenecek Tutar" satırını esas al
+  doğrulama fırsatıdır, ikisi tutmuyorsa "Ödenecek Tutar" satırını esas al.
+  Ödeme iki satıra bölünmüşse payable_total yine "Ödenecek Tutar"dır
+  (satırların toplamı), satırlardan biri DEĞİL
 - "Para Üstü" → payable_total DEĞİL
 
 Doğrulama: gross_total − discount_total + KDV ≈ payable_total olmalıdır.
