@@ -60,28 +60,44 @@ const cashAdvanceBase = z.object({
     .string()
     .nullish()
     .transform((v) => (v && v.trim() ? v.trim() : undefined)),
+  /**
+   * Bordro personeli — Maaş / Prim-Avans kategorisinde kişi listeden seçilir;
+   * ödeme o kişinin o ayki bordrosuna kendiliğinden düşer. Listede olmayan
+   * biri için boş bırakılıp isim elle yazılır.
+   */
+  payroll_employee_id: z
+    .union([z.string().uuid(), z.literal("")])
+    .nullish()
+    .transform((v) => (v ? v : undefined)),
 });
 
-/** Avans ise rol + isim zorunlu — form ve sunucu tarafında aynı kural. */
+/**
+ * Maaş ve Prim/Avans ödemesi KİŞİSİZ girilemez: tutar o kişinin bordrosundan
+ * düşecek. Kişi ya bordro listesinden seçilir (payroll_employee_id) ya da
+ * listede yoksa elle yazılır — elle yazıldığında rol de gerekir.
+ */
 const requireStaffForAdvance = (
-  val: { category: string; staff_role?: string; staff_name?: string },
+  val: { category: string; staff_role?: string; staff_name?: string; payroll_employee_id?: string },
   ctx: z.RefinementCtx
 ) => {
-  if (val.category === "bonus") {
-    if (!val.staff_role) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["staff_role"],
-        message: "Avans için personel rolü seçilmeli (Müdür / Müdür Yrd. / Satış)",
-      });
-    }
-    if (!val.staff_name) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["staff_name"],
-        message: "Avans için isim soyisim girilmeli",
-      });
-    }
+  if (val.category !== "bonus" && val.category !== "salary") return;
+  if (val.payroll_employee_id) return;
+  if (!val.staff_name) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["staff_name"],
+      message:
+        val.category === "salary"
+          ? "Maaş ödemesi kime yapıldı? Personeli seçin ya da ismini yazın"
+          : "Avans kime verildi? Personeli seçin ya da ismini yazın",
+    });
+  }
+  if (!val.staff_role) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["staff_role"],
+      message: "Personel rolü seçilmeli (Müdür / Müdür Yrd. / Satış)",
+    });
   }
 };
 

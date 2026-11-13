@@ -46,6 +46,12 @@ import {
 import { batchChannelError, batchTitle, dayPaidBase, inBatchList, periodLabel, workedDaysInPeriod } from "@/server/services/payroll/rules";
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
 import { carryForwardCore } from "@/server/services/payroll/carry";
+import {
+  PAYROLL_CASH_CATEGORIES,
+  cashEntryShape,
+  isPayrollCashCategory,
+  syncCashAdvancesForPeriod,
+} from "@/server/services/payroll/cash-link";
 import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
 import { IK_REF_PREFIX, ikPayrollItems } from "@/server/services/payroll/ik-items";
 import { kolayikAdvanceRequests, kolayikLeaveStatus, kolayikMonth, kolayikSundayAudit } from "@/server/services/kolayik/payroll-sync";
@@ -618,7 +624,14 @@ export const payrollRouter = router({
     }),
 
     open: periodAudited.input(periodKeySchema).mutation(async ({ ctx, input }) => {
-      return ensurePeriod(ctx.prisma, input.year, input.month);
+      const period = await ensurePeriod(ctx.prisma, input.year, input.month);
+      // Dönem açılmadan önce kasadan yapılmış maaş / avans ödemeleri bekliyor
+      // olabilir — satırlar oluştuğuna göre şimdi işlenirler.
+      await syncCashAdvancesForPeriod(ctx.prisma, period.id, {
+        id: ctx.user.id,
+        name: ctx.user.full_name ?? ctx.user.email,
+      });
+      return period;
     }),
 
     get: adminProcedure.input(periodKeySchema).query(async ({ ctx, input }) => {
@@ -647,7 +660,11 @@ export const payrollRouter = router({
 
     ensureLines: periodAudited.input(periodIdSchema).mutation(async ({ ctx, input }) => {
       const added = await ensureLines(ctx.prisma, input.period_id);
-      return { id: input.period_id, added };
+      const cash = await syncCashAdvancesForPeriod(ctx.prisma, input.period_id, {
+        id: ctx.user.id,
+        name: ctx.user.full_name ?? ctx.user.email,
+      });
+      return { id: input.period_id, added, cash_linked: cash };
     }),
 
     updateNotes: periodAudited
@@ -1089,7 +1106,11 @@ export const payrollRouter = router({
       const from = new Date(Date.UTC(period.year, period.month - 1, 1));
       const to = new Date(Date.UTC(period.year, period.month, 1));
       const advances = await ctx.prisma.cashAdvance.findMany({
-        where: { category: "bonus", staff_name: { not: null }, daily_record: { date: { gte: from, lt: to } } },
+        where: {
+          category: { in: [...PAYROLL_CASH_CATEGORIES] },
+          staff_name: { not: null },
+          daily_record: { date: { gte: from, lt: to } },
+        },
         include: { daily_record: { select: { date: true, store: { select: { id: true, name: true } } } } },
         orderBy: { created_at: "asc" },
       });
@@ -1121,6 +1142,7 @@ export const payrollRouter = router({
             date: isoDate(a.daily_record.date),
             store_name: a.daily_record.store.name,
             staff_name: name,
+            category: a.category as "salary" | "bonus",
             amount: Number(a.amount_try),
             description: a.description,
             line_id: match?.id ?? null,
@@ -1135,17 +1157,26 @@ export const payrollRouter = router({
         include: { daily_record: { select: { date: true, store: { select: { name: true } } } } },
       });
       const line = await ctx.prisma.payrollLine.findUniqueOrThrow({ where: { id: input.line_id } });
+      if (!isPayrollCashCategory(a.category)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Bu masraf kaydı bordroya aktarılamaz." });
+      }
+      const shape = cashEntryShape({
+        category: a.category,
+        storeName: a.daily_record.store.name,
+        description: a.description,
+      });
       return ctx.prisma.payrollEntry.create({
         data: {
           line_id: line.id,
           period_id: line.period_id,
           employee_id: line.employee_id,
-          kind: "advance",
+          kind: shape.kind,
+          category: shape.category,
           channel: "cash",
           entry_date: a.daily_record.date,
           amount: a.amount_try,
-          note: `Kasadan nakit avans (${a.daily_record.store.name})${a.description ? ` — ${a.description}` : ""}`,
-          reference: "DocuFlow kasa avansı",
+          note: shape.note,
+          reference: shape.reference,
           cash_advance_id: a.id,
           created_by: ctx.user.id,
           created_by_name: ctx.user.full_name ?? ctx.user.email,

@@ -108,7 +108,7 @@ function CashAdvanceSuggestions({ periodId, onDone }: { periodId: string; onDone
   const q = trpc.payroll.cashAdvances.suggest.useQuery({ period_id: periodId });
   const link = trpc.payroll.cashAdvances.link.useMutation({
     onSuccess: () => {
-      toast.success("Kasa avansı bordroya işlendi");
+      toast.success("Kasadan yapılan ödeme bordroya işlendi");
       void q.refetch();
       onDone();
     },
@@ -119,14 +119,20 @@ function CashAdvanceSuggestions({ periodId, onDone }: { periodId: string; onDone
   return (
     <section className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/50">
       <header className="px-5 py-3.5">
-        <h3 className="font-semibold tracking-tight text-amber-950">Kasadan verilen avanslar bordroya işlenmedi ({rows.length})</h3>
-        <p className="mt-0.5 text-sm text-amber-900/80">Mağazaların günlük kayıtlarında avans olarak girilen nakitler. Aktarınca kişinin maaşından düşer.</p>
+        <h3 className="font-semibold tracking-tight text-amber-950">Kasadan yapılan ödemeler bordroya işlenmedi ({rows.length})</h3>
+        <p className="mt-0.5 text-sm text-amber-900/80">
+          Mağazaların günlük kayıtlarında maaş ya da avans olarak girilen nakitler — kişi listeden seçilmediği için
+          kendiliğinden işlenemedi. Aktarınca kişinin maaşından düşer.
+        </p>
       </header>
       <ul className="divide-y divide-amber-200/70 border-t border-amber-200/70 bg-card text-sm">
         {rows.map((r) => (
           <li key={r.cash_advance_id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-2.5">
             <span className="w-24 tabular-nums text-muted-foreground">{dmy(r.date)}</span>
             <span className="font-medium">{r.staff_name}</span>
+            <span className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-900">
+              {r.category === "salary" ? "Maaş" : "Avans"}
+            </span>
             <span className="text-muted-foreground">{r.store_name}</span>
             <span className="min-w-0 flex-1 truncate text-muted-foreground">{r.description}</span>
             <span className="font-semibold tabular-nums">{money(r.amount)} ₺</span>

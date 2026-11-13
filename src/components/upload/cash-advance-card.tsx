@@ -4,6 +4,7 @@ import { useForm, Controller, useWatch, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Banknote, Loader2, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
@@ -51,6 +52,21 @@ const STAFF_ROLE_LABEL: Record<string, string> = {
   sales_staff: "Satış Elemanı",
 };
 
+/** Ödeme bordroya DÜŞMEDİYSE nedeni — sessiz kalmasın. */
+function payrollHint(reason: string): string {
+  switch (reason) {
+    case "no_person":
+      return "Bordroda bu isim bulunamadı; Maaşlar › Avans adımından elle aktarılacak.";
+    case "no_period":
+    case "no_line":
+      return "Bu ayın bordrosu henüz açılmadı; dönem açılınca kendiliğinden işlenecek.";
+    case "period_closed":
+      return "Bu ayın bordrosu kapalı — Maaşlar'dan ayı yeniden açıp aktarın.";
+    default:
+      return "Bordroya işlenemedi; Maaşlar › Avans adımından kontrol edin.";
+  }
+}
+
 const TRY_FORMATTER = new Intl.NumberFormat("tr-TR", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
@@ -73,14 +89,28 @@ export function CashAdvanceCard({
   const { data: employees } = trpc.user.list.useQuery(undefined, {
     enabled: !disabled && me?.role === "admin",
   });
+  // Maaş / Prim-Avans'ta kişi mağazanın bordro kadrosundan seçilir; ödeme
+  // o kişinin o ayki bordrosuna kendiliğinden düşer.
+  const { data: staff } = trpc.cashAdvance.staffOptions.useQuery(
+    { store_id: storeId },
+    { enabled: !disabled }
+  );
   const { data: advances } = trpc.cashAdvance.listForStoreDate.useQuery(
     { store_id: storeId, date },
     { enabled: !disabled }
   );
 
   const create = trpc.cashAdvance.create.useMutation({
-    onSuccess: () => {
-      toast.success("Peşin ödeme kaydedildi");
+    onSuccess: (r) => {
+      const p = r.payroll;
+      if (p?.linked) {
+        toast.success(`Peşin ödeme kaydedildi — ${p.employee_name} adına ${p.period} bordrosuna işlendi`);
+      } else if (p && p.reason !== "not_payroll") {
+        toast.success("Peşin ödeme kaydedildi", { description: payrollHint(p.reason) });
+      } else {
+        toast.success("Peşin ödeme kaydedildi");
+      }
+      setManualName(false);
       utils.cashAdvance.listForStoreDate.invalidate({ store_id: storeId, date });
       utils.dailyRecord.entriesForStoreDate.invalidate({ store_id: storeId, date });
       reset({
@@ -91,6 +121,7 @@ export function CashAdvanceCard({
         employee_id: "",
         staff_role: undefined,
         staff_name: "",
+        payroll_employee_id: "",
       });
     },
     onError: (e) => toast.error(e.message),
@@ -121,12 +152,16 @@ export function CashAdvanceCard({
       description: "",
       staff_role: undefined,
       staff_name: "",
+      payroll_employee_id: "",
     },
   });
 
-  // Kategori 'bonus' (Avans) ise → personel rolü + isim alanları
+  // Maaş ve Prim/Avans kişiye bağlıdır — bordroya o kişi adına düşer.
   const category = useWatch({ control, name: "category" });
-  const isAdvance = category === "bonus";
+  const isPersonal = category === "bonus" || category === "salary";
+  // Bordro kadrosunda olmayan biri (dışarıdan, yeni başlayan) için elle isim.
+  const [manualName, setManualName] = useState(false);
+  const useList = isPersonal && !manualName && (staff ?? []).length > 0;
 
   // store_id ve date form alanı değil — prop olarak gelir, submit anında eklenir.
   // Bu sayede prop değişimine bağlı stale form state sorunu yaşanmaz.
@@ -135,7 +170,10 @@ export function CashAdvanceCard({
       toast.error("Mağaza ve tarih seçilmedi");
       return;
     }
-    return create.mutateAsync({ ...vals, store_id: storeId, date });
+    const clean: CashAdvanceFormInput = useList
+      ? { ...vals, staff_name: "", staff_role: undefined }
+      : { ...vals, payroll_employee_id: "" };
+    return create.mutateAsync({ ...clean, store_id: storeId, date });
   };
 
   return (
@@ -220,9 +258,54 @@ export function CashAdvanceCard({
             />
           </div>
 
-          {isAdvance ? (
+          {useList ? (
+            <div>
+              <Label className="text-xs">
+                Kime ödendi? <span className="text-rose-500">*</span>
+              </Label>
+              <Controller
+                control={control}
+                name="payroll_employee_id"
+                render={({ field }) => (
+                  <Select
+                    value={field.value ?? ""}
+                    onValueChange={field.onChange}
+                    disabled={disabled}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Personel seç" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(staff ?? []).map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.full_name} — {p.position}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {errors.staff_name ? (
+                <p className="text-xs text-destructive mt-1">{errors.staff_name.message}</p>
+              ) : null}
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground leading-snug">
+                  {category === "salary"
+                    ? "Bu ayki maaşından düşülür."
+                    : "Bu ayki maaşından avans olarak düşülür."}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setManualName(true)}
+                  className="shrink-0 text-xs font-medium text-primary hover:underline"
+                >
+                  Listede yok
+                </button>
+              </div>
+            </div>
+          ) : isPersonal ? (
             <>
-              {/* AVANS: personel rolü + isim soyisim */}
+              {/* Kadroda olmayan kişi: rol + isim elle */}
               <div>
                 <Label className="text-xs">
                   Personel Rolü <span className="text-rose-500">*</span>
@@ -270,6 +353,20 @@ export function CashAdvanceCard({
                     {errors.staff_name.message}
                   </p>
                 ) : null}
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground leading-snug">
+                    Kadroda bulunursa kendiliğinden işlenir.
+                  </p>
+                  {(staff ?? []).length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setManualName(false)}
+                      className="shrink-0 text-xs font-medium text-primary hover:underline"
+                    >
+                      Listeden seç
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </>
           ) : (
@@ -330,8 +427,19 @@ export function CashAdvanceCard({
                 className="flex items-center gap-2 text-xs bg-emerald-50/50 rounded px-2 py-1.5"
               >
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">
-                    {TRY_FORMATTER.format(Number(a.amount))} {a.currency} · {CATEGORY_LABEL[a.category]}
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium truncate">
+                      {TRY_FORMATTER.format(Number(a.amount))} {a.currency} · {CATEGORY_LABEL[a.category]}
+                    </span>
+                    {a.payroll_linked ? (
+                      <span className="shrink-0 rounded border border-emerald-200 bg-white px-1 py-px text-xs font-medium text-emerald-800">
+                        Bordroda
+                      </span>
+                    ) : a.payroll_pending ? (
+                      <span className="shrink-0 rounded border border-amber-200 bg-white px-1 py-px text-xs font-medium text-amber-800">
+                        Bordroya işlenmedi
+                      </span>
+                    ) : null}
                   </div>
                   <div className="text-muted-foreground truncate">
                     {a.staff_name
@@ -349,7 +457,9 @@ export function CashAdvanceCard({
                     if (
                       await confirmDialog({
                         title: "Peşin ödeme silinsin mi?",
-                        description: "Bu faturasız peşin ödeme kaydı kaldırılır.",
+                        description: a.payroll_linked
+                          ? "Bu kayıt kaldırılır; kişinin bordrosundaki karşılığı da silinir."
+                          : "Bu faturasız peşin ödeme kaydı kaldırılır.",
                         confirmLabel: "Sil",
                         destructive: true,
                       })
