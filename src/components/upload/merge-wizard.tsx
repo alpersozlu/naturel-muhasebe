@@ -15,6 +15,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { MERGE_DAYS_DEFAULT, mergeLimitMessage } from "@/lib/merge-limits";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -55,7 +56,7 @@ type GroupDay = {
 
 /**
  * Gün Birleşmesi Sihirbazı (Derimod).
- * 1) Aralık seç (başlangıç-bitiş, max 3 gün) → grup oluştur
+ * 1) Aralık seç (başlangıç-bitiş; sınır mağazaya göre, bkz. merge-limits) → grup oluştur
  * 2) 1. gün paneli → "Bu günü tamamladım" → 2. gün → ...
  * 3) Son günde mağaza özeti kartı + grup uzlaşması görünür
  */
@@ -72,7 +73,7 @@ export function MergeWizard({
   const [end, setEnd] = useState(todayIso());
   // Ardışık aralık mı, seçili günler mi (sahibi, 07.11.2026: "1-3-5 Ekim'i birleştireceğim")
   const [mode, setMode] = useState<"range" | "picked">("range");
-  const [picks, setPicks] = useState<[string, string, string]>([todayIso(), "", ""]);
+  const [picks, setPicks] = useState<string[]>([todayIso(), "", ""]);
   // Aktif grup (oluşturulduktan sonra)
   const [days, setDays] = useState<GroupDay[] | null>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
@@ -82,6 +83,9 @@ export function MergeWizard({
   // range. Progress used to live only in this component's state and was
   // lost on every reload (see mergeGroup.getOpenForStore).
   const openGroup = trpc.mergeGroup.getOpenForStore.useQuery({ store_id: storeId }, { enabled: !!storeId });
+  // Gün sınırı mağazaya göre (Derimod Lefkoşa 4, diğerleri 3 — sahibi, 14.11.2026).
+  const limitQ = trpc.mergeGroup.maxDays.useQuery({ store_id: storeId }, { enabled: !!storeId });
+  const maxDays = limitQ.data?.max_days ?? MERGE_DAYS_DEFAULT;
   useEffect(() => {
     if (days || !openGroup.data) return;
     const grp = openGroup.data;
@@ -157,7 +161,7 @@ export function MergeWizard({
     return Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1;
   })();
   // Seçili günler: boşlar atılır, sıralanır; tekrar ve 7 günden geniş aralık engellenir
-  const picked = Array.from(new Set(picks.filter(Boolean))).sort();
+  const picked = Array.from(new Set(picks.slice(0, maxDays).filter(Boolean))).sort();
   const pickedSpan = picked.length
     ? Math.round((new Date(`${picked[picked.length - 1]}T00:00:00.000Z`).getTime() - new Date(`${picked[0]}T00:00:00.000Z`).getTime()) / 86_400_000) + 1
     : 0;
@@ -166,14 +170,17 @@ export function MergeWizard({
       ? "Aynı gün iki kez seçilmiş."
       : picked.length < 2
         ? "En az 2 gün seçilmeli."
-        : pickedSpan > 7
-          ? "Seçili günler en fazla 7 günlük bir aralıkta olmalı."
-          : null;
+        : picked.length > maxDays
+          ? mergeLimitMessage(maxDays)
+          : pickedSpan > 7
+            ? "Seçili günler en fazla 7 günlük bir aralıkta olmalı."
+            : null;
   const startMerge = () =>
     mode === "picked"
       ? create.mutate({ store_id: storeId, start_date: picked[0]!, end_date: picked[picked.length - 1]!, dates: picked })
       : create.mutate({ store_id: storeId, start_date: start, end_date: end });
-  const canStart = !!storeId && !create.isPending && (mode === "picked" ? !pickedProblem : dayCount >= 2 && dayCount <= 3);
+  const canStart =
+    !!storeId && !create.isPending && (mode === "picked" ? !pickedProblem : dayCount >= 2 && dayCount <= maxDays);
 
   // ── Kurulum ekranı: aralık seçimi ──
   if (!days || !groupId) {
@@ -196,7 +203,7 @@ export function MergeWizard({
               <div className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
                 Birden fazla günü tek mağaza özetiyle uzlaştır. Her gün kendi
                 fiş/Z/nakit/masrafını ayrı girersin; mağaza özeti son güne
-                yüklenir ve bütün günleri kapsar. (En fazla 3 gün)
+                yüklenir ve bütün günleri kapsar. (En fazla {maxDays} gün)
               </div>
             </div>
           </div>
@@ -242,16 +249,22 @@ export function MergeWizard({
               </Button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-              {([0, 1, 2] as const).map((i) => (
+            <div className={`grid grid-cols-1 gap-3 items-end ${maxDays >= 4 ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
+              {Array.from({ length: maxDays }, (_, i) => (
                 <div key={i} className="space-y-1.5">
                   <Label className="text-xs">
-                    {i + 1}. gün{i === 2 ? " (isteğe bağlı)" : ""}
+                    {i + 1}. gün{i >= 2 ? " (isteğe bağlı)" : ""}
                   </Label>
                   <Input
                     type="date"
-                    value={picks[i]}
-                    onChange={(e) => setPicks((p) => { const n: [string, string, string] = [...p]; n[i] = e.target.value; return n; })}
+                    value={picks[i] ?? ""}
+                    onChange={(e) =>
+                      setPicks((p) => {
+                        const n = Array.from({ length: maxDays }, (_, k) => p[k] ?? "");
+                        n[i] = e.target.value;
+                        return n;
+                      })
+                    }
                   />
                 </div>
               ))}
@@ -276,8 +289,10 @@ export function MergeWizard({
               <span className="text-amber-600">
                 En az 2 gün seçilmeli (tek gün için normal akışı kullan).
               </span>
-            ) : dayCount > 3 ? (
-              <span className="text-rose-600">En fazla 3 gün birleştirilebilir — ardışık değilse “Seçili günler”i kullan.</span>
+            ) : dayCount > maxDays ? (
+              <span className="text-rose-600">
+                {mergeLimitMessage(maxDays)} Ardışık değilse “Seçili günler”i kullan.
+              </span>
             ) : (
               <span className="text-violet-700">
                 {dayCount} gün birleştirilecek: {fmtDate(start)} → {fmtDate(end)}

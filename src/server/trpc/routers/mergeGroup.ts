@@ -9,6 +9,7 @@ import {
   mergeProbeSchema,
 } from "@/lib/zod-schemas/merge-group";
 import { assertCanAccessStore, isAdmin } from "@/lib/auth/permissions";
+import { MERGE_DAYS_DEFAULT, maxMergeDays, mergeLimitMessage } from "@/lib/merge-limits";
 import { LOCK_ENFORCEMENT_FROM } from "@/server/services/daily-record";
 import { processUpload } from "@/server/services/ocr/process-upload";
 
@@ -65,6 +66,11 @@ export const mergeGroupRouter = router({
         return { mode: "group" as const, days: 0, prev_has_summary: false, blocker: "Birleşilen gün, bu günden ÖNCE olmalı." };
       }
       const dates = eachDateInclusive(input.prev_date, input.date);
+      const probeStore = await ctx.prisma.store.findUnique({
+        where: { id: input.store_id },
+        select: { name: true },
+      });
+      const probeLimit = maxMergeDays(probeStore?.name);
       const recs = await ctx.prisma.dailyRecord.findMany({
         where: { store_id: input.store_id, date: { in: dates } },
         select: { date: true, status: true, merge_group_id: true, store_summary: { select: { id: true } } },
@@ -76,7 +82,7 @@ export const mergeGroupRouter = router({
         return { mode: "cumulative" as const, days: dates.length, prev_has_summary: true, blocker: null };
       }
       let blocker: string | null = null;
-      if (dates.length > 3) blocker = "En fazla 3 gün birleştirilebilir.";
+      if (dates.length > probeLimit) blocker = mergeLimitMessage(probeLimit);
       for (const r of recs) {
         if (blocker) break;
         const d = iso(r.date);
@@ -111,6 +117,12 @@ export const mergeGroupRouter = router({
       const dates = input.dates
         ? [...input.dates].sort().map((d) => new Date(`${d}T00:00:00.000Z`))
         : eachDateInclusive(input.start_date, input.end_date);
+
+      // Gün sınırı mağazaya göredir (Derimod Lefkoşa 4, diğerleri 3).
+      const limit = maxMergeDays(store.name);
+      if (dates.length > limit) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: mergeLimitMessage(limit) });
+      }
 
       // Gruptaki günlerden herhangi biri zaten BAŞKA bir gruba/kilide aitse engelle
       const existing = await ctx.prisma.dailyRecord.findMany({
@@ -228,6 +240,18 @@ export const mergeGroupRouter = router({
       // The one with documents in it is the one being worked on; the oldest
       // such group is also the one the lock gate is waiting for.
       return groups.find((g) => g.daily_records.some((d) => d._count.uploads > 0)) ?? groups[groups.length - 1] ?? null;
+    }),
+
+  /** Bu mağazada en çok kaç gün birleştirilebilir? (sihirbaz metni ve kontrolü) */
+  maxDays: protectedProcedure
+    .input(mergeGroupForStoreDateSchema.pick({ store_id: true }))
+    .query(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
+      const store = await ctx.prisma.store.findUnique({
+        where: { id: input.store_id },
+        select: { name: true },
+      });
+      return { max_days: store ? maxMergeDays(store.name) : MERGE_DAYS_DEFAULT };
     }),
 
   getForStoreDate: protectedProcedure

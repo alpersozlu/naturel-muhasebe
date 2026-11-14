@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MERGE_DAYS_MAX } from "@/lib/merge-limits";
 
 const dateOnly = z
   .string()
@@ -14,7 +15,13 @@ export const mergeGroupCreateSchema = z
      * Verilirse grup YALNIZ bu günlerden oluşur; start/end = ilk/son seçili gün. Aradaki
      * günler gruba girmez (kendi günleri olarak kalır).
      */
-    dates: z.array(dateOnly).min(2, "En az 2 gün seçilmeli").max(3, "En fazla 3 gün birleştirilebilir").optional(),
+    // Üst sınır en geniş mağazanınki; mağazanın KENDİ sınırını sunucu uygular
+    // (maxMergeDays — Derimod Lefkoşa 4, diğerleri 3).
+    dates: z
+      .array(dateOnly)
+      .min(2, "En az 2 gün seçilmeli")
+      .max(MERGE_DAYS_MAX, `En fazla ${MERGE_DAYS_MAX} gün birleştirilebilir`)
+      .optional(),
   })
   .superRefine((val, ctx) => {
     const start = new Date(`${val.start_date}T00:00:00.000Z`);
@@ -45,11 +52,11 @@ export const mergeGroupCreateSchema = z
         message: "Birleşme en az 2 gün olmalı (tek gün için normal akış)",
       });
     }
-    if (days > 3) {
+    if (days > MERGE_DAYS_MAX) {
       ctx.addIssue({
         code: "custom",
         path: ["end_date"],
-        message: "Birleşme en fazla 3 gün olabilir",
+        message: `Birleşme en fazla ${MERGE_DAYS_MAX} gün olabilir`,
       });
     }
   });
