@@ -99,6 +99,23 @@ export const manualBankReceiptSchema = z.object({
   note: z.string().trim().min(5, "Kaynağı yazın (ör. banka hesabında görüldü, kim kontrol etti)").max(500),
 });
 
+/**
+ * Yönetici: çekin fotoğrafı yoksa (çek bankaya gitti, kayıt sonradan açıldı)
+ * banka çekini elle girer. Gerçek çek gibi nakit kaynağı sayılır.
+ */
+export const manualChequeSchema = z.object({
+  store_id: z.string().uuid(),
+  date: dateOnly,
+  bank_name: z.string().trim().min(2).max(60),
+  branch: z.string().trim().max(60).optional(),
+  cheque_no: z.string().trim().max(40).optional(),
+  drawer_name: z.string().trim().max(80).optional(),
+  payee_name: z.string().trim().max(80).optional(),
+  cheque_date: dateOnly.optional(),
+  amount: z.number().finite().positive("Tutar 0'dan büyük olmalı").max(100_000_000),
+  note: z.string().trim().min(5, "Kaynağı yazın (ör. çek elde, fotoğraf çekilmedi, kim gördü)").max(500),
+});
+
 export const manualPosSlipSchema = z.object({
   store_id: z.string().uuid(),
   date: dateOnly,

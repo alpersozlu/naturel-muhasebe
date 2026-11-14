@@ -5,6 +5,7 @@ import { router, protectedProcedure, adminProcedure } from "../trpc";
 import {
   manualPosSlipSchema,
   manualBankReceiptSchema,
+  manualChequeSchema,
   uploadCreateSchema,
   uploadIdSchema,
   uploadFixExpenseAmountSchema,
@@ -311,6 +312,97 @@ export const uploadRouter = router({
               amount_try: input.amount,
               deposit_date: day,
               is_manual: true,
+            },
+          },
+        },
+      });
+      const result = await computeDay(ctx.prisma, dr.id);
+      await persistVerification(ctx.prisma, dr.id, result);
+      return { id: upload.id, difference: result.difference, status: result.status };
+    }),
+
+  /**
+   * ELLE BANKA ÇEKİ (sahibi, 14.11.2026). Çekin fotoğrafı yoksa yönetici
+   * çeki elle girer: gerçek çek gibi nakit kaynağı sayılır, "Elle giriş"
+   * etiketiyle görünür ve gün doğrulaması yeniden hesaplanır.
+   */
+  addManualCheque: withAudit("Upload")
+    .input(manualChequeSchema)
+    .mutation(async ({ ctx, input }) => {
+      const dr = await getOrCreateDailyRecord(ctx.prisma, input.store_id, input.date);
+      const no = (input.cheque_no ?? "").replace(/\D/g, "");
+      const dup = await ctx.prisma.cheque.findFirst({
+        where: {
+          daily_record: { store_id: input.store_id },
+          ...(no ? { cheque_no: input.cheque_no } : { daily_record_id: dr.id, amount_try: input.amount }),
+        },
+      });
+      if (dup) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: no ? `Bu çek (No ${input.cheque_no}) zaten kayıtlı.` : "Bu gün için aynı tutarda elle çek zaten var.",
+        });
+      }
+
+      const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const tl = input.amount.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const dmy = (input.cheque_date ?? input.date).split("-").reverse().join(".");
+      const who = ctx.user.full_name ?? ctx.user.email;
+      const stamp = new Date().toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" });
+      const bankLine = [input.bank_name, input.branch].filter(Boolean).join(" · ");
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520">
+<rect width="900" height="520" fill="#f0fdfa"/><rect x="24" y="24" width="852" height="472" fill="none" stroke="#0d9488" stroke-width="4" stroke-dasharray="14 10"/>
+<text x="60" y="100" font-family="Helvetica, Arial, sans-serif" font-size="40" font-weight="700" fill="#134e4a">ELLE GİRİLEN BANKA ÇEKİ</text>
+<text x="60" y="150" font-family="Helvetica, Arial, sans-serif" font-size="24" fill="#0f766e">Çekin fotoğrafı yüklenmedi — kasada nakit sayılır</text>
+<text x="60" y="230" font-family="Helvetica, Arial, sans-serif" font-size="30" fill="#111827">Banka: ${esc(bankLine)}</text>
+<text x="60" y="280" font-family="Helvetica, Arial, sans-serif" font-size="30" fill="#111827">Çek No: ${esc(input.cheque_no ?? "—")}${input.drawer_name ? ` · Veren: ${esc(input.drawer_name)}` : ""}</text>
+<text x="60" y="330" font-family="Helvetica, Arial, sans-serif" font-size="30" fill="#111827">Çek tarihi: ${dmy}</text>
+<text x="60" y="390" font-family="Helvetica, Arial, sans-serif" font-size="44" font-weight="700" fill="#065f46">Tutar: ${tl} ₺</text>
+<text x="60" y="440" font-family="Helvetica, Arial, sans-serif" font-size="22" fill="#374151">Kaynak: ${esc(input.note.slice(0, 90))}</text>
+<text x="60" y="476" font-family="Helvetica, Arial, sans-serif" font-size="20" fill="#6b7280">Giren: ${esc(who)} · ${stamp}</text>
+</svg>`;
+      const { default: sharp } = await import("sharp");
+      const buffer = await sharp(Buffer.from(svg, "utf-8"), { density: 144 }).png().toBuffer();
+      const file_hash = createHash("sha256").update(buffer).digest("hex");
+      const path = buildUploadPath({ storeId: input.store_id, dailyRecordId: dr.id, type: "cheque", mimeType: "image/png" });
+      await uploadBufferToStorage({ path, buffer, mimeType: "image/png" });
+
+      const upload = await ctx.prisma.upload.create({
+        data: {
+          daily_record_id: dr.id,
+          type: "cheque",
+          file_url: path,
+          file_hash,
+          mime_type: "image/png",
+          file_size_bytes: buffer.length,
+          uploaded_by: ctx.user.id,
+          status: "confirmed",
+          user_meta_json: { manual_cheque: true, reason: input.note, entered_by: ctx.user.id, entered_by_name: who },
+          parsed_data_json: {
+            bank_name: input.bank_name,
+            branch: input.branch ?? null,
+            cheque_no: input.cheque_no ?? null,
+            drawer_name: input.drawer_name ?? null,
+            payee_name: input.payee_name ?? null,
+            cheque_date: input.cheque_date ?? null,
+            amount: input.amount,
+            currency: "TRY",
+            manual: true,
+          },
+          cheque: {
+            create: {
+              daily_record_id: dr.id,
+              bank_name: input.bank_name,
+              branch: input.branch ?? null,
+              cheque_no: input.cheque_no ?? null,
+              drawer_name: input.drawer_name ?? null,
+              payee_name: input.payee_name ?? null,
+              cheque_date: input.cheque_date ? new Date(`${input.cheque_date}T00:00:00.000Z`) : null,
+              amount: input.amount,
+              currency: "TRY",
+              amount_try: input.amount,
+              is_manual: true,
+              note: input.note,
             },
           },
         },

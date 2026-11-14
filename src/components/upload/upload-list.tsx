@@ -345,10 +345,20 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
   });
   // Yönetici: dekont çekilmemişse bankada görülen havaleyi elle dekont olarak ekler.
   const [manualBank, setManualBank] = useState(false);
+  const [manualCheque, setManualCheque] = useState(false);
   const addManualBank = trpc.upload.addManualBankReceipt.useMutation({
     onSuccess: (r) => {
       toast.success(`Elle dekont eklendi · gün farkı ${TRY_FMT.format(r.difference)} ₺`);
       setManualBank(false);
+      utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
+      utils.dailyRecord.reconciliation.invalidate({ store_id: storeId, date });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const addManualChequeM = trpc.upload.addManualCheque.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Elle banka çeki eklendi · gün farkı ${TRY_FMT.format(r.difference)} ₺`);
+      setManualCheque(false);
       utils.upload.listForStoreDate.invalidate({ store_id: storeId, date });
       utils.dailyRecord.reconciliation.invalidate({ store_id: storeId, date });
     },
@@ -467,6 +477,9 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
               <Button size="sm" variant="outline" onClick={() => setManualBank(true)} title="Dekont çekilmemişse bankada görülen havaleyi dekont olarak ekle">
                 Elle dekont ekle
               </Button>
+              <Button size="sm" variant="outline" onClick={() => setManualCheque(true)} title="Çekin fotoğrafı yoksa banka çekini elle ekle (nakit sayılır)">
+                Elle çek ekle
+              </Button>
             </div>
           ) : null}
         </div>
@@ -476,6 +489,14 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
             pending={addManualBank.isPending}
             onClose={() => setManualBank(false)}
             onSave={(v) => addManualBank.mutate({ store_id: storeId, date, ...v })}
+          />
+        ) : null}
+        {manualCheque ? (
+          <ManualChequeDialog
+            date={date}
+            pending={addManualChequeM.isPending}
+            onClose={() => setManualCheque(false)}
+            onSave={(v) => addManualChequeM.mutate({ store_id: storeId, date, ...v })}
           />
         ) : null}
         {manualPos ? (
@@ -1416,6 +1437,100 @@ void ExpenseDetails;
  * Yönetici: POS gün sonu alınamadığında bankadan öğrenilen tutarı fiş olarak
  * ekler. Banka listesi o günün diğer fişlerinden gelir; serbest yazılabilir.
  */
+/** Yönetici: çekin fotoğrafı yoksa banka çekini elle ekler (nakit sayılır). */
+function ManualChequeDialog({
+  date,
+  pending,
+  onClose,
+  onSave,
+}: {
+  date: string;
+  pending: boolean;
+  onClose: () => void;
+  onSave: (v: {
+    bank_name: string;
+    branch?: string;
+    cheque_no?: string;
+    drawer_name?: string;
+    cheque_date?: string;
+    amount: number;
+    note: string;
+  }) => void;
+}) {
+  const [bank, setBank] = useState("");
+  const [branch, setBranch] = useState("");
+  const [no, setNo] = useState("");
+  const [drawer, setDrawer] = useState("");
+  const [chequeDate, setChequeDate] = useState(date);
+  const [amount, setAmount] = useState<number | undefined>(undefined);
+  const [note, setNote] = useState("");
+  const ok = bank.trim().length >= 2 && !!amount && amount > 0 && note.trim().length >= 5;
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Elle banka çeki — {date.split("-").reverse().join(".")}</DialogTitle>
+          <DialogDescription>
+            Çekin fotoğrafı yüklenemediyse tutarı buradan girin. Gerçek çek gibi kasada nakit
+            sayılır, &quot;Elle giriş&quot; etiketiyle görünür ve gün doğrulaması yeniden hesaplanır.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Banka</Label>
+            <Input value={bank} onChange={(e) => setBank(e.target.value)} placeholder="Near East Bank" autoFocus />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Şube</Label>
+            <Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="isteğe bağlı" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Çek No</Label>
+            <Input value={no} onChange={(e) => setNo(e.target.value)} placeholder="isteğe bağlı" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Çeki veren</Label>
+            <Input value={drawer} onChange={(e) => setDrawer(e.target.value)} placeholder="isteğe bağlı" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Çek tarihi</Label>
+            <Input type="date" value={chequeDate} onChange={(e) => setChequeDate(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Tutar (₺)</Label>
+            <MoneyInput value={amount} onChange={setAmount} />
+          </div>
+          <div className="col-span-2 space-y-1">
+            <Label className="text-xs text-muted-foreground">Kaynak (zorunlu)</Label>
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Çek elde, fotoğrafı çekilmedi — Alp gördü" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Vazgeç
+          </Button>
+          <Button
+            disabled={!ok || pending}
+            onClick={() =>
+              onSave({
+                bank_name: bank.trim(),
+                branch: branch.trim() || undefined,
+                cheque_no: no.trim() || undefined,
+                drawer_name: drawer.trim() || undefined,
+                cheque_date: chequeDate || undefined,
+                amount: amount!,
+                note: note.trim(),
+              })
+            }
+          >
+            {pending ? "Ekleniyor…" : "Çeki ekle"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ManualBankDialog({
   date,
   pending,
