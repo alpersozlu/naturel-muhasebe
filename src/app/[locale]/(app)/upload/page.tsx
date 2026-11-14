@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   CalendarRange,
   CalendarDays,
+  ScrollText,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { PageHeader } from "@/components/shared/page-header";
@@ -204,6 +205,16 @@ export default function UploadPage() {
           iconColor="text-blue-600"
           storeId={sel.storeId}
           date={sel.date}
+        />
+        <UploadCard
+          type="cheque"
+          label="Banka Çeki"
+          icon={ScrollText}
+          iconBg="bg-teal-50"
+          iconColor="text-teal-600"
+          storeId={sel.storeId}
+          date={sel.date}
+          multiple
         />
         <DailyCashCard storeId={sel.storeId} date={sel.date} />
         <GiftVoucherCard storeId={sel.storeId} date={sel.date} />

@@ -35,6 +35,9 @@ export type ComparisonRow = {
     /** Mavi: corporate & management purchases, rung up as cash in the kasa. */
     corporate?: number;
     has_corporate?: boolean;
+    /** Müşteri çekleri — kasada nakit sayılır (sahibi, 14.11.2026). */
+    cheques?: number;
+    has_cheques?: boolean;
   };
 };
 
@@ -94,6 +97,7 @@ export async function computeDay(
     manual_invoices: { select: { amount_try: true } },
     dealer_daily_report: true,
     bank_receipts: { select: { amount_try: true } },
+    cheques: { select: { amount_try: true } },
     expenses: { select: { amount_try: true } },
     cash_advances: { select: { amount_try: true } },
     corporate_purchases: { select: { amount_try: true } },
@@ -245,6 +249,11 @@ export async function computeDay(
     0
   );
   const masrafToplam = expenseTotal + cashAdvanceTotal;
+  // BANKA ÇEKİ (sahibi, 14.11.2026): satış kasada nakit işlenir, para kasada
+  // yoktur → çek de bir nakit kaynağıdır (hediye çeki gibi).
+  const chequeTotal = records
+    .flatMap((r) => r.cheques)
+    .reduce((s, c) => s + num(c.amount_try), 0);
   const giftVoucherTotal = records.reduce(
     (s, r) => s + (r.gift_voucher_try ? num(r.gift_voucher_try) : 0),
     0
@@ -279,6 +288,7 @@ export async function computeDay(
     (wireIsSeparate ? 0 : bankReceiptTotal) +
     masrafToplam +
     giftVoucherTotal +
+    chequeTotal +
     corporateInCash;
 
   // GENEL TOPLAM denklemi: elime geçen belge toplamı ↔ özetin sales_total'i
@@ -341,8 +351,8 @@ export async function computeDay(
     // Kaynak yoksa ve özet nakit > 0 ise eksik (kayıp sinyali).
     {
       label: `Nakit Kaynakları (Hediye + Masraf + Sayım${wireIsSeparate ? "" : " + Dekont"}${
-        corporateInCash > TOLERANCE_TL ? " + Kurumsal" : ""
-      })`,
+        chequeTotal > TOLERANCE_TL ? " + Çek" : ""
+      }${corporateInCash > TOLERANCE_TL ? " + Kurumsal" : ""})`,
       document_total: cashSourcesTotal,
       summary_total: summaryCash,
       difference: cashSourcesTotal - summaryCash,
@@ -359,6 +369,8 @@ export async function computeDay(
         has_expenses: masrafToplam > 0,
         corporate: corporateInCash,
         has_corporate: corporateInCash > TOLERANCE_TL,
+        cheques: chequeTotal,
+        has_cheques: chequeTotal > TOLERANCE_TL,
       },
     },
     // Havale satırı — özette havale ayrı kalem ise (ya da Mavi kuralıyla

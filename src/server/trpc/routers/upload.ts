@@ -355,6 +355,7 @@ export const uploadRouter = router({
           pos_slips: true,
           store_summary: true,
           bank_receipt: true,
+          cheque: true,
           expense: true,
           z_report: true,
           dealer_daily_report: true,

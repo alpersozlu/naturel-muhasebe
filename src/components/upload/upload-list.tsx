@@ -25,6 +25,7 @@ import {
   Coins,
   Gift,
   PenLine,
+  ScrollText,
 } from "lucide-react";
 import type {
   UploadType,
@@ -36,6 +37,7 @@ import type {
   ZReport,
   DealerDailyReport,
   CorporatePurchase,
+  Cheque,
 } from "@prisma/client";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -116,6 +118,12 @@ const TYPE_META: Record<
     icon: Building2,
     color: "text-violet-600",
     bg: "bg-violet-50",
+  },
+  cheque: {
+    label: "Banka Çeki",
+    icon: ScrollText,
+    color: "text-teal-600",
+    bg: "bg-teal-50",
   },
 };
 
@@ -276,6 +284,7 @@ type UploadRow = {
   user_meta_json?: unknown;
   store_summary?: StoreSummary | null;
   bank_receipt?: BankReceipt | null;
+  cheque?: Cheque | null;
   expense?: Expense | null;
   z_report?: ZReport | null;
   dealer_daily_report?: DealerDailyReport | null;
@@ -1127,6 +1136,12 @@ function getHeroAmount(
       unit: `${upload.bank_receipt.currency ?? "TRY"} · Dekont`,
     };
   }
+  if (upload.cheque) {
+    return {
+      value: num(upload.cheque.amount),
+      unit: `${upload.cheque.currency ?? "TRY"} · Banka çeki (nakit sayılır)`,
+    };
+  }
   if (upload.expense) {
     return {
       value: num(upload.expense.amount),
@@ -1229,6 +1244,19 @@ function ParsedFields({
         <MiniField label="Banka" value={b.bank_name ?? "—"} />
         <MiniField label="Tarih" value={dateStr} />
         <MiniField label={b.iban?.startsWith("Local Pay") ? "Referans" : "IBAN"} value={b.iban ?? "—"} />
+      </div>
+    );
+  }
+  if (upload.cheque) {
+    const c = upload.cheque;
+    return (
+      <div className="grid grid-cols-3 gap-4 w-full">
+        <MiniField label="Banka" value={[c.bank_name, c.branch].filter(Boolean).join(" · ") || "—"} />
+        <MiniField label="Çek No" value={c.cheque_no ?? "—"} />
+        <MiniField
+          label="Çek tarihi"
+          value={c.cheque_date ? new Date(c.cheque_date).toLocaleDateString("tr-TR") : "—"}
+        />
       </div>
     );
   }

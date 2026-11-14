@@ -15,6 +15,7 @@ import {
   Calculator,
   ShieldCheck,
   Building2,
+  ScrollText,
 } from "lucide-react";
 import type { UploadType, UploadStatus } from "@prisma/client";
 import { toast } from "sonner";
@@ -74,6 +75,12 @@ const TYPE_META: Record<
     icon: Building2,
     color: "text-violet-600",
     bg: "bg-violet-50",
+  },
+  cheque: {
+    label: "Banka Çeki",
+    icon: ScrollText,
+    color: "text-teal-600",
+    bg: "bg-teal-50",
   },
 };
 

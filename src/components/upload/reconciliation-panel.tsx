@@ -319,6 +319,7 @@ export function ReconciliationPanel({
               data.has_reported_cash ||
               data.has_bank_receipt ||
               data.has_gift_voucher ||
+              data.has_cheque ||
               data.has_expenses
             }
             optional={!data.requires_cash_proof}
@@ -332,10 +333,11 @@ export function ReconciliationPanel({
                     if (data.has_reported_cash) parts.push("Sayım");
                     if (data.has_bank_receipt) parts.push("Dekont");
                     if (data.has_gift_voucher) parts.push("Hediye");
+                    if (data.has_cheque) parts.push("Çek");
                     if (data.has_expenses) parts.push("Masraf");
                     return parts.length > 0
                       ? `Nakit Kaynağı (${parts.join(" + ")})`
-                      : "Nakit Kaynağı (Sayım / Dekont / Hediye / Masraf)";
+                      : "Nakit Kaynağı (Sayım / Dekont / Hediye / Çek / Masraf)";
                   })()
             }
           />
@@ -923,6 +925,7 @@ type ReconData = {
   has_reported_cash?: boolean;
   has_bank_receipt?: boolean;
   has_gift_voucher?: boolean;
+  has_cheque?: boolean;
   has_expenses?: boolean;
   /** Optimum payı (Yapı Kredi + Koopbank ↔ diğer bankalar); fiş yoksa no_pos. */
   optimum?: OptimumShare | null;
@@ -966,9 +969,10 @@ function StatusBanner({ data }: { data: ReconData }) {
       !data.has_reported_cash &&
       !data.has_bank_receipt &&
       !data.has_gift_voucher &&
+      !data.has_cheque &&
       !data.has_expenses
     ) {
-      missing.push("Nakit Kaynağı (Sayım / Dekont / Hediye / Masraf)");
+      missing.push("Nakit Kaynağı (Sayım / Dekont / Hediye / Çek / Masraf)");
     }
     // Mağaza özeti: birleşik günlerde yalnız son günde istenir (merge-wording.ts)
     const notice = incompleteNotice({ merge: data.merge, has_summary: data.has_summary, missing, fmt: fmtDateShort });
@@ -1201,6 +1205,8 @@ type Row = {
     has_expenses: boolean;
     corporate?: number;
     has_corporate?: boolean;
+    cheques?: number;
+    has_cheques?: boolean;
   };
 };
 
@@ -1255,6 +1261,9 @@ function ComparisonTable({
                       {r.cash_breakdown.has_gift_voucher ? (
                         <span>+ Hediye: {TRY_FMT.format(r.cash_breakdown.gift_voucher)}</span>
                       ) : null}
+                      {r.cash_breakdown.has_cheques ? (
+                        <span>+ Çek: {TRY_FMT.format(r.cash_breakdown.cheques ?? 0)}</span>
+                      ) : null}
                       {r.cash_breakdown.has_corporate ? (
                         <span>+ Kurumsal: {TRY_FMT.format(r.cash_breakdown.corporate ?? 0)}</span>
                       ) : null}
@@ -1262,6 +1271,7 @@ function ComparisonTable({
                       !r.cash_breakdown.has_bank_receipt &&
                       !r.cash_breakdown.has_expenses &&
                       !r.cash_breakdown.has_gift_voucher &&
+                      !r.cash_breakdown.has_cheques &&
                       !r.cash_breakdown.has_corporate ? (
                         <span className="text-rose-600 font-medium">
                           ⚠ Hiç kaynak girilmemiş

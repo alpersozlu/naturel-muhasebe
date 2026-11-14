@@ -300,6 +300,7 @@ export const dailyRecordRouter = router({
             },
           },
           bank_receipts: { select: { id: true } },
+          cheques: { select: { id: true, amount_try: true } },
           manual_invoices: { select: { id: true, amount_try: true } },
           expenses: { select: { id: true } },
           cash_advances: { select: { id: true } },
@@ -332,6 +333,8 @@ export const dailyRecordRouter = router({
           has_reported_cash: false,
           has_bank_receipt: false,
           has_gift_voucher: false,
+          has_cheque: false,
+          cheque_total: 0,
           has_expenses: false,
           gift_voucher_total: 0,
           requires_cash_proof: false,
@@ -361,6 +364,7 @@ export const dailyRecordRouter = router({
                 select: { id: true, upload: { select: { status: true } } },
               },
               bank_receipts: { select: { id: true } },
+              cheques: { select: { id: true, amount_try: true } },
               manual_invoices: { select: { id: true } },
               expenses: { select: { id: true } },
               cash_advances: { select: { id: true } },
@@ -390,6 +394,11 @@ export const dailyRecordRouter = router({
       const wireIsSeparate = summaryWire > 5;
       const hasBankReceipt =
         agg.some((r) => r.bank_receipts.length > 0) && !wireIsSeparate;
+      // Banka çeki de nakit kaynağıdır (sahibi, 14.11.2026).
+      const chequeTotal = agg
+        .flatMap((r) => r.cheques)
+        .reduce((s, c) => s + (c.amount_try?.toNumber() ?? 0), 0);
+      const hasCheque = chequeTotal > 0;
       const giftVoucherTotal = agg.reduce(
         (s, r) => s + (r.gift_voucher_try?.toNumber() ?? 0),
         0
@@ -431,6 +440,7 @@ export const dailyRecordRouter = router({
         !hasReportedCash &&
         !hasBankReceipt &&
         !hasGiftVoucher &&
+        !hasCheque &&
         !hasExpenses;
 
       if (dr.status === "locked") status = "locked";
@@ -461,6 +471,8 @@ export const dailyRecordRouter = router({
         has_reported_cash: hasReportedCash,
         has_bank_receipt: hasBankReceipt,
         has_gift_voucher: hasGiftVoucher,
+        has_cheque: hasCheque,
+        cheque_total: chequeTotal,
         has_expenses: hasExpenses,
         gift_voucher_total: giftVoucherTotal,
         requires_cash_proof: requiresCashProof,

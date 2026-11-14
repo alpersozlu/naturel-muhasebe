@@ -33,6 +33,7 @@ enum UploadType {
   z_report
   dealer_daily_report // Mavi SAP / Derimod Nebim — bayi gün sonu raporu (xlsx)
   corporate_receipt // Kurumsal/yönetim alışverişinin bilgi fişi (Mavi'de zorunlu)
+  cheque // Banka çeki (müşteriden alınan) — kasada NAKİT sayılır
 }
 
 enum UploadStatus {
@@ -342,6 +343,7 @@ model DailyRecord {
   store_summary       StoreSummary? // 1:1 (her gün 1 özet)
   dealer_daily_report DealerDailyReport? // 1:1 (her gün 1 SAP bayi raporu)
   bank_receipts       BankReceipt[]
+  cheques             Cheque[]
   expenses            Expense[]
   cash_advances       CashAdvance[]
   corporate_purchases CorporatePurchase[]
@@ -390,6 +392,7 @@ model Upload {
   pos_slips           PosSlip[]
   store_summary       StoreSummary?
   bank_receipt        BankReceipt?
+  cheque              Cheque?
   expense             Expense?
   z_report            ZReport?
   corporate_purchase  CorporatePurchase?
@@ -501,6 +504,42 @@ model BankReceipt {
   fx_rate_used Decimal? @db.Decimal(10, 4)
   deposit_date DateTime @db.Date
   is_manual    Boolean  @default(false) // Dekont yoksa admin manuel girer
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([daily_record_id])
+}
+
+/**
+ * BANKA ÇEKİ (sahibi, 14.11.2026): müşteri alışverişi banka çekiyle öder.
+ * Mağaza satışı kendi sisteminde NAKİT olarak işler (Mavi satış raporu), ama
+ * kasada o kadar para yoktur → çek yüklenmezse gün nakit eksiği verir.
+ * Bu yüzden çek bir NAKİT KAYNAĞIDIR (hediye çeki / dekont gibi).
+ *
+ * Çek ileri tarihli olabilir; gün ilişkisi çekin ALINDIĞI gündür
+ * (daily_record), çekin üstündeki tarih ayrı tutulur (cheque_date).
+ */
+model Cheque {
+  id              String      @id @default(uuid())
+  upload_id       String?     @unique // elle girişte null
+  upload          Upload?     @relation(fields: [upload_id], references: [id], onDelete: Cascade)
+  daily_record_id String
+  daily_record    DailyRecord @relation(fields: [daily_record_id], references: [id])
+
+  bank_name   String? // "Near East Bank"
+  branch      String? // "Güzelyurt Şb."
+  cheque_no   String?
+  drawer_name String? // çeki veren (müşteri / firma yetkilisi)
+  payee_name  String? // lehtar — "Naturel Ticaret"
+  cheque_date DateTime? @db.Date // çekin üstündeki tarih (ileri tarihli olabilir)
+
+  amount       Decimal  @db.Decimal(14, 2)
+  currency     Currency @default(TRY)
+  amount_try   Decimal  @db.Decimal(14, 2)
+  fx_rate_used Decimal? @db.Decimal(10, 4)
+  is_manual    Boolean  @default(false)
+  note         String?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

@@ -49,6 +49,8 @@ export const ASSESSED_TYPES = new Set<Upload["type"]>([
   "store_summary",
   "bank_receipt",
   "expense",
+  // Çek nakit sayıldığı için sahtecilik riski yüksek (sahibi, 14.11.2026)
+  "cheque",
 ]);
 
 /** Phase 1 — runs alongside OCR: bytes + picture. */

@@ -19,6 +19,8 @@ import { forwardDealerReport } from "@/server/services/mavi-iskonto/forward";
 import { saveReportReps } from "@/server/services/dealer-report/daily-reps";
 import { isSapOriginal, xlsxOrigin } from "@/server/services/xlsx-origin";
 import { reconcileExtraRowsWithSap } from "./extra-rows";
+import { parseCheque } from "./parsers/cheque";
+import { reconcileReceiptAmount } from "./amount-words";
 import {
   parseMaviSapBuffer,
   pickDay,
@@ -34,6 +36,7 @@ const SUPPORTED = new Set<Upload["type"]>([
   "expense",
   "z_report",
   "dealer_daily_report",
+  "cheque",
 ]);
 
 function fmtDateTr(iso: string): string {
@@ -243,6 +246,7 @@ export async function processUpload(
     else if (upload.type === "bank_receipt") await runBankReceipt(upload, buffer, cachedRaw);
     else if (upload.type === "expense") await runExpense(upload, buffer, cachedRaw);
     else if (upload.type === "z_report") await runZReport(upload, buffer, cachedRaw);
+    else if (upload.type === "cheque") await runCheque(upload, buffer, cachedRaw);
     else if (upload.type === "dealer_daily_report") await runDealerDailyReport(upload, buffer, opts);
   } catch (e) {
     const raw = e instanceof Error ? e.message : String(e);
@@ -1064,6 +1068,84 @@ async function runBankReceipt(upload: Upload, buffer: Buffer, cachedRaw?: unknow
     }
   }
   await prisma.bankReceipt.upsert({
+    where: { upload_id: upload.id },
+    update: fields,
+    create: { upload_id: upload.id, daily_record_id: upload.daily_record_id, ...fields },
+  });
+  await markParsed(upload.id, raw, parsed);
+}
+
+/**
+ * BANKA ÇEKİ (sahibi, 14.11.2026). Mağaza çekle yapılan satışı kendi
+ * sisteminde NAKİT işler; kasada o para olmadığı için çek yüklenmezse gün
+ * nakit eksiği verir. Çek bir nakit kaynağıdır.
+ *
+ * Tutar iki bağımsız kaynaktan doğrulanır: kutudaki rakam ve YAZIYLA yazılan
+ * tutar (amount-words.ts). Çek İLERİ TARİHLİ olabilir, bu yüzden günle tarih
+ * eşleşmesi aranmaz — çekin alındığı gün esastır.
+ */
+async function runCheque(upload: Upload, buffer: Buffer, cachedRaw?: unknown): Promise<void> {
+  const { raw, parsed } = await parseCheque({ buffer, mimeType: upload.mime_type, cachedRaw });
+  await stashRaw(upload.id, raw);
+  if (!parsed.is_cheque) {
+    throw new Error(
+      parsed.rejection_reason ??
+        "Bu bir banka çeki gibi görünmüyor. Çek yaprağının tamamı (tutar kutusu, yazıyla tutar ve imza) kadrajda olacak şekilde çekip yükleyin."
+    );
+  }
+  const rec = reconcileReceiptAmount({
+    amount: parsed.amount,
+    amount_raw: parsed.amount_raw,
+    amount_in_words: parsed.amount_in_words,
+  });
+  // Yönetici tutarı elle verdiyse o kazanır (İban dekontundaki kural).
+  const meta = upload.user_meta_json as { receipt_amount?: number } | null;
+  const amount = typeof meta?.receipt_amount === "number" && meta.receipt_amount > 0 ? meta.receipt_amount : rec.amount;
+  if (amount == null || amount <= 0) {
+    throw new Error(
+      "Çekin tutarı okunamadı. Tutar kutusu ve yazıyla yazılan tutar net görünecek şekilde tekrar çekin."
+    );
+  }
+  if (raw && typeof raw === "object") {
+    (raw as Record<string, unknown>).amount_reconciliation = rec;
+  }
+  const fields = {
+    bank_name: parsed.bank_name,
+    branch: parsed.branch ?? null,
+    cheque_no: parsed.cheque_no ?? null,
+    drawer_name: parsed.drawer_name ?? null,
+    payee_name: parsed.payee_name ?? null,
+    cheque_date: parsed.cheque_date ? new Date(`${parsed.cheque_date}T00:00:00.000Z`) : null,
+    amount,
+    currency: parsed.currency,
+    amount_try: amount, // FX Phase 5
+    is_manual: false,
+    note: rec.note,
+  };
+  // Aynı çek iki kez: çek numarası + banka eşleşmesi (numara yoksa tutar + tarih).
+  if (!duplicateCheckSkipped(upload)) {
+    const scope = await dupScope(upload);
+    const no = (parsed.cheque_no ?? "").replace(/\D/g, "");
+    const candidates = await prisma.cheque.findMany({
+      where: {
+        daily_record: { store_id: scope.store_id },
+        NOT: { upload_id: upload.id },
+        ...(no ? {} : { amount_try: amount, cheque_date: fields.cheque_date }),
+      },
+      select: { upload_id: true, cheque_no: true, bank_name: true, amount_try: true, cheque_date: true },
+    });
+    const dup = candidates.find((c) =>
+      no
+        ? (c.cheque_no ?? "").replace(/\D/g, "") === no &&
+          (!c.bank_name || !parsed.bank_name || bankKey(c.bank_name) === bankKey(parsed.bank_name))
+        : true
+    );
+    if (dup?.upload_id) {
+      await failAsDuplicate(upload, dup.upload_id, `Bu çek (${no ? `No ${no}, ` : ""}${amount} ₺)`);
+      return;
+    }
+  }
+  await prisma.cheque.upsert({
     where: { upload_id: upload.id },
     update: fields,
     create: { upload_id: upload.id, daily_record_id: upload.daily_record_id, ...fields },
