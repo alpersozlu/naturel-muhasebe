@@ -596,8 +596,11 @@ model MaviReceipt {
  */
 model GiftVoucherClaim {
   id       String @id @default(uuid())
-  /** Çekin EAN-13 barkodu (290 + küpür + sıra) — okutulan numara. */
-  barcode  String
+  /**
+   * Çekin EAN-13 barkodu (290 + küpür + sıra). ESKİ ÇEKLER BARKODSUZDU
+   * (sahibi, 16.11.2026) — onlarda null kalır, tutar elle girilir.
+   */
+  barcode  String?
   /** Çekin küpürü (500 / 750 / 1000). */
   amount   Decimal @db.Decimal(14, 2)
   /** Nebim'deki çek serisi (CV…) — eşleşirse doldurulur. */
@@ -608,6 +611,8 @@ model GiftVoucherClaim {
   mavi_receipt    MaviReceipt? @relation(fields: [mavi_receipt_id], references: [id])
   /** Okutulan ham fiş numarası (fiş bulunamasa da iz kalsın). */
   receipt_ref     String
+  /** Barkodsuz eski çek: tutar elle girildi. */
+  is_manual       Boolean @default(false)
 
   /** Çekin Derimod'da kullanıldığı gün (Nebim hareketinden ya da elle). */
   used_date DateTime? @db.Date

@@ -18,11 +18,12 @@ CREATE TABLE "MaviReceipt" (
 -- CreateTable
 CREATE TABLE "GiftVoucherClaim" (
     "id" TEXT NOT NULL,
-    "barcode" TEXT NOT NULL,
+    "barcode" TEXT,
     "amount" DECIMAL(14,2) NOT NULL,
     "serial" TEXT,
     "mavi_receipt_id" TEXT,
     "receipt_ref" TEXT NOT NULL,
+    "is_manual" BOOLEAN NOT NULL DEFAULT false,
     "used_date" DATE,
     "used_store_id" TEXT,
     "customer_name" TEXT,

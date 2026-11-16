@@ -37,8 +37,13 @@ describe("hediye çeki kademeleri (sahibi tablosu, 16.11.2026)", () => {
   });
   it("son kullanma: fiş tarihi + 1 ay, ay sonu taşması kırpılır", () => {
     expect(voucherDeadline("2026-11-06")).toBe("2026-12-06");
-    expect(voucherDeadline("2026-01-31")).toBe("2026-02-28");
     expect(voucherDeadline("2026-12-15")).toBe("2027-01-15");
+    expect(voucherDeadline("2026-07-31")).toBe("2026-08-31");
+  });
+  it("27.07.2026 ÖNCESİ alışverişin çeki SÜRESİZ (sahibi: o müşterilere tarih verilmedi)", () => {
+    expect(voucherDeadline("2026-07-26")).toBeNull();
+    expect(voucherDeadline("2026-01-31")).toBeNull();
+    expect(voucherDeadline("2026-07-27")).toBe("2026-08-27"); // kuralın başladığı gün dahil
   });
 });
 
@@ -81,6 +86,17 @@ describe("çek denetimi", () => {
     const r = checkVoucher({ ...base, receipt_amount: 4800 });
     expect(r.status).toBe("fail");
     expect(r.reasons[0]).toContain("5.000 ₺ altı");
+  });
+  it("eski çek (27.07 öncesi) aylar sonra kullanılsa da uygun", () => {
+    const r = checkVoucher({ ...base, receipt_amount: 8099.94, receipt_date: "2026-05-10", used_date: "2026-11-16" });
+    expect(r.status).toBe("ok");
+    expect(r.unlimited).toBe(true);
+    expect(r.deadline).toBeNull();
+  });
+  it("27.07 sonrası aynı gecikme uygunsuz", () => {
+    const r = checkVoucher({ ...base, receipt_date: "2026-08-10", used_date: "2026-11-16" });
+    expect(r.status).toBe("fail");
+    expect(r.unlimited).toBe(false);
   });
   it("iade fişi işaretlenir", () => {
     expect(checkVoucher({ ...base, receipt_refund: true }).reasons[0]).toContain("iade");

@@ -23,15 +23,22 @@ export function GiftVoucherCheck() {
   const utils = trpc.useUtils();
   const [voucher, setVoucher] = useState("");
   const [receipt, setReceipt] = useState("");
+  // Eski çeklerin barkodu yok (sahibi, 16.11.2026): tutar elle girilir.
+  const [noBarcode, setNoBarcode] = useState(false);
+  const [manualAmount, setManualAmount] = useState("");
   const [filter, setFilter] = useState<"all" | "ok" | "pending" | "fail">("all");
   const voucherRef = useRef<HTMLInputElement>(null);
   const receiptRef = useRef<HTMLInputElement>(null);
 
-  const ready = voucher.trim().length >= 8 && receipt.trim().length >= 6;
-  const preview = trpc.giftVoucher.preview.useQuery(
-    { voucher_barcode: voucher.trim(), receipt_ref: receipt.trim() },
-    { enabled: ready }
-  );
+  const manualNum = Number(manualAmount.replace(",", "."));
+  const manualOk = noBarcode && Number.isFinite(manualNum) && manualNum > 0;
+  const ready = (noBarcode ? manualOk : voucher.trim().length >= 8) && receipt.trim().length >= 6;
+  const payload = {
+    voucher_barcode: noBarcode ? null : voucher.trim(),
+    manual_amount: noBarcode ? manualNum : null,
+    receipt_ref: receipt.trim(),
+  };
+  const preview = trpc.giftVoucher.preview.useQuery(payload, { enabled: ready });
   const counts = trpc.giftVoucher.counts.useQuery();
   const list = trpc.giftVoucher.list.useQuery({ status: filter, limit: 100 });
 
@@ -40,6 +47,7 @@ export function GiftVoucherCheck() {
       toast.success(r.status === "ok" ? "Kaydedildi — çek uygun" : r.status === "pending" ? "Kaydedildi — Mavi dosyası bekleniyor" : "Kaydedildi — UYGUNSUZ olarak işaretlendi");
       setVoucher("");
       setReceipt("");
+      setManualAmount("");
       voucherRef.current?.focus();
       void utils.giftVoucher.list.invalidate();
       void utils.giftVoucher.counts.invalidate();
@@ -69,15 +77,34 @@ export function GiftVoucherCheck() {
         <CardContent className="p-6">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label className="text-xs">Hediye çeki barkodu</Label>
-              <Input
-                ref={voucherRef}
-                autoFocus
-                value={voucher}
-                onChange={(e) => setVoucher(e.target.value)}
-                placeholder="2900500000013"
-                className="font-mono text-lg"
-              />
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs">{noBarcode ? "Çekin tutarı (barkodsuz eski çek)" : "Hediye çeki barkodu"}</Label>
+                <button
+                  type="button"
+                  onClick={() => setNoBarcode((v) => !v)}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  {noBarcode ? "Barkodlu çek" : "Barkodsuz eski çek"}
+                </button>
+              </div>
+              {noBarcode ? (
+                <Input
+                  value={manualAmount}
+                  onChange={(e) => setManualAmount(e.target.value)}
+                  placeholder="500"
+                  inputMode="decimal"
+                  className="text-lg tabular-nums"
+                />
+              ) : (
+                <Input
+                  ref={voucherRef}
+                  autoFocus
+                  value={voucher}
+                  onChange={(e) => setVoucher(e.target.value)}
+                  placeholder="2900500000013"
+                  className="font-mono text-lg"
+                />
+              )}
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Mavi fişinin barkodu</Label>
@@ -87,7 +114,7 @@ export function GiftVoucherCheck() {
                 onChange={(e) => setReceipt(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && ready && p && !save.isPending) {
-                    save.mutate({ voucher_barcode: voucher.trim(), receipt_ref: receipt.trim() });
+                    save.mutate(payload);
                   }
                 }}
                 placeholder="9400000013071137"
@@ -128,7 +155,11 @@ export function GiftVoucherCheck() {
                 {p.other_vouchers_total > 0 ? (
                   <div>Bu fişe daha önce {money(p.other_vouchers_total)} ₺ çek bağlanmış.</div>
                 ) : null}
-                {p.check.deadline ? <div>Son kullanma: {dmy(p.check.deadline)}</div> : null}
+                {p.check.unlimited ? (
+                  <div>27.07.2026 öncesi alışveriş — çek <span className="font-semibold">süresiz</span>.</div>
+                ) : p.check.deadline ? (
+                  <div>Son kullanma: {dmy(p.check.deadline)}</div>
+                ) : null}
                 {p.check.reasons.map((r) => (
                   <div key={r} className="font-medium">• {r}</div>
                 ))}
@@ -136,7 +167,7 @@ export function GiftVoucherCheck() {
               <Button
                 className="mt-4"
                 disabled={save.isPending}
-                onClick={() => save.mutate({ voucher_barcode: voucher.trim(), receipt_ref: receipt.trim() })}
+                onClick={() => save.mutate(payload)}
               >
                 {save.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 Kaydet
@@ -181,7 +212,9 @@ export function GiftVoucherCheck() {
                   <li key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3">
                     <m.Icon className={`h-4 w-4 shrink-0 ${m.dot}`} />
                     <span className="w-24 font-semibold tabular-nums">{money(r.amount)} ₺</span>
-                    <span className="font-mono text-xs text-muted-foreground">{r.barcode}</span>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {r.barcode ?? (r.is_manual ? "barkodsuz" : "—")}
+                    </span>
                     <span className="min-w-0 flex-1">
                       {r.receipt ? (
                         <>

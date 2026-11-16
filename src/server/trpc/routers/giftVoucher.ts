@@ -33,16 +33,31 @@ export const giftVoucherRouter = router({
     if (!p.voucher) {
       throw new TRPCError({ code: "BAD_REQUEST", message: p.barcode_error ?? "Çek barkodu okunamadı." });
     }
-    const dup = await ctx.prisma.giftVoucherClaim.findUnique({ where: { barcode: p.voucher.barcode } });
-    if (dup) {
-      throw new TRPCError({
-        code: "CONFLICT",
-        message: `Bu çek (${p.voucher.barcode}) zaten ${iso(dup.created_at)} tarihinde kaydedilmiş.`,
+    // Barkodlu çek iki kez kaydedilemez. Barkodsuz eski çekte böyle bir
+    // kimlik yok; aynı fişe aynı tutarın ikinci kez bağlanması engellenir.
+    if (p.voucher.barcode) {
+      const dup = await ctx.prisma.giftVoucherClaim.findFirst({ where: { barcode: p.voucher.barcode } });
+      if (dup) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `Bu çek (${p.voucher.barcode}) zaten ${iso(dup.created_at)} tarihinde kaydedilmiş.`,
+        });
+      }
+    } else if (p.receipt) {
+      const dup = await ctx.prisma.giftVoucherClaim.findFirst({
+        where: { mavi_receipt_id: p.receipt.id, is_manual: true, amount: p.voucher.amount },
       });
+      if (dup) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `Bu fişe aynı tutarda barkodsuz bir çek zaten kaydedilmiş (${iso(dup.created_at)}).`,
+        });
+      }
     }
     return ctx.prisma.giftVoucherClaim.create({
       data: {
         barcode: p.voucher.barcode,
+        is_manual: p.voucher.manual,
         amount: p.voucher.amount,
         receipt_ref: input.receipt_ref.trim(),
         mavi_receipt_id: p.receipt?.id ?? null,
@@ -80,6 +95,7 @@ export const giftVoucherRouter = router({
     return rows.map((r) => ({
       id: r.id,
       barcode: r.barcode,
+      is_manual: r.is_manual,
       amount: num(r.amount),
       receipt_ref: r.receipt_ref,
       receipt: r.mavi_receipt

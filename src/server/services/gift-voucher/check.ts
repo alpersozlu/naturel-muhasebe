@@ -56,7 +56,10 @@ export async function maviSourceLoaded(prisma: PrismaClient, aroundIso: string |
 }
 
 export type ClaimInput = {
-  voucher_barcode: string;
+  /** Okutulan barkod; barkodsuz eski çekte boş. */
+  voucher_barcode?: string | null;
+  /** Barkodsuz eski çekte elle girilen küpür. */
+  manual_amount?: number | null;
   receipt_ref: string;
   used_date?: string | null;
   used_store_id?: string | null;
@@ -64,7 +67,7 @@ export type ClaimInput = {
 };
 
 export type ClaimPreview = {
-  voucher: { barcode: string; amount: number } | null;
+  voucher: { barcode: string | null; amount: number; manual: boolean } | null;
   barcode_error: string | null;
   receipt:
     | { id: string; ref: string; store_name: string; date: string; net_amount: number; is_refund: boolean }
@@ -76,12 +79,22 @@ export type ClaimPreview = {
 
 /** Kaydetmeden önce kararı hesapla (ekranda anında göstermek için). */
 export async function previewClaim(prisma: PrismaClient, input: ClaimInput): Promise<ClaimPreview> {
-  const parsed = parseVoucherBarcode(input.voucher_barcode);
+  // Barkodsuz ESKİ çek: tutar elle girilir, barkod kontrolü yapılmaz.
+  const raw = (input.voucher_barcode ?? "").trim();
+  const manualAmount = input.manual_amount ?? null;
+  const useManual = !raw && !!manualAmount;
+  const parsed = useManual
+    ? ({ ok: true as const, barcode: "", amount: manualAmount!, sequence: "" })
+    : parseVoucherBarcode(raw);
+
   const { receipt, ambiguous } = await findMaviReceipt(prisma, input.receipt_ref);
 
   const others = receipt
     ? await prisma.giftVoucherClaim.findMany({
-        where: { mavi_receipt_id: receipt.id, NOT: { barcode: parsed.ok ? parsed.barcode : "—" } },
+        where: {
+          mavi_receipt_id: receipt.id,
+          ...(parsed.ok && parsed.barcode ? { NOT: { barcode: parsed.barcode } } : {}),
+        },
         select: { amount: true },
       })
     : [];
@@ -103,7 +116,7 @@ export async function previewClaim(prisma: PrismaClient, input: ClaimInput): Pro
   const status: VoucherCheckResult["status"] = !parsed.ok || ambiguous ? "fail" : check.status;
 
   return {
-    voucher: parsed.ok ? { barcode: parsed.barcode, amount: parsed.amount } : null,
+    voucher: parsed.ok ? { barcode: useManual ? null : parsed.barcode, amount: parsed.amount, manual: useManual } : null,
     barcode_error: parsed.ok ? null : parsed.reason,
     receipt: receipt
       ? {
@@ -125,12 +138,13 @@ export async function previewClaim(prisma: PrismaClient, input: ClaimInput): Pro
 export async function recheckPending(prisma: PrismaClient): Promise<{ checked: number; resolved: number }> {
   const pending = await prisma.giftVoucherClaim.findMany({
     where: { status: "pending" },
-    select: { id: true, barcode: true, receipt_ref: true, used_date: true },
+    select: { id: true, barcode: true, amount: true, receipt_ref: true, used_date: true, is_manual: true },
   });
   let resolved = 0;
   for (const c of pending) {
     const p = await previewClaim(prisma, {
-      voucher_barcode: c.barcode,
+      voucher_barcode: c.is_manual ? null : c.barcode,
+      manual_amount: c.is_manual ? num(c.amount) : null,
       receipt_ref: c.receipt_ref,
       used_date: c.used_date ? iso(c.used_date) : null,
     });

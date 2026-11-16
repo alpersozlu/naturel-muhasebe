@@ -80,12 +80,30 @@ export function splitIntoDenominations(total: number): { parts: number[]; rest: 
   return { parts, rest: left };
 }
 
-/** Çek geçerlilik süresi — 27.07.2026'dan itibaren 1 ay (sahibi). */
-export const VOUCHER_VALID_DAYS_FROM = "2026-07-27";
+/**
+ * SÜRE KURALI (sahibi, 16.11.2026):
+ * 27.07.2026'dan İTİBAREN yapılan alışverişlerin çeki 1 ay geçerlidir.
+ * DAHA ESKİ alışverişlerden kazanılan çekler SÜRESİZDİR — o müşterilere
+ * tarih verilmemişti, sonradan süre dayatılmaz.
+ */
+export const VOUCHER_EXPIRY_RULE_FROM = "2026-07-27";
 export const VOUCHER_VALID_MONTHS = 1;
 
-/** Fiş tarihine 1 ay ekler (YYYY-MM-DD → YYYY-MM-DD). Ay sonu taşmasını kırpar. */
-export function voucherDeadline(purchaseIso: string): string {
+/** Bu alışverişin çekinin süresi var mı? (27.07.2026 öncesi: yok) */
+export function hasExpiry(purchaseIso: string): boolean {
+  return purchaseIso >= VOUCHER_EXPIRY_RULE_FROM;
+}
+
+/**
+ * Son kullanma günü: fiş tarihi + 1 ay (ay sonu taşması kırpılır).
+ * 27.07.2026 öncesi alışverişlerde süre yoktur → null.
+ */
+export function voucherDeadline(purchaseIso: string): string | null {
+  if (!hasExpiry(purchaseIso)) return null;
+  return addOneMonth(purchaseIso);
+}
+
+function addOneMonth(purchaseIso: string): string {
   const [y, m, d] = purchaseIso.split("-").map(Number) as [number, number, number];
   const target = new Date(Date.UTC(y, m - 1 + VOUCHER_VALID_MONTHS, 1));
   const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
@@ -116,7 +134,10 @@ export type VoucherCheckResult = {
   reasons: string[];
   entitlement: number;
   tier: VoucherTier | null;
+  /** Son kullanma günü; 27.07.2026 öncesi alışverişte null (süresiz). */
   deadline: string | null;
+  /** Bu çek süresiz mi (eski kampanya)? */
+  unlimited: boolean;
 };
 
 /**
@@ -137,6 +158,7 @@ export function checkVoucher(a: VoucherCheckInput): VoucherCheckResult {
           entitlement: 0,
           tier: null,
           deadline: null,
+          unlimited: false,
         }
       : {
           status: "pending",
@@ -144,6 +166,7 @@ export function checkVoucher(a: VoucherCheckInput): VoucherCheckResult {
           entitlement: 0,
           tier: null,
           deadline: null,
+          unlimited: false,
         };
   }
 
@@ -167,7 +190,14 @@ export function checkVoucher(a: VoucherCheckInput): VoucherCheckResult {
     reasons.push("Çek, fişin tarihinden ÖNCE kullanılmış.");
   }
 
-  return { status: reasons.length ? "fail" : "ok", reasons, entitlement, tier, deadline };
+  return {
+    status: reasons.length ? "fail" : "ok",
+    reasons,
+    entitlement,
+    tier,
+    deadline,
+    unlimited: a.receipt_date ? !hasExpiry(a.receipt_date) : false,
+  };
 }
 
 /**
