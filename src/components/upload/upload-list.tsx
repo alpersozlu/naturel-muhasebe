@@ -282,6 +282,7 @@ type UploadRow = {
   authenticity_json?: unknown;
   pos_slips?: PosSlip[];
   user_meta_json?: unknown;
+  parsed_data_json?: unknown;
   store_summary?: StoreSummary | null;
   bank_receipt?: BankReceipt | null;
   cheque?: Cheque | null;
@@ -551,6 +552,20 @@ export function UploadList({ storeId, date }: { storeId: string; date: string })
                 }}
                 onConfirm={() => confirmMut.mutate({ id: u.id })}
                 onRetry={() => retry.mutate({ id: u.id })}
+                onFixExpenseAmount={
+                  isAdmin && u.type === "expense" && (u.status === "parsed" || u.status === "confirmed")
+                    ? () => {
+                        const raw = window.prompt("Faturadaki doğru tutar (₺), ör. 2200 ya da 2.200,00:");
+                        if (raw == null) return;
+                        const n = Number(raw.trim().replace(/\./g, "").replace(",", "."));
+                        if (!Number.isFinite(n) || n <= 0) {
+                          toast.error("Tutar anlaşılamadı");
+                          return;
+                        }
+                        fixAmount.mutate({ id: u.id, amount: Math.round(n * 100) / 100 });
+                      }
+                    : undefined
+                }
                 onFixReceiptAmount={
                   isAdmin && u.type === "bank_receipt" && u.status !== "pending" && u.status !== "processing"
                     ? () => {
@@ -769,6 +784,7 @@ function UploadRowItem({
   onAcceptDistinct,
   onAcceptOnThisDay,
   onFixAmount,
+  onFixExpenseAmount,
   expectedDate,
 }: {
   upload: UploadRow;
@@ -794,6 +810,8 @@ function UploadRowItem({
   onAcceptDistinct?: () => void;
   onAcceptOnThisDay?: () => void;
   onFixAmount?: () => void;
+  /** Okunmuş faturanın tutarını düzelt (el yazısı yanlış okunduysa). */
+  onFixExpenseAmount?: () => void;
   expectedDate: string;
 }) {
   const meta = TYPE_META[upload.type];
@@ -901,6 +919,17 @@ function UploadRowItem({
                 onClick={onReread}
               >
                 <RefreshCw className="h-4 w-4" />
+              </Button>
+            ) : null}
+            {onFixExpenseAmount ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-xs"
+                title="Fatura tutarını elle düzelt (yönetici)"
+                onClick={onFixExpenseAmount}
+              >
+                Tutarı düzelt
               </Button>
             ) : null}
             {onFixReceiptAmount ? (
@@ -1286,12 +1315,29 @@ function ParsedFields({
     const dateStr = e.expense_date
       ? new Date(e.expense_date).toLocaleDateString("tr-TR")
       : "—";
+    // El yazısı faturada tutar birkaç yerde geçer; okumalar çelişti ya da
+    // düzeltildiyse sebebini burada söyle (16.11.2026).
+    const p = upload.parsed_data_json as { amount_note?: string | null; amount_needs_review?: boolean } | null;
     return (
-      <div className="grid grid-cols-3 gap-4 w-full">
-        <MiniField label="Tarih" value={dateStr} />
-        <MiniField label="Kategori" value={e.category} />
-        <MiniField label="Belge no" value={e.document_no && e.document_no !== "?" ? e.document_no : "—"} />
-        <MiniField label="Açıklama" value={e.description ?? "—"} />
+      <div className="w-full space-y-2">
+        <div className="grid grid-cols-3 gap-4 w-full">
+          <MiniField label="Tarih" value={dateStr} />
+          <MiniField label="Kategori" value={e.category} />
+          <MiniField label="Belge no" value={e.document_no && e.document_no !== "?" ? e.document_no : "—"} />
+          <MiniField label="Açıklama" value={e.description ?? "—"} />
+        </div>
+        {p?.amount_note ? (
+          <p
+            className={`rounded-lg px-3 py-2 text-sm ${
+              p.amount_needs_review
+                ? "bg-amber-50 text-amber-900 ring-1 ring-amber-200"
+                : "bg-muted/50 text-muted-foreground"
+            }`}
+          >
+            {p.amount_needs_review ? "⚠ " : ""}
+            {p.amount_note}
+          </p>
+        ) : null}
       </div>
     );
   }

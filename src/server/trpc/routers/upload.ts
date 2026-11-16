@@ -833,8 +833,14 @@ export const uploadRouter = router({
     .mutation(async ({ ctx, input }) => {
       const upload = await ctx.prisma.upload.findUnique({ where: { id: input.id } });
       if (!upload) throw new TRPCError({ code: "NOT_FOUND" });
-      if (upload.type !== "expense" || upload.status !== "failed") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Yalnız reddedilmiş bir fatura yüklemesi için kullanılabilir." });
+      // Reddedilen fatura (tutar okunamadı) ve OKUNMUŞ ama tutarı YANLIŞ olan
+      // fatura — ikisi de düzeltilebilir (sahibi, 16.11.2026: el yazısı
+      // faturada 2.200 ₺ 7.200 ₺ okundu, uygulamada düzeltme yolu yoktu).
+      if (upload.type !== "expense") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Yalnız fatura yüklemesi için kullanılabilir." });
+      }
+      if (upload.status === "pending" || upload.status === "processing") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Belge hâlâ okunuyor — bitmesini bekleyin." });
       }
       const meta = (upload.user_meta_json as Record<string, unknown> | null) ?? {};
       await ctx.prisma.upload.update({

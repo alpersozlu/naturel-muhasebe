@@ -22,6 +22,7 @@ import { isSapOriginal, xlsxOrigin } from "@/server/services/xlsx-origin";
 import { reconcileExtraRowsWithSap } from "./extra-rows";
 import { parseCheque } from "./parsers/cheque";
 import { reconcileReceiptAmount } from "./amount-words";
+import { reconcileExpenseAmount } from "./expense-amount";
 import {
   parseMaviSapBuffer,
   pickDay,
@@ -1156,6 +1157,8 @@ async function runCheque(upload: Upload, buffer: Buffer, cachedRaw?: unknown): P
 
 async function runExpense(upload: Upload, buffer: Buffer, cachedRaw?: unknown): Promise<void> {
   const { raw, parsed } = await parseExpense({ buffer, mimeType: upload.mime_type, cachedRaw });
+  let amountNote: string | null = null;
+  let amountNeedsReview = false;
   await stashRaw(upload.id, raw);
   if (!parsed.is_expense) {
     throw new Error(
@@ -1177,6 +1180,17 @@ async function runExpense(upload: Upload, buffer: Buffer, cachedRaw?: unknown): 
   if (typeof userMeta?.expense_amount === "number" && userMeta.expense_amount > 0) {
     parsed.amount = userMeta.expense_amount;
     parsed.currency = parsed.currency ?? "TRY";
+  } else {
+    // EL YAZISI FATURA: tutar belgede 2–3 yerde geçer (kalem, ara toplam,
+    // genel toplam). Tek okumaya güvenme — yerleri karşılaştır, çoğunluk
+    // kazansın (16.11.2026: 2.200 ₺'lik terzi faturası 7.200 okunmuştu).
+    const rec = reconcileExpenseAmount(parsed);
+    if (rec.amount != null) parsed.amount = rec.amount;
+    if (raw && typeof raw === "object") {
+      (raw as Record<string, unknown>).amount_reconciliation = rec;
+    }
+    amountNote = rec.note;
+    amountNeedsReview = rec.needs_review;
   }
   if (parsed.amount === null) {
     throw new Error(
@@ -1246,7 +1260,7 @@ async function runExpense(upload: Upload, buffer: Buffer, cachedRaw?: unknown): 
     update: fields,
     create: { upload_id: upload.id, daily_record_id: upload.daily_record_id, ...fields },
   });
-  await markParsed(upload.id, raw, parsed);
+  await markParsed(upload.id, raw, { ...parsed, amount_note: amountNote, amount_needs_review: amountNeedsReview });
   // Sahibi bu faturanın fotoğrafını daha önce "şirket faturası" saydıysa şimdi
   // mağaza faturasına döner (masraf muhasebesi, 19.10.2026). Hata yüklemeyi bozmaz.
   const { relinkInvoicesForExpense } = await import("@/server/services/masraf/invoices");

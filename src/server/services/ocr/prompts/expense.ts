@@ -45,6 +45,7 @@ Eğer fatura/makbuz DEĞİLSE:
   "is_expense": false,
   "rejection_reason": "Bu bir fatura/makbuz gibi görünmüyor — [kısa açıklama]. Lütfen geçerli bir fatura veya makbuz yükleyin.",
   "vendor": null, "expense_date": null, "expense_date_raw": null, "document_no": null, "amount": null,
+  "amount_raw": null, "amount_in_words": null, "line_total": null, "subtotal": null, "grand_total": null, "amount_ambiguous": false,
   "vat_rate": null, "vat_included": true,
   "category": "other", "description": null, "currency": "TRY"
 }
@@ -59,6 +60,12 @@ Eğer fatura/makbuz İSE:
   "expense_date_raw": "belgedeki tarih HARFİYEN, olduğu gibi (ayraçlarıyla; iki haneli yılsa iki haneli) veya null",
   "document_no": "fatura/fiş SERİ-SIRA NUMARASI — başlıkta 'FATURA' yanındaki basılı numara (örn. \"1419\"), fiş no, belge no; el yazısı değil BASILI numara; yoksa null",
   "amount": "ondalık sayı veya null (KDV DAHİL toplam ödenen tutar)",
+  "amount_raw": "tutarın belgedeki hâli, veya null",
+  "amount_in_words": "yazıyla tutar satırı aynen, veya null",
+  "line_total": "kalem satırındaki tutar, veya null",
+  "subtotal": "ARA TOPLAM, veya null",
+  "grand_total": "G. TOPLAM / GENEL TOPLAM, veya null",
+  "amount_ambiguous": "rakam okunaksızsa true, net ise false",
   "vat_rate": "ondalık sayı veya null (KDV oranı, %18 ise 18, %20 ise 20)",
   "vat_included": true,
   "category": "rent | electricity | water | internet | stationery | cleaning | maintenance | salary | bonus | supplies | food | marketing | labor | tailor | glazier | other",
@@ -86,9 +93,29 @@ Kategori tahmin rehberi (vendor adına bakarak otomatik seç):
 
 Tutar eşleştirme:
 - "GENEL TOPLAM" / "TOPLAM" / "ÖDENECEK" → amount (KDV dahil)
+- Ayrıca tutarın geçtiği HER YERİ ayrı ayrı yaz: kalem satırındaki "TUTARI"
+  → line_total · "ARA TOPLAM" → subtotal · "G. TOPLAM"/"GENEL TOPLAM"
+  → grand_total · "YALNIZ (Yazı ile)" satırı → amount_in_words ·
+  rakamın yazıldığı hâli (ör "=2200=") → amount_raw
 - "FATURA 1419" / "No:" / "Seri-Sıra No" / "Fiş No" / "Belge No" → document_no (basılı numara, aynen)
 - "KDV ORANI" / "KDV %" → vat_rate
 - "Fatura Tarihi" → expense_date
+
+═══════════════════════════════════════════════════════════════
+EL YAZISI TUTAR — ÇOK SIK HATA, DİKKAT
+═══════════════════════════════════════════════════════════════
+KKTC'de terzi, camcı, nakliyeci gibi esnaf EL YAZISI fatura keser. Aynı tutar
+belgede 2–3 yerde geçer (kalem satırı, ARA TOPLAM, G. TOPLAM). ÜÇÜNÜ DE
+AYRI AYRI OKU ve yaz; birbirini doğrularlar.
+
+Sık karışan rakamlar: 2↔7, 1↔7, 3↔8, 5↔6, 0↔6, 4↔9.
+Tutarın üstünü çizen uzun kalem izi, rakamın başına fazladan bir çizgi
+ekleyip 2'yi 7 gibi gösterebilir (13.11.2026 Derimod Lefkoşa: 2.200 ₺'lik
+terzi faturası 7.200 ₺ okundu).
+
+Rakamı okurken birden çok ihtimal varsa ve hangisi olduğundan emin
+DEĞİLSEN: en olası değeri amount'a yaz, "amount_ambiguous" alanını true yap
+ve check_notes'ta hangi rakamların karıştığını söyle.
 
 ═══════════════════════════════════════════════════════════════
 TARİH OKUMA — ÇOK SIK HATA, DİKKAT
