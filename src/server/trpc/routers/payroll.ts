@@ -45,6 +45,7 @@ import {
 } from "@/server/services/payroll/talimat";
 import { batchChannelError, batchTitle, dayPaidBase, inBatchList, periodLabel, workedDaysInPeriod } from "@/server/services/payroll/rules";
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
+import { partialBasisForLine } from "@/server/services/payroll/partial-period";
 import { carryForwardCore } from "@/server/services/payroll/carry";
 import {
   PAYROLL_CASH_CATEGORIES,
@@ -694,12 +695,17 @@ export const payrollRouter = router({
     }),
 
     get: adminProcedure.input(idSchema).query(async ({ ctx, input }) => {
-      const l = await ctx.prisma.payrollLine.findUnique({ where: { id: input.id }, include: lineInclude });
+      const l = await ctx.prisma.payrollLine.findUnique({ where: { id: input.id }, include: { ...lineInclude, period: true } });
       if (!l) return null;
       const sm = await ctx.prisma.payrollStoreMonth.findUnique({
         where: { period_id_store_id: { period_id: l.period_id, store_id: l.store_id } },
       });
-      return computeFromLine(l, { revenue: num(sm?.revenue), target: num(sm?.target) });
+      const partial = await partialBasisForLine(
+        ctx.prisma,
+        { id: l.id, store_id: l.store_id, commission_profile: l.commission_profile, employee: l.employee, store: l.store, period: l.period },
+        num(sm?.target)
+      );
+      return computeFromLine(l, { revenue: num(sm?.revenue), target: num(sm?.target) }, partial);
     }),
   }),
 
@@ -1201,7 +1207,12 @@ export const payrollRouter = router({
       const sm = await ctx.prisma.payrollStoreMonth.findUnique({
         where: { period_id_store_id: { period_id: l.period_id, store_id: l.store_id } },
       });
-      const line = computeFromLine(l, { revenue: num(sm?.revenue), target: num(sm?.target) });
+      const partial = await partialBasisForLine(
+        ctx.prisma,
+        { id: l.id, store_id: l.store_id, commission_profile: l.commission_profile, employee: l.employee, store: l.store, period: l.period },
+        num(sm?.target)
+      );
+      const line = computeFromLine(l, { revenue: num(sm?.revenue), target: num(sm?.target) }, partial);
       return {
         line,
         period: { id: l.period.id, year: l.period.year, month: l.period.month, label: periodLabel(l.period.year, l.period.month), status: l.period.status },

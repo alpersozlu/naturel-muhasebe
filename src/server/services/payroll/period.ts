@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { computeLine, type EntryLike, type LineCalc, type LineInput } from "./compute";
 import { dayPaidBase, periodLabel, workedDaysInPeriod } from "./rules";
 import { applyLoanInstallments } from "./loans";
+import { partialBasesForPeriod } from "./partial-period";
 
 export const num = (v: Prisma.Decimal | number | null | undefined): number | null =>
   v == null ? null : Number(v);
@@ -122,10 +123,20 @@ export type ComputedLine = {
 
 export function computeFromLine(
   l: LineWithRels,
-  store: { revenue: number | null; target: number | null }
+  store: { revenue: number | null; target: number | null },
+  /**
+   * Kısmi ay (ay içinde başlayan/ayrılan müdür ve müdür yrd.): komisyon
+   * mağazanın AY TOPLAMI yerine kişinin çalıştığı aralığın cirosuyla ve
+   * aynı aralığa oranlanmış hedefle hesaplanır (bkz. partial-period.ts).
+   */
+  partial?: { revenue: number; target: number | null; note: string } | null
 ): ComputedLine {
   const input = toLineInput(l);
-  const calc = computeLine(input, store, l.entries.map(toEntryLike));
+  const basis = partial ? { revenue: partial.revenue, target: partial.target } : store;
+  const calc = computeLine(input, basis, l.entries.map(toEntryLike));
+  if (partial && calc.commission.explanation.length > 0 && !calc.commission.overridden) {
+    calc.commission.explanation = [partial.note, ...calc.commission.explanation];
+  }
   const e = l.employee;
   return {
     id: l.id,
@@ -260,13 +271,31 @@ export async function loadPeriodView(prisma: PrismaClient, periodId: string): Pr
   });
   const sm = new Map(period.store_months.map((s) => [s.store_id, s]));
 
+  // Kısmi ay çalışan müdür / müdür yrd.: komisyon tabanı kendi aralığından.
+  const partials = await partialBasesForPeriod(
+    prisma,
+    { id: period.id, year: period.year, month: period.month },
+    period.lines.map((l) => ({
+      id: l.id,
+      store_id: l.store_id,
+      commission_profile: l.commission_profile,
+      employee: { start_date: l.employee.start_date, end_date: l.employee.end_date },
+    })),
+    new Map(
+      stores.map((s) => [
+        s.id,
+        { name: s.name, brand: s.brand.name, target: num(sm.get(s.id)?.target) },
+      ])
+    )
+  );
+
   const blocks: StoreBlock[] = stores
     .map((s) => {
       const m = sm.get(s.id);
       const storeIn = { revenue: num(m?.revenue), target: num(m?.target) };
       const lines = period.lines
         .filter((l) => l.store_id === s.id)
-        .map((l) => computeFromLine(l, storeIn))
+        .map((l) => computeFromLine(l, storeIn, partials.get(l.id) ?? null))
         .sort(
           (a, b) =>
             positionRank(a.position) - positionRank(b.position) ||
