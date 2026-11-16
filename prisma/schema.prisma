@@ -171,6 +171,8 @@ model Store {
 
   @@index([brand_id])
   @@index([deleted_at])
+  mavi_receipts        MaviReceipt[]
+  gift_voucher_uses    GiftVoucherClaim[] @relation("GiftVoucherUsedStore")
 }
 
 // Mağaza Karnesi aylık ciro hedefi (Derimod/NEBIM). Admin Analiz sekmesinden
@@ -545,6 +547,91 @@ model Cheque {
   updated_at DateTime @updatedAt
 
   @@index([daily_record_id])
+}
+
+/**
+ * MAVİ FİŞİ (SAP bayi gün sonu dosyasındaki tek fiş).
+ *
+ * `ref` = "Referans No" = Mavi bilgi fişindeki **Fatura No** = fişin altındaki
+ * BARKOD (16.11.2026 mağazada okutularak doğrulandı: 9400000013071137).
+ * Hediye çeki denetimi bu anahtarla çalışır: çekle gelen fişin gerçekten var
+ * olduğu, tutarı ve tarihi buradan okunur — fotoğraftan değil.
+ *
+ * Her bayi dosyası yüklendiğinde upsert edilir; aynı fiş birkaç dosyada
+ * geçebilir (fiş kendi gününden sonraki bir dosyada da çıkabiliyor).
+ */
+model MaviReceipt {
+  id         String   @id @default(uuid())
+  store_id   String
+  store      Store    @relation(fields: [store_id], references: [id])
+  store_code String? // 9400 / 9401 / 9402 / 9403
+  /** Belge Tarihi — fişin kendi günü (dosyanın günü değil). */
+  date       DateTime @db.Date
+  ref        String
+  net_amount Decimal  @db.Decimal(14, 2)
+  is_refund  Boolean  @default(false)
+  line_count Int      @default(0)
+  /** Hangi yüklemeden geldi (iz). */
+  upload_id  String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  gift_vouchers GiftVoucherClaim[]
+
+  @@unique([store_id, ref])
+  @@index([ref])
+  @@index([date])
+}
+
+/**
+ * HEDİYE ÇEKİ ↔ MAVİ FİŞİ EŞLEŞMESİ (sahibi, 16.11.2026).
+ *
+ * Müşteri Mavi'de 5.000 ₺+ alışveriş yapınca Derimod'da harcanacak çek
+ * kazanır. Çek Nebim'de okutulup indirim olarak düşer (satış ENGELLENMEZ);
+ * burada yapılan iş SONRADAN denetimdir: çek doğru fişten mi kazanılmış,
+ * kademe doğru mu, 1 aylık süre aşılmış mı, aynı fiş iki kez kullanılmış mı.
+ *
+ * Kademeler ve karar mantığı: src/lib/gift-voucher-rules.ts
+ */
+model GiftVoucherClaim {
+  id       String @id @default(uuid())
+  /** Çekin EAN-13 barkodu (290 + küpür + sıra) — okutulan numara. */
+  barcode  String
+  /** Çekin küpürü (500 / 750 / 1000). */
+  amount   Decimal @db.Decimal(14, 2)
+  /** Nebim'deki çek serisi (CV…) — eşleşirse doldurulur. */
+  serial   String?
+
+  /** Mavi fişi — okutulan fatura no ile bulunur; bulunamazsa null + ref saklanır. */
+  mavi_receipt_id String?
+  mavi_receipt    MaviReceipt? @relation(fields: [mavi_receipt_id], references: [id])
+  /** Okutulan ham fiş numarası (fiş bulunamasa da iz kalsın). */
+  receipt_ref     String
+
+  /** Çekin Derimod'da kullanıldığı gün (Nebim hareketinden ya da elle). */
+  used_date DateTime? @db.Date
+  used_store_id String?
+  used_store    Store?  @relation("GiftVoucherUsedStore", fields: [used_store_id], references: [id])
+  customer_name String?
+
+  /** ok | pending | fail — gift-voucher-rules.checkVoucher sonucu. */
+  status  String
+  reasons String[] @default([])
+
+  /** Yönetici "bu çeki kabul ettim" derse (gerekçesiyle). */
+  overridden_at   DateTime?
+  overridden_by   String?
+  override_note   String?
+
+  entered_by      String?
+  entered_by_name String?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  @@unique([barcode])
+  @@index([receipt_ref])
+  @@index([status])
 }
 
 model Expense {

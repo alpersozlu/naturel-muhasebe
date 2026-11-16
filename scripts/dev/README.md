@@ -40,6 +40,7 @@ salt okunur uca (`/api/jobs/kolayik`) yönlenir (anahtar yalnız Vercel'de).
 - `merge_group_dry_run.mts` — kasa birleşmesi (DayMergeGroup), geri alınan işlemde.
 - `payroll_restore_overtime.mts` — AuditLog'dan önceki değeri bulup geri yazma.
 - `expense_accept_once.mts` — tarih kuralına takılan masrafı tek seferlik kabul (yükleme kimliği içinde).
+- `mavi_receipts_backfill.mts` — geçmiş Mavi SAP dosyalarından fişleri (Referans No + tutar) `MaviReceipt`'e doldurur; hediye çeki denetiminin dayanağı. Yalnız okur + ekler (skipDuplicates).
 - `dom-sim/extras-grid.dom.test.tsx` — Prim ve mesai girişi tablosu (sütun sırası, sebep etiketleri, Ödeme 2 dökümü).
 - `dom-sim/payroll-workspace.dom.test.tsx` — yeni Maaşlar sayfası (v2): kişi paneli kaydı, toplu kesinti, ciro ve hedefler, adımlar arası geçiş. Gerçek dönem görünümü dökümüyle çalışır (`loadPeriodView` + `performance.get` + `periods.list` → `vpreview/data.json`).
 - `dom-sim/*.dom.test.tsx` — gerçek React bileşenlerini jsdom'da sürme (giriş gerektiren ekranlar

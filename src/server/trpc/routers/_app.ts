@@ -10,6 +10,7 @@ import { cashAdvanceRouter } from "./cashAdvance";
 import { corporatePurchaseRouter } from "./corporatePurchase";
 import { invoicedExpenseRouter } from "./invoicedExpense";
 import { verificationRouter } from "./verification";
+import { giftVoucherRouter } from "./giftVoucher";
 import { dailyRecordRouter } from "./dailyRecord";
 import { analyticsRouter } from "./analytics";
 import { historyRouter } from "./history";
@@ -45,6 +46,7 @@ export const appRouter = router({
   corporatePurchase: corporatePurchaseRouter,
   invoicedExpense: invoicedExpenseRouter,
   verification: verificationRouter,
+  giftVoucher: giftVoucherRouter,
   dailyRecord: dailyRecordRouter,
   analytics: analyticsRouter,
   history: historyRouter,

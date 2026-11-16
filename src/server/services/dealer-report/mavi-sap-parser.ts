@@ -139,6 +139,19 @@ export type ParsedDealerDay = {
   reps: ParsedDealerRep[];
 };
 
+/**
+ * Tek bir FİŞ — "Referans No" Mavi bilgi fişindeki Fatura No'dur ve fişin
+ * altındaki barkod da onu taşır (16.11.2026 mağazada okutularak doğrulandı).
+ * Hediye çeki kontrolü bu anahtarla çalışır.
+ */
+export type ParsedDealerReceipt = {
+  ref: string;
+  date: Date;
+  net: number;
+  is_refund: boolean;
+  line_count: number;
+};
+
 export type ParsedDealerReport = {
   source: "sap";
   store_code: string | null;
@@ -146,6 +159,8 @@ export type ParsedDealerReport = {
   source_date_min: Date | null;
   source_date_max: Date | null;
   days: ParsedDealerDay[];
+  /** Fiş düzeyi — hediye çeki denetimi için saklanır. */
+  receipts: ParsedDealerReceipt[];
   totals: {
     net_sales: number;
     loyalty: number;
@@ -448,6 +463,14 @@ export function parseMaviSapBuffer(buffer: Buffer): ParsedDealerReport {
     source_date_min: days[0]?.date ?? null,
     source_date_max: days[days.length - 1]?.date ?? null,
     days,
+    receipts: Array.from(receipts.entries()).map(([key, r]) => ({
+      // anahtar: "store|gün|ref" — ref'i geri al (gün ve mağaza ayrı alanlarda)
+      ref: key.slice(key.lastIndexOf("|") + 1),
+      date: new Date(`${r.dayKey}T00:00:00.000Z`),
+      net: round2(r.net),
+      is_refund: r.isRefund,
+      line_count: r.lines,
+    })),
     totals: {
       net_sales: round2(days.reduce((s, d) => s + d.net_sales, 0)),
       loyalty: round2(days.reduce((s, d) => s + d.loyalty, 0)),

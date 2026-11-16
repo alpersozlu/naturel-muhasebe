@@ -17,6 +17,7 @@ import { resolveBankFromTerminalHistory } from "./bank-from-terminal";
 import { applyAuthenticity } from "@/server/services/authenticity/apply";
 import { forwardDealerReport } from "@/server/services/mavi-iskonto/forward";
 import { saveReportReps } from "@/server/services/dealer-report/daily-reps";
+import { saveMaviReceipts } from "@/server/services/dealer-report/mavi-receipts";
 import { isSapOriginal, xlsxOrigin } from "@/server/services/xlsx-origin";
 import { reconcileExtraRowsWithSap } from "./extra-rows";
 import { parseCheque } from "./parsers/cheque";
@@ -1559,6 +1560,13 @@ async function runDealerDailyReport(upload: Upload, buffer: Buffer, opts: { skip
     });
   } catch (e) {
     console.error("[OCR] dealer report: per-salesperson rows could not be saved", e);
+  }
+
+  // Fiş düzeyi: hediye çeki denetiminin dayanağı (ref = fişin barkodu).
+  try {
+    await saveMaviReceipts(prisma, { storeId: dr.store_id, report, uploadId: upload.id });
+  } catch (e) {
+    console.error("[OCR] dealer report: Mavi fişleri kaydedilemedi", e);
   }
 
   // The summary may already be on file with the two look-alike rows swapped.
