@@ -1,163 +1,70 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { toast } from "sonner";
-import { Ticket, Loader2, Check } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
-import { tr } from "date-fns/locale";
+import { Ticket } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { MoneyInput } from "@/components/ui/money-input";
-import { Label } from "@/components/ui/label";
-
-const TRY_FORMATTER = new Intl.NumberFormat("tr-TR", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
-function fmt(n: number): string {
-  return TRY_FORMATTER.format(n);
-}
-
-function num(v: unknown): number {
-  if (v === null || v === undefined) return 0;
-  if (typeof v === "object" && v !== null && "toNumber" in v) {
-    return (v as { toNumber: () => number }).toNumber();
-  }
-  return Number(v);
-}
+import { VoucherScan, VOUCHER_STATUS, money } from "@/components/gift-voucher/voucher-scan";
 
 /**
- * MAVİ HEDİYE ÇEKİ — sadece Derimod mağazalarında görünür.
- * Mavi'de yüksek alışveriş yapan müşterilere verilen, Derimod'da kullanılan
- * hediye çekleri. KASA İLE ALAKASI YOKTUR — sadece istatistik amaçlı.
+ * MAVİ HEDİYE ÇEKİ — yalnız Derimod mağazalarında görünür.
+ *
+ * Mavi'de 5.000 ₺+ alışveriş yapan müşteriye verilen, Derimod'da harcanan çek.
+ * KASAYI ETKİLEMEZ, istatistiktir. Sahibi (16.11.2026): "elle yazma bitti" —
+ * günün toplamı artık okutulan çeklerden hesaplanır. Barkodsuz eski çekte
+ * yalnız tutar elle girilir; Mavi fişi yine okutulur.
  */
-export function MaviGiftVoucherCard({
-  storeId,
-  date,
-}: {
-  storeId: string;
-  date: string;
-}) {
+export function MaviGiftVoucherCard({ storeId, date }: { storeId: string; date: string }) {
   const disabled = !storeId || !date;
-  const utils = trpc.useUtils();
-
-  const [amount, setAmount] = useState<number | undefined>(undefined);
-  const [note, setNote] = useState<string>("");
-
-  const { data: existing, isLoading } =
-    trpc.dailyRecord.getMaviGiftVoucher.useQuery(
-      { store_id: storeId, date },
-      { enabled: !disabled }
-    );
-
-  useEffect(() => {
-    if (existing && existing.mavi_gift_voucher_try !== null) {
-      setAmount(num(existing.mavi_gift_voucher_try));
-      setNote(existing.mavi_gift_voucher_note ?? "");
-    } else {
-      setAmount(undefined);
-      setNote("");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existing?.mavi_gift_voucher_at, storeId, date]);
-
-  const save = trpc.dailyRecord.setMaviGiftVoucher.useMutation({
-    onSuccess: () => {
-      toast.success("Mavi hediye çeki kaydedildi");
-      utils.dailyRecord.entriesForStoreDate.invalidate({ store_id: storeId, date });
-      utils.dailyRecord.getMaviGiftVoucher.invalidate({
-        store_id: storeId,
-        date,
-      });
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const n = amount ?? NaN;
-    if (!Number.isFinite(n) || n < 0) {
-      toast.error("Geçerli bir tutar gir");
-      return;
-    }
-    save.mutate({
-      store_id: storeId,
-      date,
-      amount: n,
-      note: note.trim() || undefined,
-    });
-  };
-
-  const hasExisting = existing?.mavi_gift_voucher_try !== null && !!existing;
+  const day = trpc.giftVoucher.dayTotal.useQuery({ store_id: storeId, date }, { enabled: !disabled });
+  const list = trpc.giftVoucher.list.useQuery(
+    { status: "all", from: date, to: date, limit: 50 },
+    { enabled: !disabled }
+  );
+  const mine = (list.data ?? []).filter((r) => r.used_date === date);
 
   return (
-    <Card className={`border-blue-200/70 ${disabled ? "opacity-50" : ""}`}>
-      <CardContent className="p-5">
-        <div className="h-12 w-12 rounded-xl flex items-center justify-center bg-blue-50 text-blue-600 mb-3">
-          <Ticket className="h-6 w-6" />
-        </div>
-        <div className="font-medium mb-1">Mavi Hediye Çeki</div>
-        <div className="text-xs text-muted-foreground mb-3">
-          {disabled
-            ? "Önce mağaza ve tarih seç"
-            : "Mavi'den gelen, Derimod'da kullanılan hediye çeki (sadece istatistik — kasayı etkilemez)"}
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <Label htmlFor="mavi-gift-amount" className="text-xs">
-              Tutar (TL)
-            </Label>
-            <MoneyInput
-              id="mavi-gift-amount"
-              placeholder="0,00"
-              value={amount}
-              onChange={setAmount}
-              disabled={disabled || save.isPending}
-            />
+    <Card>
+      <CardContent className="p-6">
+        <div className="mb-4 flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+            <Ticket className="h-5 w-5" />
           </div>
-
-          <div>
-            <Label htmlFor="mavi-gift-note" className="text-xs">
-              Not (opsiyonel)
-            </Label>
-            <Input
-              id="mavi-gift-note"
-              type="text"
-              placeholder="Müşteri, kampanya detayı..."
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              disabled={disabled || save.isPending}
-              maxLength={300}
-            />
+          <div className="min-w-0 flex-1">
+            <div className="text-base font-semibold leading-tight">Mavi Hediye Çeki</div>
+            <div className="mt-0.5 text-sm text-muted-foreground">
+              Çeki ve müşterinin getirdiği Mavi fişini okut; kademe, süre ve mükerrer kullanım kendiliğinden kontrol
+              edilir. Kasayı etkilemez.
+            </div>
           </div>
+          {day.data && day.data.count > 0 ? (
+            <div className="shrink-0 text-right">
+              <div className="text-lg font-semibold tabular-nums">{money(day.data.total)} ₺</div>
+              <div className="text-xs text-muted-foreground">{day.data.count} çek</div>
+            </div>
+          ) : null}
+        </div>
 
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={disabled || save.isPending || isLoading}
-          >
-            {save.isPending ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : hasExisting ? (
-              <Check className="h-4 w-4 mr-2" />
-            ) : null}
-            {hasExisting ? "Güncelle" : "Kaydet"}
-          </Button>
-        </form>
+        <VoucherScan usedStoreId={storeId} usedDate={date} disabled={disabled} />
 
-        {hasExisting && existing?.mavi_gift_voucher_at ? (
-          <div className="mt-3 pt-3 border-t text-[11px] text-muted-foreground flex items-center gap-1.5">
-            <Check className="h-3 w-3 text-emerald-600" />
-            {fmt(num(existing.mavi_gift_voucher_try))} ₺ ·{" "}
-            {formatDistanceToNow(new Date(existing.mavi_gift_voucher_at), {
-              addSuffix: true,
-              locale: tr,
+        {mine.length > 0 ? (
+          <ul className="mt-4 space-y-1.5 border-t pt-3 text-sm">
+            {mine.map((r) => {
+              const m = VOUCHER_STATUS[r.status];
+              return (
+                <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <m.Icon className={`h-4 w-4 shrink-0 ${m.dot}`} />
+                  <span className="font-semibold tabular-nums">{money(r.amount)} ₺</span>
+                  <span className="font-mono text-xs text-muted-foreground">{r.barcode ?? "barkodsuz"}</span>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                    {r.receipt ? `${r.receipt.store_name} · ${money(r.receipt.net_amount)} ₺` : `fiş ${r.receipt_ref}`}
+                  </span>
+                  {r.reasons.length > 0 ? (
+                    <span className="w-full text-xs text-rose-700">{r.reasons.join(" · ")}</span>
+                  ) : null}
+                </li>
+              );
             })}
-          </div>
+          </ul>
         ) : null}
       </CardContent>
     </Card>

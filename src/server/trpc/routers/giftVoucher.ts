@@ -9,8 +9,37 @@ import {
 } from "@/lib/zod-schemas/gift-voucher";
 import { previewClaim, recheckPending } from "@/server/services/gift-voucher/check";
 import { isAdmin } from "@/lib/auth/permissions";
+import type { PrismaClient } from "@prisma/client";
+import { getOrCreateDailyRecord } from "@/server/services/daily-record";
+type PrismaContext = PrismaClient;
+import { z } from "zod";
 
 const claimAudited = withAudit("GiftVoucherClaim");
+
+/**
+ * O günün okutulmuş çek toplamını DailyRecord'a yazar (Mavi Hediye Çeki —
+ * yalnız istatistik, kasayı etkilemez). Gün kilitliyse dokunmaz.
+ */
+async function syncDayTotal(prisma: PrismaContext, storeId: string, dateIso: string): Promise<void> {
+  const day = new Date(`${dateIso}T00:00:00.000Z`);
+  // Gün kaydı henüz yoksa açılır (diğer kartlardaki davranış); "satış olmadı"
+  // diye kapatılmış güne çek yazılmaz, getOrCreateDailyRecord reddeder.
+  const dr = await getOrCreateDailyRecord(prisma, storeId, dateIso);
+  if (dr.status === "locked") return;
+  const g = await prisma.giftVoucherClaim.aggregate({
+    where: { used_store_id: storeId, used_date: day },
+    _sum: { amount: true },
+    _count: true,
+  });
+  await prisma.dailyRecord.update({
+    where: { id: dr.id },
+    data: {
+      mavi_gift_voucher_try: num(g._sum.amount),
+      mavi_gift_voucher_note: `${g._count} çek okutuldu`,
+      mavi_gift_voucher_at: new Date(),
+    },
+  });
+}
 const num = (d: { toNumber(): number } | null | undefined) => d?.toNumber() ?? 0;
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const todayIso = () =>
@@ -54,7 +83,7 @@ export const giftVoucherRouter = router({
         });
       }
     }
-    return ctx.prisma.giftVoucherClaim.create({
+    const created = await ctx.prisma.giftVoucherClaim.create({
       data: {
         barcode: p.voucher.barcode,
         is_manual: p.voucher.manual,
@@ -70,6 +99,10 @@ export const giftVoucherRouter = router({
         entered_by_name: ctx.user.full_name ?? ctx.user.email,
       },
     });
+    // Günün Mavi hediye çeki toplamı artık ELLE yazılmıyor (sahibi,
+    // 16.11.2026): okutulan çeklerden hesaplanıp güne yazılır.
+    if (input.used_store_id) await syncDayTotal(ctx.prisma, input.used_store_id, usedDate);
+    return created;
   }),
 
   list: protectedProcedure.input(giftVoucherListSchema).query(async ({ ctx, input }) => {
@@ -116,6 +149,19 @@ export const giftVoucherRouter = router({
       created_at: r.created_at,
     }));
   }),
+
+  /** Bir Derimod mağazasının o günkü okutulmuş çek toplamı (Mavi Hediye Çeki kartı). */
+  dayTotal: protectedProcedure
+    .input(z.object({ store_id: z.string().uuid(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ ctx, input }) => {
+      const day = new Date(`${input.date}T00:00:00.000Z`);
+      const g = await ctx.prisma.giftVoucherClaim.aggregate({
+        where: { used_store_id: input.store_id, used_date: day },
+        _sum: { amount: true },
+        _count: true,
+      });
+      return { total: num(g._sum.amount), count: g._count };
+    }),
 
   counts: protectedProcedure.query(async ({ ctx }) => {
     const g = await ctx.prisma.giftVoucherClaim.groupBy({ by: ["status"], _count: true, _sum: { amount: true } });
