@@ -46,6 +46,7 @@ import {
 import { batchChannelError, batchTitle, dayPaidBase, inBatchList, periodLabel, workedDaysInPeriod } from "@/server/services/payroll/rules";
 import { applyLoanToOpenPeriods } from "@/server/services/payroll/loans";
 import { partialBasisForLine } from "@/server/services/payroll/partial-period";
+import { pendingAdvanceRequests } from "@/server/services/payroll/advance-requests";
 import { carryForwardCore } from "@/server/services/payroll/carry";
 import {
   PAYROLL_CASH_CATEGORIES,
@@ -1114,6 +1115,13 @@ export const payrollRouter = router({
   }),
 
   // ── Kasadan verilen avanslar (DocuFlow günlük kayıtları) ──────────────────
+  /** Onaylı ama henüz ödenmemiş avans talepleri (Avans adımındaki bekleyenler). */
+  advanceRequests: router({
+    pending: adminProcedure.input(periodIdSchema).query(({ ctx, input }) =>
+      pendingAdvanceRequests(ctx.prisma, input.period_id)
+    ),
+  }),
+
   cashAdvances: router({
     suggest: adminProcedure.input(periodIdSchema).query(async ({ ctx, input }) => {
       const period = await ctx.prisma.payrollPeriod.findUniqueOrThrow({ where: { id: input.period_id } });

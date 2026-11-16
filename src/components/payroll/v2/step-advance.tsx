@@ -49,6 +49,8 @@ export function StepAdvance({
         </Button>
       </StepHeader>
 
+      <PendingRequests periodId={data.period.id} closed={closed} onBatch={onBatch} />
+
       <CashAdvanceSuggestions periodId={data.period.id} onDone={onChanged} />
 
       <section className="overflow-hidden rounded-2xl border bg-card shadow-xs">
@@ -100,6 +102,94 @@ export function StepAdvance({
 
       <BatchList data={data} kinds={["advance"]} title="Avans talimatları ve listeleri" onChanged={onChanged} />
     </div>
+  );
+}
+
+const CHANNEL_LABEL: Record<string, { ad: string; buton: string }> = {
+  garanti: { ad: "Garanti", buton: "Garanti talimatı" },
+  ziraat: { ad: "Ziraat", buton: "Ziraat listesi" },
+  cash: { ad: "Nakit", buton: "Nakit listesi" },
+};
+
+/**
+ * ONAYLI AMA ÖDENMEMİŞ TALEPLER (sahibi, 16.11.2026: "İK'da onaylandı ama
+ * talimat verilip para hesaplara yatmadı"). Onay ödeme değildir; bu liste
+ * aradaki boşluğu ana ekranda gösterir, talimat düğmeleri hemen yanında.
+ */
+function PendingRequests({
+  periodId,
+  closed,
+  onBatch,
+}: {
+  periodId: string;
+  closed: boolean;
+  onBatch: (c: BatchChoice) => void;
+}) {
+  const q = trpc.payroll.advanceRequests.pending.useQuery({ period_id: periodId });
+  if (q.isLoading || !q.data?.ok || q.data.rows.length === 0) return null;
+  const rows = q.data.rows;
+  const byChannel = new Map<string, typeof rows>();
+  for (const r of rows) byChannel.set(r.channel, [...(byChannel.get(r.channel) ?? []), r]);
+  const eksikBanka = rows.filter((r) => r.channel !== "cash" && !r.has_bank_details);
+  return (
+    <section className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/50">
+      <header className="flex flex-wrap items-baseline gap-3 px-5 py-3.5">
+        <h3 className="font-semibold tracking-tight text-amber-950">
+          Onaylandı, henüz ödenmedi ({rows.length} kişi)
+        </h3>
+        <span className="ml-auto text-sm text-amber-900/80">
+          toplam <b className="text-base font-semibold tabular-nums text-amber-950">{money(q.data.total)} ₺</b>
+        </span>
+        <p className="w-full text-sm text-amber-900/80">
+          {q.data.source === "naturel_ik" ? "Naturel İK" : "Kolay İK"}&apos;da onayladığınız talepler. Para ancak talimat
+          gönderilince yatar; avans o zaman maaştan düşer.
+        </p>
+      </header>
+      <div className="divide-y divide-amber-200/70 border-t border-amber-200/70 bg-card">
+        {Array.from(byChannel.entries()).map(([ch, list]) => {
+          const meta = CHANNEL_LABEL[ch];
+          const toplam = list.reduce((s, r) => s + r.amount, 0);
+          return (
+            <div key={ch} className="px-5 py-3">
+              <div className="mb-1.5 flex flex-wrap items-center gap-3">
+                <span className="font-medium">{meta?.ad ?? ch}</span>
+                <span className="text-sm text-muted-foreground">
+                  {list.length} kişi · <b className="tabular-nums text-foreground">{money(toplam)} ₺</b>
+                </span>
+                {meta && ch !== "other" ? (
+                  <Button
+                    size="sm"
+                    className="ml-auto"
+                    disabled={closed}
+                    onClick={() => onBatch({ kind: "advance", channel: ch as "garanti" | "ziraat" | "cash" })}
+                  >
+                    <FileSpreadsheet className="mr-2 h-4 w-4" />
+                    {meta.buton}
+                  </Button>
+                ) : null}
+              </div>
+              <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                {list.map((r) => (
+                  <li key={r.line_id}>
+                    <span className="font-medium text-foreground">{r.full_name}</span>{" "}
+                    <span className="tabular-nums">{money(r.amount)}</span>
+                    {r.recorded ? <span className="text-amber-700"> · {money(r.recorded)} ödendi</span> : null}
+                    {r.channel !== "cash" && !r.has_bank_details ? (
+                      <span className="text-rose-700"> · banka bilgisi yok</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+      {eksikBanka.length > 0 ? (
+        <p className="border-t border-amber-200/70 bg-card px-5 py-2.5 text-sm text-rose-700">
+          {eksikBanka.length} kişinin şube/hesap bilgisi eksik; talimata giremez: {eksikBanka.map((r) => r.full_name).join(", ")}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
