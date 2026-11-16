@@ -40,6 +40,29 @@ export async function findMaviReceipt(prisma: PrismaClient, ref: string) {
 }
 
 /**
+ * Fiş, elimizdeki verinin BAŞLADIĞI tarihten eski mi?
+ *
+ * Fiş numaraları mağaza içinde sıralıdır (9400000012935988 < 9400000013268414),
+ * yani okutulan numara o mağazadaki EN KÜÇÜK kayıttan da küçükse o alışveriş
+ * biz veri toplamaya başlamadan önce yapılmıştır. Böyle bir fişi "sahte"
+ * saymak yanlış olur: eski (barkodsuz) çeklerin fişleri buraya düşer, karar
+ * yöneticiye kalır. Veri eylül 2026'da başlıyor; 27.07 öncesi süresiz çeklerin
+ * fişleri sistemde HİÇ yok.
+ */
+export async function isBeforeCoverage(prisma: PrismaClient, ref: string): Promise<{ older: boolean; coverage_from: string | null }> {
+  const clean = cleanReceiptRef(ref);
+  if (!/^\d{12,}$/.test(clean)) return { older: false, coverage_from: null };
+  const prefix = clean.slice(0, 4); // mağaza kodu: 9400 / 9401 / 9402 / 9403
+  const oldest = await prisma.maviReceipt.findFirst({
+    where: { ref: { startsWith: prefix } },
+    orderBy: { ref: "asc" },
+    select: { ref: true, date: true },
+  });
+  if (!oldest || oldest.ref.length !== clean.length) return { older: false, coverage_from: null };
+  return { older: clean < oldest.ref, coverage_from: oldest.date.toISOString().slice(0, 10) };
+}
+
+/**
  * Mavi'nin o güne ait verisi sistemde var mı? "Fiş yok" ile "dosya henüz
  * gelmedi" ayrımı buna dayanır.
  */
@@ -111,6 +134,17 @@ export async function previewClaim(prisma: PrismaClient, input: ClaimInput): Pro
   });
 
   const reasons = [...check.reasons];
+  // "Sahte fiş" demeden önce: bu numara veri kapsamımızdan eski olabilir.
+  if (!receipt) {
+    const cov = await isBeforeCoverage(prisma, input.receipt_ref);
+    if (cov.older) {
+      const tr = (cov.coverage_from ?? "").split("-").reverse().join(".");
+      reasons.length = 0;
+      reasons.push(
+        `Bu fiş, sistemdeki Mavi verisinden daha eski (veri ${tr} tarihinde başlıyor) — numara doğru olabilir ama tutarını buradan doğrulayamıyoruz. Yönetici elle onaylayabilir.`
+      );
+    }
+  }
   if (!parsed.ok) reasons.unshift(parsed.reason);
   if (ambiguous) reasons.unshift("Fiş numarası birden çok kayda yakın — numarayı yeniden okutun.");
   const status: VoucherCheckResult["status"] = !parsed.ok || ambiguous ? "fail" : check.status;
