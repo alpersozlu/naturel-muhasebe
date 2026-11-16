@@ -64,8 +64,14 @@ export type IkPayrollItem = {
   note: string | null;
 };
 
+/** Sahibinin İK'da onayladığı avans talebi — Maaşlar'ın avans listesini doldurur. */
+export type IkAdvance = { id: string; employeeId: string; amount: number; requested: number; date: string; note: string | null };
+
 /** Ayın onaylı mesaisi / ücretsiz izinleri — Maaşlar ekranında öneri olarak (Kolay İK okumasının yerine). */
-export async function fetchIkPayrollMonth(year: number, month: number): Promise<{ restDayMultiplier: number; rows: IkPayrollRow[]; items?: IkPayrollItem[] }> {
+export async function fetchIkPayrollMonth(
+  year: number,
+  month: number
+): Promise<{ restDayMultiplier: number; rows: IkPayrollRow[]; items?: IkPayrollItem[]; advances?: IkAdvance[] }> {
   const url = process.env.IK_URL;
   if (!url || !process.env.BRIDGE_SECRET) throw new Error("İK köprüsü ayarlı değil (IK_URL / BRIDGE_SECRET).");
   const body = JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 120, op: "payroll_month", year, month });

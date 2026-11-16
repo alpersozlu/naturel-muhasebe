@@ -69,17 +69,17 @@ export function BatchDialog({
       const am: Record<string, number | undefined> = {};
       for (const row of r.rows) {
         // Hazırlanmış, gönderilmemiş talimatı olan kişi seçili gelmez (çift ödeme olmasın).
-        // Avans: Kolay İK'da onaylı talebi olanlar seçili ve tutarı dolu gelir; tutar değiştirilebilir.
+        // Avans: İK'da onaylı talebi olanlar seçili ve tutarı dolu gelir; tutar değiştirilebilir.
         const req = choice.kind === "advance" ? (row.kolayik_request ?? null) : null;
         ck[row.line_id] = !row.pending_note && (choice.kind !== "advance" || req != null);
         am[row.line_id] = choice.kind === "advance" ? (req ?? undefined) : row.due;
       }
       setChecked(ck);
       setAmounts(am);
-      if ("kolayik_error" in r && r.kolayik_error) toast.warning(`Kolay İK talepleri okunamadı: ${r.kolayik_error}`);
+      if ("kolayik_error" in r && r.kolayik_error) toast.warning(`İK avans talepleri okunamadı: ${r.kolayik_error}`);
       else if (choice.kind === "advance") {
         const n = r.rows.filter((x) => x.kolayik_request != null).length;
-        if (n) toast.success(`Kolay İK'dan ${n} onaylı avans talebi dolu geldi`);
+        if (n) toast.success(`İK'dan ${n} onaylı avans talebi dolu geldi`);
       }
     },
     onError: (e) => toast.error(e.message),

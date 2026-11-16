@@ -53,7 +53,7 @@ import {
   syncCashAdvancesForPeriod,
 } from "@/server/services/payroll/cash-link";
 import { cashVarianceSummary } from "@/server/services/analytics/cash-variance";
-import { IK_REF_PREFIX, ikPayrollItems } from "@/server/services/payroll/ik-items";
+import { IK_REF_PREFIX, ikAdvanceRequests, ikPayrollItems } from "@/server/services/payroll/ik-items";
 import { kolayikAdvanceRequests, kolayikLeaveStatus, kolayikMonth, kolayikSundayAudit } from "@/server/services/kolayik/payroll-sync";
 import {
   biPdfPagesOf,
@@ -855,14 +855,22 @@ export const payrollRouter = router({
         /** Aynı tür için hazırlanmış, gönderilmemiş talimattaki tutar (çift ödeme uyarısı) */
         pending_prepared: number;
         pending_note: string | null;
-        /** Avans: Kolay İK'da onaylı, bordroda henüz kayıtsız talep tutarı (ön doldurma) */
+        /** Avans: İK'da onaylı, bordroda henüz kayıtsız talep tutarı (ön doldurma) */
         kolayik_request: number | null;
         kolayik_date: string | null;
         /** bordroda farklı tutarla zaten kayıtlıysa o tutar (uyarı) */
         kolayik_recorded: number | null;
       }> = [];
-      // Avans talimatı: Kolay İK'daki onaylı talepler satırlara dolu gelsin (sahibi, 15.10.2026).
-      const kolayAdv = input.kind === "advance" ? await kolayikAdvanceRequests(ctx.prisma, view.period.year, view.period.month) : null;
+      /**
+       * Avans talimatı: onaylı avans talepleri satırlara dolu gelsin (sahibi,
+       * 15.10.2026). Kaynak önce Naturel İK (iki aşamalı onay, 16.11.2026);
+       * İK ayarlı değilse ya da o ay hiç talep yoksa Kolay İK'ya düşülür.
+       */
+      let kolayAdv: { ok: boolean; error: string | null; by_employee: Record<string, { amount: number; date: string; recorded_amount: number | null }> } | null = null;
+      if (input.kind === "advance") {
+        const ik = await ikAdvanceRequests(ctx.prisma, view.period.year, view.period.month);
+        kolayAdv = ik.ok && Object.keys(ik.by_employee).length > 0 ? ik : await kolayikAdvanceRequests(ctx.prisma, view.period.year, view.period.month);
+      }
       const pendingOf = (entries: EntryLike[]) => {
         const p = pendingPrepared(entries, input.kind);
         if (p.amount <= 0) return { pending_prepared: 0, pending_note: null };

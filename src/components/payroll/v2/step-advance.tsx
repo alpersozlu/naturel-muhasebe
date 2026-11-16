@@ -36,7 +36,7 @@ export function StepAdvance({
 
   return (
     <div className="space-y-5">
-      <StepHeader title="Avans" description="Ay ortasında verilen avans, ay başında ödenen maaştan düşülür. Kolay İK’daki onaylı talepler listeye dolu gelir.">
+      <StepHeader title="Avans" description="Ay ortasında verilen avans, ay başında ödenen maaştan düşülür. Naturel İK’da onayladığınız talepler listeye dolu gelir.">
         <Button variant="outline" onClick={() => onBatch({ kind: "advance", channel: "garanti" })} disabled={closed}>
           <FileSpreadsheet className="mr-2 h-4 w-4" />
           Garanti talimatı

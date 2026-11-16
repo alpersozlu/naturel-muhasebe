@@ -82,3 +82,47 @@ export async function ikPayrollItems(db: PrismaClient, periodId: string): Promis
   items.sort((a, b) => (a.employeeName ?? "").localeCompare(b.employeeName ?? "", "tr") || a.start.localeCompare(b.start));
   return { configured: true, error: null, items };
 }
+
+/**
+ * AVANS ÖN DOLDURMA — Naturel İK'da SAHİBİNİN onayladığı avans talepleri
+ * (sahibi, 16.11.2026: "ben onayladıktan sonra otomatik aktarılsın"). Kayıt
+ * burada kendiliğinden oluşmaz: tutar avans talimatı / listesi ekranına dolu
+ * gelir, parayı veren ve "ödendi" diyen yine sahibidir — İK'nın onayı ödeme
+ * yerine geçmez.
+ *
+ * Bordroda aynı kişide aynı tutarla avans zaten varsa (ödenmiş) listeye
+ * girmez; farklı tutarla varsa uyarı olarak o tutar da döner.
+ */
+export type IkAdvanceRequest = { employee_id: string; amount: number; date: string; note: string | null; recorded_amount: number | null };
+
+export async function ikAdvanceRequests(
+  db: PrismaClient,
+  year: number,
+  month: number
+): Promise<{ ok: boolean; error: string | null; by_employee: Record<string, IkAdvanceRequest> }> {
+  if (!process.env.IK_URL || !process.env.BRIDGE_SECRET) return { ok: false, error: null, by_employee: {} };
+  let advances: NonNullable<Awaited<ReturnType<typeof fetchIkPayrollMonth>>["advances"]>;
+  try {
+    advances = (await fetchIkPayrollMonth(year, month)).advances ?? [];
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e), by_employee: {} };
+  }
+  if (advances.length === 0) return { ok: true, error: null, by_employee: {} };
+  const period = await db.payrollPeriod.findUnique({ where: { year_month: { year, month } }, select: { id: true } });
+  const recorded = period
+    ? await db.payrollEntry.findMany({
+        where: { period_id: period.id, kind: "advance", voided_at: null, OR: [{ batch_id: null }, { batch: { status: { in: ["prepared", "sent"] } } }] },
+        select: { employee_id: true, amount: true },
+      })
+    : [];
+  const by_employee: Record<string, IkAdvanceRequest> = {};
+  for (const a of advances) {
+    const mine = recorded.filter((r) => r.employee_id === a.employeeId).map((r) => Number(r.amount));
+    if (mine.some((x) => Math.abs(x - a.amount) < 0.005)) continue; // aynı tutar zaten bordroda
+    const cur = by_employee[a.employeeId];
+    by_employee[a.employeeId] = cur
+      ? { ...cur, amount: Math.round((cur.amount + a.amount) * 100) / 100, date: a.date > cur.date ? a.date : cur.date }
+      : { employee_id: a.employeeId, amount: a.amount, date: a.date, note: a.note, recorded_amount: mine.length ? mine.reduce((s, x) => s + x, 0) : null };
+  }
+  return { ok: true, error: null, by_employee };
+}
