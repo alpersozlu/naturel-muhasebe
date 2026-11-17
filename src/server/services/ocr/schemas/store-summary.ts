@@ -59,6 +59,16 @@ export const storeSummaryOcrSchema = z.object({
    * cash + card + voucher = sales on those days. Kept in parsed_data_json.
    */
   credit_voucher_total: z.number().nullable().optional(),
+  /**
+   * Nebim (Derimod) only: the gift vouchers customers SPENT that day, as the
+   * summary prints them — "Hediye Çeki" is a discount, not a payment, so it
+   * stays out of cash/card/voucher. It is read only to answer one question
+   * (sahibi, 17.11.2026): were the barcoded vouchers handed in that day also
+   * entered into the system? The summary reports exactly the barcoded ones,
+   * so an exact match means nothing was missed. Positive; null when the
+   * report has no such row (most days) and on IT POS.
+   */
+  gift_voucher_used: z.number().nullable().optional(),
   opening_balance: z.number().nullable(),
   closing_balance: z.number().nullable(),
   currency: z.enum(["TRY", "USD", "EUR", "GBP"]).default("TRY"),
@@ -124,6 +134,7 @@ export const storeSummaryOutputSchema = z.object({
   shopping_voucher_total: z.number().nullable(),
   wire_transfer_total: z.number().nullable(),
   credit_voucher_total: z.number().nullable(),
+  gift_voucher_used: z.number().nullable(),
   opening_balance: z.number().nullable(),
   closing_balance: z.number().nullable(),
   currency: z.enum(["TRY", "USD", "EUR", "GBP"]),

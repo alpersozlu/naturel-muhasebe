@@ -8,6 +8,7 @@ import {
   giftVoucherOverrideSchema,
 } from "@/lib/zod-schemas/gift-voucher";
 import { previewClaim, recheckPending } from "@/server/services/gift-voucher/check";
+import { giftVoucherSummaryMatch } from "@/server/services/gift-voucher/summary-match";
 import { isAdmin } from "@/lib/auth/permissions";
 import type { PrismaClient } from "@prisma/client";
 import { getOrCreateDailyRecord } from "@/server/services/daily-record";
@@ -150,7 +151,10 @@ export const giftVoucherRouter = router({
     }));
   }),
 
-  /** Bir Derimod mağazasının o günkü okutulmuş çek toplamı (Mavi Hediye Çeki kartı). */
+  /**
+   * Bir Derimod mağazasının o günkü okutulmuş çek toplamı (Mavi Hediye Çeki
+   * kartı) ve mağaza özetindeki "Hediye Çeki" satırıyla mutabakatı.
+   */
   dayTotal: protectedProcedure
     .input(z.object({ store_id: z.string().uuid(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
     .query(async ({ ctx, input }) => {
@@ -160,7 +164,8 @@ export const giftVoucherRouter = router({
         _sum: { amount: true },
         _count: true,
       });
-      return { total: num(g._sum.amount), count: g._count };
+      const match = await giftVoucherSummaryMatch(ctx.prisma, input.store_id, input.date);
+      return { total: num(g._sum.amount), count: g._count, match };
     }),
 
   counts: protectedProcedure.query(async ({ ctx }) => {
