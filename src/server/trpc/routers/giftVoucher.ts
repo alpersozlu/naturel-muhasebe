@@ -8,7 +8,7 @@ import {
   giftVoucherOverrideSchema,
 } from "@/lib/zod-schemas/gift-voucher";
 import { previewClaim, recheckPending } from "@/server/services/gift-voucher/check";
-import { giftVoucherSummaryMatch } from "@/server/services/gift-voucher/summary-match";
+import { giftVoucherAudit, giftVoucherSummaryMatch } from "@/server/services/gift-voucher/summary-match";
 import { isAdmin } from "@/lib/auth/permissions";
 import type { PrismaClient } from "@prisma/client";
 import { getOrCreateDailyRecord } from "@/server/services/daily-record";
@@ -166,6 +166,19 @@ export const giftVoucherRouter = router({
       });
       const match = await giftVoucherSummaryMatch(ctx.prisma, input.store_id, input.date);
       return { total: num(g._sum.amount), count: g._count, match };
+    }),
+
+  /**
+   * Günler arası denetim: özetle okutulan çeklerin tutmadığı Derimod günleri
+   * (sahibi, 17.11.2026 — "hangi günlerde tutmuyor" tek listede).
+   */
+  summaryAudit: adminProcedure
+    .input(z.object({ days: z.number().int().min(7).max(400).default(60) }))
+    .query(({ ctx, input }) => {
+      const to = todayIso();
+      const d = new Date(`${to}T00:00:00.000Z`);
+      d.setUTCDate(d.getUTCDate() - (input.days - 1));
+      return giftVoucherAudit(ctx.prisma, { from: iso(d), to });
     }),
 
   counts: protectedProcedure.query(async ({ ctx }) => {

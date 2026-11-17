@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { VoucherScan, VOUCHER_STATUS, money, dmy } from "./voucher-scan";
+import { GiftVoucherSummaryAudit } from "./summary-audit";
 
 export function GiftVoucherCheck() {
   const utils = trpc.useUtils();
@@ -28,6 +29,8 @@ export function GiftVoucherCheck() {
           <VoucherScan />
         </CardContent>
       </Card>
+
+      <GiftVoucherSummaryAudit />
 
       <div className="flex flex-wrap items-center gap-2">
         {(["all", "fail", "pending", "ok"] as const).map((k) => (
