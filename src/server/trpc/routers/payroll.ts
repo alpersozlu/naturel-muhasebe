@@ -1120,6 +1120,54 @@ export const payrollRouter = router({
     pending: adminProcedure.input(periodIdSchema).query(({ ctx, input }) =>
       pendingAdvanceRequests(ctx.prisma, input.period_id)
     ),
+
+    /**
+     * "Bu talep ödenmeyecek" — İK salt okunur olduğu için talep orada
+     * kapatılamıyor; burada kapatılır ve bekleyenler listesinden düşer
+     * (sahibi, 17.11.2026: Sedanur 35.000 iptal, 40.000 ödendi).
+     */
+    dismiss: entryAudited
+      .input(
+        z.object({
+          period_id: z.string().uuid(),
+          employee_id: z.string().uuid(),
+          amount: z.number().finite().positive().max(100_000_000),
+          reason: z.string().trim().min(3, "Sebebini yazın").max(300),
+        })
+      )
+      .mutation(({ ctx, input }) =>
+        ctx.prisma.payrollAdvanceDismissal.create({
+          data: {
+            period_id: input.period_id,
+            employee_id: input.employee_id,
+            amount: input.amount,
+            reason: input.reason,
+            created_by: ctx.user.id,
+            created_by_name: ctx.user.full_name ?? ctx.user.email,
+          },
+        })
+      ),
+
+    /** "Ödenmeyecek" kaydını geri al. */
+    undismiss: entryAudited.input(idSchema).mutation(({ ctx, input }) =>
+      ctx.prisma.payrollAdvanceDismissal.delete({ where: { id: input.id } })
+    ),
+
+    dismissed: adminProcedure.input(periodIdSchema).query(async ({ ctx, input }) => {
+      const rows = await ctx.prisma.payrollAdvanceDismissal.findMany({
+        where: { period_id: input.period_id },
+        include: { employee: { select: { full_name: true } } },
+        orderBy: { created_at: "desc" },
+      });
+      return rows.map((r) => ({
+        id: r.id,
+        employee_id: r.employee_id,
+        full_name: r.employee.full_name,
+        amount: num(r.amount),
+        reason: r.reason,
+        created_by_name: r.created_by_name,
+      }));
+    }),
   }),
 
   cashAdvances: router({

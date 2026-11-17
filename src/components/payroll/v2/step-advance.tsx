@@ -125,8 +125,30 @@ function PendingRequests({
   closed: boolean;
   onBatch: (c: BatchChoice) => void;
 }) {
+  const utils = trpc.useUtils();
   const q = trpc.payroll.advanceRequests.pending.useQuery({ period_id: periodId });
-  if (q.isLoading || !q.data?.ok || q.data.rows.length === 0) return null;
+  const dismissed = trpc.payroll.advanceRequests.dismissed.useQuery({ period_id: periodId });
+  const dismiss = trpc.payroll.advanceRequests.dismiss.useMutation({
+    onSuccess: () => {
+      toast.success("Talep ödenmeyecek olarak işaretlendi");
+      void utils.payroll.advanceRequests.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const undismiss = trpc.payroll.advanceRequests.undismiss.useMutation({
+    onSuccess: () => {
+      toast.success("Geri alındı — talep yeniden bekleyenlerde");
+      void utils.payroll.advanceRequests.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const kapat = (r: { employee_id: string; full_name: string; amount: number }) => {
+    const reason = window.prompt(`${r.full_name} · ${money(r.amount)} ₺ neden ödenmeyecek?`, "İkinci talebi ödendi, bu geçersiz");
+    if (reason == null || reason.trim().length < 3) return;
+    dismiss.mutate({ period_id: periodId, employee_id: r.employee_id, amount: r.amount, reason: reason.trim() });
+  };
+  const kapatilanlar = dismissed.data ?? [];
+  if (q.isLoading || !q.data?.ok || (q.data.rows.length === 0 && kapatilanlar.length === 0)) return null;
   const rows = q.data.rows;
   const byChannel = new Map<string, typeof rows>();
   for (const r of rows) byChannel.set(r.channel, [...(byChannel.get(r.channel) ?? []), r]);
@@ -170,13 +192,22 @@ function PendingRequests({
               </div>
               <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                 {list.map((r) => (
-                  <li key={r.line_id}>
+                  <li key={r.line_id} className="group">
                     <span className="font-medium text-foreground">{r.full_name}</span>{" "}
                     <span className="tabular-nums">{money(r.amount)}</span>
                     {r.recorded ? <span className="text-amber-700"> · {money(r.recorded)} ödendi</span> : null}
                     {r.channel !== "cash" && !r.has_bank_details ? (
                       <span className="text-rose-700"> · banka bilgisi yok</span>
                     ) : null}
+                    <button
+                      type="button"
+                      onClick={() => kapat(r)}
+                      disabled={closed || dismiss.isPending}
+                      className="ml-1.5 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-rose-700 hover:underline"
+                      title="Bu talep ödenmeyecek — bekleyenlerden düşsün"
+                    >
+                      ödenmeyecek
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -184,6 +215,24 @@ function PendingRequests({
           );
         })}
       </div>
+      {kapatilanlar.length > 0 ? (
+        <div className="border-t border-amber-200/70 bg-card px-5 py-2.5 text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">Ödenmeyecek denenler:</span>{" "}
+          {kapatilanlar.map((d) => (
+            <span key={d.id} className="mr-3 inline-block">
+              {d.full_name} {money(d.amount)} ({d.reason})
+              <button
+                type="button"
+                onClick={() => undismiss.mutate({ id: d.id })}
+                disabled={undismiss.isPending}
+                className="ml-1 text-xs font-medium text-primary hover:underline"
+              >
+                geri al
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
       {eksikBanka.length > 0 ? (
         <p className="border-t border-amber-200/70 bg-card px-5 py-2.5 text-sm text-rose-700">
           {eksikBanka.length} kişinin şube/hesap bilgisi eksik; talimata giremez: {eksikBanka.map((r) => r.full_name).join(", ")}

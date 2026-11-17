@@ -49,6 +49,15 @@ export async function pendingAdvanceRequests(
     return { ok: false, error: src.error, source: useIk ? "naturel_ik" : "kolay_ik", rows: [], total: 0 };
   }
 
+  const dismissals = await prisma.payrollAdvanceDismissal.findMany({
+    where: { period_id: periodId },
+    select: { employee_id: true, amount: true },
+  });
+  const dismissed = new Map<string, number>();
+  for (const d of dismissals) {
+    dismissed.set(d.employee_id, (dismissed.get(d.employee_id) ?? 0) + Number(d.amount));
+  }
+
   const lines = await prisma.payrollLine.findMany({
     where: { period_id: periodId },
     include: { employee: true, store: { select: { name: true } } },
@@ -58,8 +67,8 @@ export async function pendingAdvanceRequests(
   for (const l of lines) {
     const req = src.by_employee[l.employee_id];
     if (!req || req.amount <= 0) continue;
-    const recorded = req.recorded_amount ?? 0;
-    // Talebin tamamı bordroya girdiyse bekleyen bir şey yok.
+    // Ödenen + "ödenmeyecek" denen tutar talebi karşılıyorsa bekleyen yok.
+    const recorded = (req.recorded_amount ?? 0) + (dismissed.get(l.employee_id) ?? 0);
     if (recorded >= req.amount - 0.005) continue;
     if (l.employee.status === "inactive") continue;
     rows.push({
@@ -71,7 +80,7 @@ export async function pendingAdvanceRequests(
       channel: l.employee.pay_method as PendingAdvanceRequest["channel"],
       amount: req.amount - recorded,
       date: req.date ?? null,
-      recorded: recorded > 0 ? recorded : null,
+      recorded: (req.recorded_amount ?? 0) > 0 ? req.recorded_amount! : null,
       has_bank_details: !!(l.employee.bank_branch_code && l.employee.bank_account_no),
     });
   }

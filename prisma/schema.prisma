@@ -1470,6 +1470,7 @@ model PayrollEmployee {
   @@index([store_id])
   @@index([status])
   @@index([deleted_at])
+  advance_dismissals PayrollAdvanceDismissal[]
 }
 
 model PayrollPeriod {
@@ -1489,6 +1490,7 @@ model PayrollPeriod {
   performance_docs PayrollPerformanceDoc[]
 
   @@unique([year, month])
+  advance_dismissals PayrollAdvanceDismissal[]
 }
 
 /// Mağazanın aylık cirosu ve HQ hedefi — müdür / müdür yrd. komisyonu buradan.
@@ -1586,6 +1588,35 @@ model PayrollEntry {
 }
 
 /// Banka talimatı veya nakit listesi — tek seferde üretilen ödeme grubu.
+/**
+ * ÖDENMEYECEK AVANS TALEBİ (sahibi, 17.11.2026).
+ *
+ * İK'da onaylanmış bir talep sonradan geçersiz kalabilir: kişi ikinci bir
+ * talep girip o ödenmiştir, ya da sahibi vazgeçmiştir. İK salt okunur
+ * olduğu için talebi orada kapatamayız; burada "ödenmeyecek" denir ve
+ * Avans adımındaki bekleyenler listesinden düşer.
+ *
+ * Örnek: Sedanur Çiçek Kasım'da 35.000 (13.11) ve 40.000 (14.11) istedi,
+ * 40.000 ödendi; 35.000 ödenmeyecek.
+ */
+model PayrollAdvanceDismissal {
+  id          String          @id @default(uuid())
+  period_id   String
+  period      PayrollPeriod   @relation(fields: [period_id], references: [id])
+  employee_id String
+  employee    PayrollEmployee @relation(fields: [employee_id], references: [id])
+  /** Ödenmeyecek tutar (talebin tamamı ya da kalanı). */
+  amount      Decimal         @db.Decimal(14, 2)
+  reason      String
+
+  created_by      String?
+  created_by_name String?
+  created_at      DateTime @default(now())
+
+  @@index([period_id])
+  @@index([employee_id])
+}
+
 model PayrollBatch {
   id              String             @id @default(uuid())
   period_id       String
