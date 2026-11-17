@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Banknote, Check, ChevronDown, ChevronLeft, ChevronRight, Lock, MoreHorizontal, RefreshCw, Table2, Unlock, UserPlus, Users } from "lucide-react";
+import { AlertTriangle, Banknote, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Lock, MoreHorizontal, RefreshCw, Table2, Unlock, UserPlus, Users } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
@@ -196,6 +196,12 @@ export function PayrollWorkspace() {
                   Derimod cirolarını Nebim’den al
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/payroll/prim-kurallari">
+                    <BookOpen />
+                    Prim kuralları
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link href="/payroll/eski">Eski görünümü aç</Link>
                 </DropdownMenuItem>
