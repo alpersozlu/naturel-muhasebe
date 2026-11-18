@@ -103,7 +103,9 @@ function decide(
   // Satır yok + okutulmuş çek de yok → o gün çek kullanılmamış, denetlenecek
   // bir şey yok. Satır yok ama çek okutulmuşsa bu da bir uyuşmazlıktır
   // (yanlış güne / yanlış mağazaya okutulmuş olabilir) — 0 ile karşılaştırılır.
-  if (used.value == null) {
+  // "Satır yok" 0 ile gelir (16 birleşik alan sınırı — şemadaki nota bak); eski
+  // kayıtlarda null olabilir. İkisi de aynı anlama gelir.
+  if (used.value == null || used.value <= EPS) {
     if (scanned <= EPS) return { summary_total: null, diff: 0, state: "no_row" };
     return { summary_total: 0, diff: -scanned, state: "extra" };
   }

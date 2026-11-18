@@ -120,7 +120,7 @@ Eğer mağaza özet raporu İSE:
   "shopping_voucher_total": "ondalık sayı veya null (Alışveriş Çeki Toplam — Mavi/IT POS özetinde ayrı kalem olarak yazıyorsa dolu, yoksa null)",
   "wire_transfer_total": "ondalık sayı veya null (Havale / Banka Transferi — özette AYRI kalem olarak yazıyorsa dolu, yoksa null)",
   "credit_voucher_total": "ondalık sayı veya null — SADECE Nebim/Derimod: Ödemeler tablosundaki 'Kredi Çeki' satırının en sağdaki Toplam'ı (kullanım − aynı gün düzenlenen; çoğu gün 0,00). Satır yoksa 0. IT POS/Mavi'de null.",
-  "gift_voucher_used": "ondalık sayı veya null — SADECE Nebim/Derimod: o gün KULLANILAN hediye çeki toplamı, ARTI. Ödemeler tablosundaki 'Hediye Çeki' satırının Peşinat hücresi (okunmuyorsa Satış tablosundaki Hediye Çeki satırının İskonto hücresi — aynı rakam). Hediye Çeki satırı yoksa null; çoğu gün böyledir. Toplam sütunundaki 0,00'ı yazma. IT POS/Mavi'de null.",
+  "gift_voucher_used": "ondalık sayı (null DEĞİL, yoksa 0) — SADECE Nebim/Derimod: o gün KULLANILAN hediye çeki toplamı, ARTI. Ödemeler tablosundaki 'Hediye Çeki' satırının Peşinat hücresi (okunmuyorsa Satış tablosundaki Hediye Çeki satırının İskonto hücresi — aynı rakam). Hediye Çeki satırı yoksa 0 yaz; çoğu gün böyledir. Toplam sütunundaki 0,00'ı karıştırma. IT POS/Mavi'de 0.",
   "it_pos_labels": ["IT POS: AÇIKLAMA sütunu yukarıdan aşağıya, başlık hariç — Nebim'de boş dizi"],
   "it_pos_amounts": ["IT POS: TRY TUTAR sütunu yukarıdan aşağıya, başlık hariç, sayı/null — Nebim'de boş dizi"],
   "nebim_pay_types": ["Nebim: Ödemeler tablosu, her satır 'Ödeme Tipi | Kredi Kartı Tipi Açıklaması' (örn 'Nakit | ', 'Kredi Kartı | KOOP BANK', 'Kredi Çeki | ', 'Hediye Çeki | '), başlık ve Genel Toplam hariç; Hediye Çeki satırının açıklamasındaki tutarı YAZMA — IT POS'ta boş dizi"],
@@ -186,10 +186,10 @@ DOĞRU bölümün DOĞRU satırından al:
    - gift_voucher_used = o gün KULLANILAN hediye çeki toplamı, ARTI yazılır:
      Ödemeler tablosundaki Hediye Çeki satırının **Peşinat** hücresi. O hücre
      okunmuyorsa Satış tablosundaki Hediye Çeki satırının **İskonto** hücresi
-     (aynı rakamdır). İki yerde de Hediye Çeki satırı yoksa null — çoğu gün
-     böyledir, uydurma. Toplam hücresindeki 0,00'ı YAZMA. Bu alan yalnız
-     denetim içindir: sisteme okutulan çeklerle karşılaştırılır; hiçbir
-     toplama girmez, kasayı etkilemez. IT POS (Mavi) raporunda null.
+     (aynı rakamdır). İki yerde de Hediye Çeki satırı yoksa 0 yaz (null DEĞİL)
+     — çoğu gün böyledir, uydurma. Bu alan yalnız denetim içindir: sisteme
+     okutulan çeklerle karşılaştırılır; hiçbir toplama girmez, kasayı
+     etkilemez. IT POS (Mavi) raporunda 0.
    - SÜTUN SÜTUN YAZ (nebim_pay_types / nebim_pay_totals): iki liste AYNI
      UZUNLUKTA, satır sırası aynı, başlık ve "Genel Toplam" HARİÇ; 0,00
      hücrelerini de yaz (atlama), eksi değeri eksi yaz. Fotoğraf eğik

@@ -134,7 +134,20 @@ export const storeSummaryOutputSchema = z.object({
   shopping_voucher_total: z.number().nullable(),
   wire_transfer_total: z.number().nullable(),
   credit_voucher_total: z.number().nullable(),
-  gift_voucher_used: z.number().nullable(),
+  /**
+   * NULLABLE DEĞİL — 16 BİRLEŞİK ALAN SINIRI (17.11.2026 kesintisi).
+   *
+   * Anthropic yapılandırılmış çıktıda şema başına en çok 16 "birleşik" (nullable
+   * / union) alan kabul eder. Bu alan nullable eklenince sayı 17'ye çıktı ve
+   * API her mağaza özetini 400 ile reddetti: "Schemas contains too many
+   * parameters with union types (limit: 16)". Derimod ve Mavi özet yüklemeleri
+   * 13 saat boyunca başarısız oldu.
+   *
+   * Bu yüzden "satır yok" null ile değil 0 ile anlatılır. Sayım aynı kalsın
+   * diye BU ŞEMAYA YENİ NULLABLE ALAN EKLEME — eklemeden önce bir tanesini
+   * nullable olmaktan çıkar. `store-summary-schema.test.ts` sınırı korur.
+   */
+  gift_voucher_used: z.number(),
   opening_balance: z.number().nullable(),
   closing_balance: z.number().nullable(),
   currency: z.enum(["TRY", "USD", "EUR", "GBP"]),
