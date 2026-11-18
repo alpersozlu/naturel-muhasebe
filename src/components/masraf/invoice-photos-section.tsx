@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Building2,
@@ -43,8 +43,18 @@ import type { MASRAF_KATEGORI_KEYS } from "@/lib/zod-schemas/invoiced-expense";
 const MONTHS = ["", "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
 const fmt = (n: number) => n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dmy = (iso: string | null) => (iso ? iso.slice(0, 10).split("-").reverse().join(".") : "—");
-const TARGET_MAX = 3 * 1024 * 1024;
+/**
+ * Vercel tek isteği ~4,5 MB'ta keser (base64 dosyayı %33 büyütür). Bu yüzden her
+ * fotoğraf AYRI istekle gider ve 2 MB üstü küçültülür; küçültülemeyen dosya
+ * (PDF vb.) 3,1 MB'ı aşarsa yüklenmez, nedeni söylenir. (18.11.2026: önceden
+ * bütün seçim tek istekte gidiyordu, 40 sınırı vardı — 2–3 telefon fotoğrafında
+ * bile istek reddedilebilirdi.)
+ */
+const TARGET_MAX = 2 * 1024 * 1024;
+const HARD_MAX = 3.1 * 1024 * 1024;
 type Kategori = (typeof MASRAF_KATEGORI_KEYS)[number];
+const PHOTO_MIMES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"] as const;
+type PhotoMime = (typeof PHOTO_MIMES)[number];
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((res, rej) => {
@@ -59,23 +69,34 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-/** Telefon fotoğrafı 3–8 MB gelir; 2200 px JPEG'e küçült (fatura rakamları için yeterli). */
-async function shrink(file: File): Promise<{ blob: Blob; mime: string }> {
-  const mime = inferFileMime(file);
-  const canvasOk = mime === "image/jpeg" || mime === "image/png" || mime === "image/webp";
-  if (!canvasOk || file.size <= TARGET_MAX) return { blob: file, mime };
-  const bmp = await createImageBitmap(file);
-  const max = 2200;
+async function toJpeg(bmp: ImageBitmap, max: number, quality: number): Promise<Blob | null> {
   const r = Math.min(1, max / Math.max(bmp.width, bmp.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(bmp.width * r);
   canvas.height = Math.round(bmp.height * r);
   const ctx = canvas.getContext("2d");
-  if (!ctx) return { blob: file, mime };
+  if (!ctx) return null;
   ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-  bmp.close();
-  const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", 0.88));
-  return blob ? { blob, mime: "image/jpeg" } : { blob: file, mime };
+  return new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", quality));
+}
+
+/** Telefon fotoğrafı 3–8 MB gelir; 2200 px JPEG'e küçült (fatura rakamları için yeterli). HEIC'i tarayıcı açabiliyorsa (Safari) o da JPEG olur. */
+async function shrink(file: File): Promise<{ blob: Blob; mime: string }> {
+  const mime = inferFileMime(file);
+  if (mime === "application/pdf" || file.size <= TARGET_MAX) return { blob: file, mime };
+  let bmp: ImageBitmap;
+  try {
+    bmp = await createImageBitmap(file);
+  } catch {
+    return { blob: file, mime };
+  }
+  try {
+    let blob = await toJpeg(bmp, 2200, 0.88);
+    if (blob && blob.size > HARD_MAX) blob = (await toJpeg(bmp, 1800, 0.75)) ?? blob;
+    return blob ? { blob, mime: "image/jpeg" } : { blob: file, mime };
+  } finally {
+    bmp.close();
+  }
 }
 
 const CLASS_META: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
@@ -110,47 +131,80 @@ export function InvoicePhotosSection({ year, month }: { year: number; month: num
   const [editing, setEditing] = useState<string | null>(null);
   const [linking, setLinking] = useState<string | null>(null);
 
+  // Sayı sınırı yok: her fotoğraf kendi isteğiyle yüklenir ve hemen okunur.
+  // Okuma SIRAYLA yapılır — mükerrer çekim kararı, ikizinin önceden okunmuş
+  // olmasına bağlı.
   const ingest = async (list: FileList | File[]) => {
-    const files = Array.from(list).slice(0, 40);
+    const files = Array.from(list);
     if (files.length === 0) return;
     setProgress({ done: 0, total: files.length });
+    const skipped: string[] = [];
+    let linked = 0;
+    let company = 0;
+    let store = 0;
+    let failed = 0;
+    let read_n = 0;
     try {
-      const payload: { name: string; mime_type: "image/jpeg" | "image/png" | "image/webp" | "image/heic" | "image/heif" | "application/pdf"; base64: string }[] = [];
-      for (const f of files) {
-        const { blob, mime } = await shrink(f);
-        if (!["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"].includes(mime)) {
-          toast.error(`${f.name}: yalnız fotoğraf ya da PDF yüklenebilir`);
-          continue;
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i]!;
+        try {
+          const { blob, mime } = await shrink(f);
+          if (!(PHOTO_MIMES as readonly string[]).includes(mime)) {
+            skipped.push(`${f.name}: yalnız fotoğraf ya da PDF`);
+            continue;
+          }
+          if (blob.size > HARD_MAX) {
+            skipped.push(`${f.name}: dosya çok büyük (${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
+            continue;
+          }
+          const r = await upload.mutateAsync({
+            year,
+            month,
+            files: [{ name: f.name, mime_type: mime as PhotoMime, base64: await blobToBase64(blob) }],
+          });
+          for (const s of r.skipped) skipped.push(`${s.name}: ${s.reason}`);
+          linked += r.linked.length;
+          // Fotoğraf kaydedildi; okuma hatası onu "alınmadı" yapmaz — listede
+          // okunamadı olarak durur, Yeniden oku ile tekrar denenir.
+          for (const id of r.created) {
+            read_n += 1;
+            try {
+              const o = await read.mutateAsync({ id });
+              if (o.ocr_status !== "done") failed += 1;
+              else if (o.classification === "store") store += 1;
+              else if (o.classification === "company") company += 1;
+            } catch {
+              failed += 1;
+            }
+          }
+        } catch (e) {
+          skipped.push(`${f.name}: ${e instanceof Error ? e.message : "yüklenemedi"}`);
+        } finally {
+          setProgress({ done: i + 1, total: files.length });
+          if ((i + 1) % 5 === 0) invalidate();
         }
-        payload.push({ name: f.name, mime_type: mime as (typeof payload)[number]["mime_type"], base64: await blobToBase64(blob) });
       }
-      if (payload.length === 0) return;
-      const r = await upload.mutateAsync({ year, month, files: payload });
-      if (r.skipped.length) toast.info(r.skipped.map((s) => `${s.name}: ${s.reason}`).join(" · "));
-      if (r.linked.length) toast.success(`${r.linked.length} fotoğraf mağazanın yüklediği dosyayla birebir aynı — mağaza faturası sayıldı`);
-      let done = 0;
-      let company = 0;
-      let store = 0;
-      let failed = 0;
-      for (const id of r.created) {
-        const o = await read.mutateAsync({ id });
-        done += 1;
-        setProgress({ done, total: r.created.length });
-        if (o.ocr_status !== "done") failed += 1;
-        else if (o.classification === "store") store += 1;
-        else if (o.classification === "company") company += 1;
-        if (done % 5 === 0) invalidate();
-      }
-      invalidate();
-      if (r.created.length) toast.success(`${done} fatura okundu · ${company} şirket · ${store} mağaza${failed ? ` · ${failed} okunamadı` : ""}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Yükleme başarısız");
-      invalidate();
     } finally {
+      invalidate();
       setProgress(null);
       if (input.current) input.current.value = "";
     }
+    if (read_n) toast.success(`${read_n} fatura okundu · ${company} şirket · ${store} mağaza${failed ? ` · ${failed} okunamadı` : ""}`);
+    if (linked) toast.success(`${linked} fotoğraf mağazanın yüklediği dosyayla birebir aynı — mağaza faturası sayıldı`);
+    if (skipped.length)
+      toast.info(`${skipped.length} dosya alınmadı: ${skipped.slice(0, 5).join(" · ")}${skipped.length > 5 ? ` · +${skipped.length - 5}` : ""}`, { duration: 15000 });
   };
+
+  // Uzun yüklemede sayfa kapanırsa kalanlar yarım kalır — tarayıcı uyarsın.
+  useEffect(() => {
+    if (!progress) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [progress]);
 
   const items = useMemo(() => q.data?.items ?? [], [q.data]);
   const s = q.data?.summary;
@@ -197,7 +251,7 @@ export function InvoicePhotosSection({ year, month }: { year: number; month: num
             <input ref={input} type="file" accept="image/*,.heic,.heif,.pdf" multiple className="hidden" onChange={(e) => e.target.files && void ingest(e.target.files)} />
             <Button size="sm" disabled={busy} onClick={() => input.current?.click()}>
               {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Camera className="mr-1.5 h-4 w-4" />}
-              {busy ? `Okunuyor ${progress!.done}/${progress!.total}` : "Fotoğraf yükle"}
+              {busy ? `Yükleniyor ${progress!.done}/${progress!.total}` : "Fotoğraf yükle"}
             </Button>
             <Button size="sm" variant="outline" disabled={busy || rematch.isPending || items.length === 0} onClick={() => rematch.mutate({ year, month })} title="Mağaza sonradan fiş yüklediyse eşleşmeleri tazeler">
               {rematch.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1.5 h-4 w-4" />}
@@ -309,8 +363,8 @@ export function InvoicePhotosSection({ year, month }: { year: number; month: num
                         <Button variant="ghost" size="icon" className="h-7 w-7" title="Düzelt (satıcı / tarih / tutar / ay)" onClick={() => setEditing(it.id)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                        {failed ? (
-                          <Button variant="ghost" size="icon" className="h-7 w-7" title="Yeniden oku" disabled={retry.isPending} onClick={() => retry.mutate({ id: it.id })}>
+                        {failed || (it.ocr_status === "pending" && !busy) ? (
+                          <Button variant="ghost" size="icon" className="h-7 w-7" title={failed ? "Yeniden oku" : "Oku (yükleme yarıda kalmış)"} disabled={retry.isPending} onClick={() => retry.mutate({ id: it.id })}>
                             <RefreshCw className="h-3.5 w-3.5" />
                           </Button>
                         ) : null}
