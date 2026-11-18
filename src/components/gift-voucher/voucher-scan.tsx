@@ -106,6 +106,9 @@ export function VoucherScan({
               value={voucher}
               onChange={(e) => setVoucher(e.target.value)}
               onFocus={(e) => e.currentTarget.select()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.select();
+              }}
               placeholder="2900500000013"
               className="font-mono text-lg"
               disabled={disabled}
@@ -122,7 +125,13 @@ export function VoucherScan({
             // eskisinin ARKASINA eklemez, yerine yazar (18.11.2026 Mağusa).
             onFocus={(e) => e.currentTarget.select()}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && ready && p && !save.isPending) save.mutate(payload);
+              // Okuyucu her okutmanın sonuna Enter basar. Yazıyı seçili bırak:
+              // aynı kutuya yapılan bir sonraki okutma eskisinin ARKASINA
+              // eklenmez, yerine yazar (18.11.2026 Mağusa — kutuda 32 hane
+              // birikmişti; barkodun kendisi 16 hanelik Fatura No).
+              if (e.key !== "Enter") return;
+              e.currentTarget.select();
+              if (ready && p && !save.isPending) save.mutate(payload);
             }}
             placeholder="9400000013071137"
             className="font-mono text-lg"

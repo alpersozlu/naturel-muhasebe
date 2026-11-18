@@ -35,11 +35,13 @@ export function cleanReceiptRef(raw: string): string {
  * Uzun bir barkodun İÇİNDEKİ Fatura No adayları (16 hane, 94xx0000 + 8 hane),
  * soldan sağa, tekrarsız.
  *
- * 18.11.2026 Mavi Mağusa: müşteri adına kesilen (e-Arşiv) bilgi fişinin
- * barkodu 32 hanedir ve Fatura No ortasındadır —
- *   "940200001" + "9402000011781980" + "2663645".
- * Lefkoşa'nın düz fişlerinde barkod yalnız Fatura No'dur. Hangi pencerenin
- * gerçek numara olduğuna veritabanı karar verir (yalnız biri kayıtlıdır).
+ * Mavi fişinin barkodu YALNIZ Fatura No'dur (18.11.2026, boş bir metin
+ * kutusuna okutularak doğrulandı: 9402000011781980). Ama okutma kutusuna
+ * fazladan rakamlar karışabiliyor — Derimod Mağusa'da kutuda
+ *   "940200001" + "9402000011781980" + "2663645"
+ * birikti ve gerçek fiş "bulunamadı" diye "sahte" denildi. Fazlalığın nereden
+ * geldiğinden bağımsız olarak girdinin içindeki Fatura No pencereleri aranır;
+ * hangisinin gerçek numara olduğuna veritabanı karar verir (yalnız biri kayıtlı).
  */
 export function faturaNoCandidates(raw: string): string[] {
   const s = (raw ?? "").replace(/\D/g, "");
@@ -60,8 +62,8 @@ export async function findMaviReceipt(prisma: PrismaClient, ref: string) {
     include: { store: { select: { name: true } } },
   });
   if (exact) return { receipt: exact, ambiguous: false as const };
-  // Barkod Fatura No'dan uzunsa (e-Arşiv fişi, ya da kutuda kalan eski
-  // rakamlar): içindeki Fatura No adaylarından KAYITLI olanı al.
+  // Girdi Fatura No'dan uzunsa (kutuya fazladan rakam karışmış): içindeki
+  // Fatura No adaylarından KAYITLI olanı al.
   const candidates = faturaNoCandidates(ref);
   if (candidates.length > 0) {
     const found = await prisma.maviReceipt.findMany({
