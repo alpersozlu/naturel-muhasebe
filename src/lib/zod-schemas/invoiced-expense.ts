@@ -59,6 +59,15 @@ export const masrafPhotoUploadSchema = z.object({
     .min(1)
     .max(40),
 });
+/** Tarayıcı fotoğrafı doğrudan depoya yükler (Vercel istek sınırı yok), sonra kaydettirir. */
+export const masrafPhotoUploadUrlSchema = z.object({ year, month, mime_type: MIME });
+export const masrafPhotoRegisterSchema = z.object({
+  year,
+  month,
+  name: z.string().max(200),
+  mime_type: MIME,
+  path: z.string().regex(/^masraf-invoices\/\d{4}-\d{2}\/[0-9a-f-]{36}\.(jpg|png|webp|heic|heif|pdf)$/),
+});
 export const masrafPhotoIdSchema = z.object({ id: z.string().uuid() });
 export const masrafPhotoListSchema = z.object({ year, month });
 export const masrafPhotoUpdateSchema = z.object({

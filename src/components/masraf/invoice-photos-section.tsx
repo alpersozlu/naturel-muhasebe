@@ -22,6 +22,8 @@ import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/trpc/routers/_app";
 import { cn } from "@/lib/utils";
 import { inferFileMime } from "@/lib/file-mime";
+import { createClient } from "@/lib/supabase/client";
+import { UPLOAD_BUCKET } from "@/lib/constants";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,30 +46,17 @@ const MONTHS = ["", "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Tem
 const fmt = (n: number) => n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dmy = (iso: string | null) => (iso ? iso.slice(0, 10).split("-").reverse().join(".") : "—");
 /**
- * Vercel tek isteği ~4,5 MB'ta keser (base64 dosyayı %33 büyütür). Bu yüzden her
- * fotoğraf AYRI istekle gider ve 2 MB üstü küçültülür; küçültülemeyen dosya
- * (PDF vb.) 3,1 MB'ı aşarsa yüklenmez, nedeni söylenir. (18.11.2026: önceden
- * bütün seçim tek istekte gidiyordu, 40 sınırı vardı — 2–3 telefon fotoğrafında
- * bile istek reddedilebilirdi.)
+ * Fotoğraf sunucudan GEÇMEZ: tarayıcı imzalı adresle doğrudan depoya yükler,
+ * sonra sistem kaydeder (18.11.2026). Önceden base64 ile tRPC'den gidiyordu ve
+ * Vercel ~4,5 MB'ta kesiyordu — Chrome'un küçültemediği 3+ MB HEIC'ler atlandı.
+ * 2 MB üstü JPEG/PNG yine küçültülür (depo ve OCR için yeterli); kova sınırı 10 MB.
  */
 const TARGET_MAX = 2 * 1024 * 1024;
 const HARD_MAX = 3.1 * 1024 * 1024;
+const BUCKET_MAX = 10 * 1024 * 1024;
 type Kategori = (typeof MASRAF_KATEGORI_KEYS)[number];
 const PHOTO_MIMES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"] as const;
 type PhotoMime = (typeof PHOTO_MIMES)[number];
-
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => {
-      const s = String(r.result);
-      const i = s.indexOf(",");
-      res(i >= 0 ? s.slice(i + 1) : s);
-    };
-    r.onerror = () => rej(new Error("dosya okunamadı"));
-    r.readAsDataURL(blob);
-  });
-}
 
 async function toJpeg(bmp: ImageBitmap, max: number, quality: number): Promise<Blob | null> {
   const r = Math.min(1, max / Math.max(bmp.width, bmp.height));
@@ -111,7 +100,9 @@ export function InvoicePhotosSection({ year, month }: { year: number; month: num
   const utils = trpc.useUtils();
   const confirmDialog = useConfirm();
   const q = trpc.invoicedExpense.photosList.useQuery({ year, month }, { refetchOnWindowFocus: false });
-  const upload = trpc.invoicedExpense.photosUpload.useMutation();
+  const uploadUrl = trpc.invoicedExpense.photosUploadUrl.useMutation();
+  const register = trpc.invoicedExpense.photosRegister.useMutation();
+  const supabase = useMemo(() => createClient(), []);
   const read = trpc.invoicedExpense.photosRead.useMutation();
   const invalidate = () => {
     void utils.invoicedExpense.photosList.invalidate({ year, month });
@@ -153,15 +144,14 @@ export function InvoicePhotosSection({ year, month }: { year: number; month: num
             skipped.push(`${f.name}: yalnız fotoğraf ya da PDF`);
             continue;
           }
-          if (blob.size > HARD_MAX) {
-            skipped.push(`${f.name}: dosya çok büyük (${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
+          if (blob.size > BUCKET_MAX) {
+            skipped.push(`${f.name}: dosya çok büyük (${(blob.size / 1024 / 1024).toFixed(1)} MB, en fazla 10 MB)`);
             continue;
           }
-          const r = await upload.mutateAsync({
-            year,
-            month,
-            files: [{ name: f.name, mime_type: mime as PhotoMime, base64: await blobToBase64(blob) }],
-          });
+          const target = await uploadUrl.mutateAsync({ year, month, mime_type: mime as PhotoMime });
+          const put = await supabase.storage.from(UPLOAD_BUCKET).uploadToSignedUrl(target.path, target.token, blob, { contentType: mime });
+          if (put.error) throw new Error(`depoya yüklenemedi: ${put.error.message}`);
+          const r = await register.mutateAsync({ year, month, name: f.name, mime_type: mime as PhotoMime, path: target.path });
           for (const s of r.skipped) skipped.push(`${s.name}: ${s.reason}`);
           linked += r.linked.length;
           // Fotoğraf kaydedildi; okuma hatası onu "alınmadı" yapmaz — listede

@@ -51,6 +51,17 @@ export async function uploadBufferToStorage(opts: {
  * Generate a short-lived signed URL for downloading a stored object.
  * Default expiry: 1 hour.
  */
+/**
+ * Tarayıcının doğrudan yükleyeceği imzalı adres (dosya sunucudan geçmez —
+ * Vercel'in ~4,5 MB istek sınırı yok; kova sınırı 10 MB).
+ */
+export async function createSignedUploadTarget(path: string): Promise<{ path: string; token: string }> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.storage.from(UPLOAD_BUCKET).createSignedUploadUrl(path);
+  if (error || !data) throw new Error(`Yükleme adresi alınamadı: ${error?.message ?? "bilinmeyen"}`);
+  return { path: data.path, token: data.token };
+}
+
 export async function createSignedReadUrl(
   path: string,
   expiresInSeconds = 3600

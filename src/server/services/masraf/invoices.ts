@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
-import { downloadFromStorage, uploadBufferToStorage } from "@/server/services/storage";
+import { deleteFromStorage, downloadFromStorage, uploadBufferToStorage } from "@/server/services/storage";
 import { parseExpense } from "@/server/services/ocr/parsers/expense";
 import { resolveDocumentDate } from "@/server/services/ocr/resolve-doc-date";
 import { convertToTRY } from "@/server/services/fx/kktcmb";
@@ -36,74 +36,128 @@ export function monthFromText(text: string | null | undefined): number | null {
 
 export type StoredFile = { name: string; mime_type: string; base64: string };
 
+export const INVOICE_PREFIX = "masraf-invoices/";
+
+/** Fatura fotoğrafının depodaki yeri. */
+export function invoicePhotoPath(year: number, month: number, mime: string) {
+  return `${INVOICE_PREFIX}${year}-${String(month).padStart(2, "0")}/${randomUUID()}.${EXT[mime] ?? "bin"}`;
+}
+
+type RegisterResult = { kind: "created" | "linked"; id: string } | { kind: "skipped"; reason: string };
+
 /**
- * Dosyaları storage'a + MasrafInvoice satırına yazar. Aynı dosya (SHA-256) ikinci
- * kez alınmaz. Mağaza AYNI dosyayı "Yükle ve Analiz Et"te yüklediyse OCR'a gerek
+ * Tek dosyayı MasrafInvoice satırına yazar. Aynı dosya (SHA-256) ikinci kez
+ * alınmaz. Mağaza AYNI dosyayı "Yükle ve Analiz Et"te yüklediyse OCR'a gerek
  * yok: doğrudan o masraf kaydına bağlanır (mağaza faturası).
+ *
+ * `path` doluysa dosya tarayıcıdan DOĞRUDAN depoya yüklenmiştir (Vercel'in
+ * ~4,5 MB istek sınırına takılmasın diye, 18.11.2026) — tekrar yüklenmez;
+ * mükerrer ya da bozuksa depodan silinir.
  */
-export async function storeInvoiceFiles(prisma: PrismaClient, files: StoredFile[], by: string, year: number, month: number) {
+async function registerInvoiceBuffer(
+  prisma: PrismaClient,
+  f: { name: string; mime_type: string; buffer: Buffer; path?: string },
+  by: string,
+  year: number,
+  month: number
+): Promise<RegisterResult> {
+  const { buffer } = f;
+  const dropUploaded = async () => {
+    if (f.path) await deleteFromStorage(f.path).catch(() => undefined);
+  };
+  if (buffer.length < 1000) {
+    await dropUploaded();
+    return { kind: "skipped", reason: "boş / bozuk dosya" };
+  }
+  const hash = createHash("sha256").update(buffer).digest("hex");
+  const dup = await prisma.masrafInvoice.findUnique({ where: { file_hash: hash } });
+  if (dup) {
+    await dropUploaded();
+    if (dup.deleted_at) {
+      await prisma.masrafInvoice.update({ where: { id: dup.id }, data: { deleted_at: null, period_year: year, period_month: month } });
+      return { kind: "created", id: dup.id };
+    }
+    return { kind: "skipped", reason: `zaten yüklü${dup.vendor ? ` (${dup.vendor})` : ""}` };
+  }
+  let path = f.path;
+  if (!path) {
+    path = invoicePhotoPath(year, month, f.mime_type);
+    await uploadBufferToStorage({ path, buffer, mimeType: f.mime_type });
+  }
+
+  // Mağaza aynı dosyayı yüklemiş mi? (birebir aynı fotoğraf — WhatsApp'tan gelen)
+  const sameUpload = await prisma.upload.findFirst({
+    where: { file_hash: hash, type: "expense", status: { not: "failed" } },
+    select: { expense: { select: { id: true, vendor: true, document_no: true, expense_date: true, amount_try: true, amount: true, currency: true, category: true, description: true, vat_rate: true } } },
+  });
+  const ex = sameUpload?.expense ?? null;
+  const row = await prisma.masrafInvoice.create({
+    data: {
+      period_year: year,
+      period_month: month,
+      storage_path: path,
+      mime_type: f.mime_type,
+      file_hash: hash,
+      file_size_bytes: buffer.length,
+      source_name: f.name,
+      uploaded_by: by,
+      ...(ex
+        ? {
+            ocr_status: "done",
+            vendor: ex.vendor,
+            document_no: ex.document_no,
+            expense_date: ex.expense_date,
+            amount_original: ex.amount,
+            currency: ex.currency,
+            amount_try: ex.amount_try,
+            vat_rate: ex.vat_rate,
+            description: ex.description,
+            ocr_category: ex.category,
+            category: categorizeExpense({ category: ex.category, vendor: ex.vendor, description: ex.description }).category,
+            auto_category: categorizeExpense({ category: ex.category, vendor: ex.vendor, description: ex.description }).category,
+            classification: "store",
+            matched_expense_id: ex.id,
+            match_method: "file_hash",
+            match_score: 1,
+          }
+        : {}),
+    },
+  });
+  return { kind: ex ? "linked" : "created", id: row.id };
+}
+
+async function collect(names: string[], run: (i: number) => Promise<RegisterResult>) {
   const created: string[] = [];
   const linked: string[] = [];
   const skipped: Array<{ name: string; reason: string }> = [];
-  for (const f of files) {
-    const buffer = Buffer.from(f.base64, "base64");
-    if (buffer.length < 1000) {
-      skipped.push({ name: f.name, reason: "boş / bozuk dosya" });
-      continue;
-    }
-    const hash = createHash("sha256").update(buffer).digest("hex");
-    const dup = await prisma.masrafInvoice.findUnique({ where: { file_hash: hash } });
-    if (dup) {
-      if (dup.deleted_at) {
-        await prisma.masrafInvoice.update({ where: { id: dup.id }, data: { deleted_at: null, period_year: year, period_month: month } });
-        created.push(dup.id);
-      } else skipped.push({ name: f.name, reason: `zaten yüklü${dup.vendor ? ` (${dup.vendor})` : ""}` });
-      continue;
-    }
-    const path = `masraf-invoices/${year}-${String(month).padStart(2, "0")}/${randomUUID()}.${EXT[f.mime_type] ?? "bin"}`;
-    await uploadBufferToStorage({ path, buffer, mimeType: f.mime_type });
-
-    // Mağaza aynı dosyayı yüklemiş mi? (birebir aynı fotoğraf — WhatsApp'tan gelen)
-    const sameUpload = await prisma.upload.findFirst({
-      where: { file_hash: hash, type: "expense", status: { not: "failed" } },
-      select: { expense: { select: { id: true, vendor: true, document_no: true, expense_date: true, amount_try: true, amount: true, currency: true, category: true, description: true, vat_rate: true } } },
-    });
-    const ex = sameUpload?.expense ?? null;
-    const row = await prisma.masrafInvoice.create({
-      data: {
-        period_year: year,
-        period_month: month,
-        storage_path: path,
-        mime_type: f.mime_type,
-        file_hash: hash,
-        file_size_bytes: buffer.length,
-        source_name: f.name,
-        uploaded_by: by,
-        ...(ex
-          ? {
-              ocr_status: "done",
-              vendor: ex.vendor,
-              document_no: ex.document_no,
-              expense_date: ex.expense_date,
-              amount_original: ex.amount,
-              currency: ex.currency,
-              amount_try: ex.amount_try,
-              vat_rate: ex.vat_rate,
-              description: ex.description,
-              ocr_category: ex.category,
-              category: categorizeExpense({ category: ex.category, vendor: ex.vendor, description: ex.description }).category,
-              auto_category: categorizeExpense({ category: ex.category, vendor: ex.vendor, description: ex.description }).category,
-              classification: "store",
-              matched_expense_id: ex.id,
-              match_method: "file_hash",
-              match_score: 1,
-            }
-          : {}),
-      },
-    });
-    (ex ? linked : created).push(row.id);
+  for (let i = 0; i < names.length; i++) {
+    const r = await run(i);
+    if (r.kind === "skipped") skipped.push({ name: names[i]!, reason: r.reason });
+    else (r.kind === "linked" ? linked : created).push(r.id);
   }
   return { created, linked, skipped };
+}
+
+/** base64 ile gelen dosyaları kaydeder (küçük dosyalar; eski yol). */
+export async function storeInvoiceFiles(prisma: PrismaClient, files: StoredFile[], by: string, year: number, month: number) {
+  return collect(
+    files.map((f) => f.name),
+    (i) => registerInvoiceBuffer(prisma, { name: files[i]!.name, mime_type: files[i]!.mime_type, buffer: Buffer.from(files[i]!.base64, "base64") }, by, year, month)
+  );
+}
+
+/** Tarayıcının doğrudan depoya yüklediği dosyayı kaydeder. */
+export async function registerUploadedInvoice(
+  prisma: PrismaClient,
+  f: { name: string; mime_type: string; path: string },
+  by: string,
+  year: number,
+  month: number
+) {
+  return collect([f.name], async () => {
+    const buffer = await downloadFromStorage(f.path);
+    return registerInvoiceBuffer(prisma, { ...f, buffer }, by, year, month);
+  });
 }
 
 /** Eşleştirme adayları: aynı tutar, ±3 gün (tarih yoksa seçilen ay ±1 ay). */

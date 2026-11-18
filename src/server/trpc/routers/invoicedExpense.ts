@@ -6,9 +6,9 @@ import { parseInvoicedExcel } from "@/server/services/masraf/parse-invoiced";
 import { faturaliDagitim, masrafMatrix } from "@/server/services/masraf/dagitim";
 import { buildMaviReport } from "@/server/services/masraf/mavi-report";
 import { buildMaviMasraflarExcel } from "@/server/services/exports/excel/mavi-masraflar";
-import { classifyInvoice, readInvoice, rematchMonth, storeInvoiceFiles } from "@/server/services/masraf/invoices";
+import { classifyInvoice, invoicePhotoPath, readInvoice, registerUploadedInvoice, rematchMonth, storeInvoiceFiles } from "@/server/services/masraf/invoices";
 import { masrafCashItems } from "@/server/services/masraf/cash-items";
-import { createSignedReadUrl, deleteFromStorage } from "@/server/services/storage";
+import { createSignedReadUrl, createSignedUploadTarget, deleteFromStorage } from "@/server/services/storage";
 import { categorizeExpense } from "@/lib/masraf/categorize";
 import {
   invoicedUploadSchema,
@@ -17,6 +17,8 @@ import {
   invoicedListSchema,
   masrafReportSchema,
   masrafPhotoUploadSchema,
+  masrafPhotoUploadUrlSchema,
+  masrafPhotoRegisterSchema,
   masrafPhotoIdSchema,
   masrafPhotoListSchema,
   masrafPhotoUpdateSchema,
@@ -254,6 +256,21 @@ export const invoicedExpenseRouter = router({
   photosUpload: photoAudited
     .input(masrafPhotoUploadSchema)
     .mutation(({ ctx, input }) => storeInvoiceFiles(ctx.prisma, input.files, ctx.user.id, input.year, input.month)),
+
+  /**
+   * Doğrudan depoya yükleme izni (18.11.2026). Telefon HEIC'leri 3–4 MB gelir ve
+   * Chrome küçültemez; Vercel'in ~4,5 MB istek sınırına takılmasın diye dosya
+   * sunucudan geçmez, tarayıcı imzalı adrese yükler.
+   */
+  photosUploadUrl: adminProcedure.input(masrafPhotoUploadUrlSchema).mutation(async ({ input }) => {
+    const path = invoicePhotoPath(input.year, input.month, input.mime_type);
+    return createSignedUploadTarget(path);
+  }),
+
+  /** Depoya yüklenmiş fotoğrafı kaydeder (mükerrer / mağaza dosyası kontrolü dahil). */
+  photosRegister: photoAudited
+    .input(masrafPhotoRegisterSchema)
+    .mutation(({ ctx, input }) => registerUploadedInvoice(ctx.prisma, input, ctx.user.id, input.year, input.month)),
 
   /** Tek faturanın OCR'ı + eşleştirme + sınıflama. */
   photosRead: photoAudited.input(masrafPhotoIdSchema).mutation(async ({ ctx, input }) => {
