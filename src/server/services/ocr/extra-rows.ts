@@ -52,3 +52,44 @@ export function reconcileExtraRowsWithSap(
   }
   return null;
 }
+
+/**
+ * Kartuş Puan ↔ Havale on a Mavi (IT POS) summary, settled by the same day's
+ * SAP dealer report (sahibi, 18.11.2026).
+ *
+ * Measured 17.11.2026 (Mavi Güzelyurt): the report printed "Kartuş Puan
+ * Toplam 1.140,00" and "Havale Toplam 1.499,99" on adjacent rows; the model
+ * transcribed the amounts column with the two swapped. The payment equation
+ * is order-independent, so it still balanced and the read was accepted — the
+ * day then showed Havale +360 against the IBAN receipt and Kartuş/Havale
+ * −359,99/+359,99 against SAP on an honest day.
+ *
+ * SAP counts loyalty and wire separately and to the kuruş. The swap is applied
+ * only when it is EXACT both ways — summary Kartuş = SAP Havale AND summary
+ * Havale = SAP Kartuş — and the two differ; anything else is left alone. A
+ * dropped row is covered too (missing = 0): summary Kartuş 1.499,99 / Havale
+ * empty against SAP Kartuş 0 / Havale 1.499,99.
+ *
+ * Kümülatif özet: SAP side = previous day's summary + today's SAP, as above.
+ */
+export function reconcileLoyaltyWireWithSap(
+  summary: { loyalty: number | null; wire: number | null },
+  sapToday: { loyalty: number; wire: number },
+  prev?: { loyalty: number | null; wire: number | null } | null
+): { loyalty: number | null; wire: number | null; note: string } | null {
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const sap = prev
+    ? { loyalty: r2((prev.loyalty ?? 0) + sapToday.loyalty), wire: r2((prev.wire ?? 0) + sapToday.wire) }
+    : sapToday;
+  const eq = (a: number, b: number) => Math.abs(a - b) < 0.005;
+  const L = summary.loyalty ?? 0;
+  const W = summary.wire ?? 0;
+  if (eq(L, W)) return null;
+  if (eq(L, sap.loyalty) && eq(W, sap.wire)) return null;
+  if (!(eq(L, sap.wire) && eq(W, sap.loyalty))) return null;
+  return {
+    loyalty: W > 0 ? W : null,
+    wire: L > 0 ? L : null,
+    note: `Kartuş Puan ${L} ↔ Havale ${W} yer değiştirmiş okunmuş (SAP kartuş ${sap.loyalty}, havale ${sap.wire})`,
+  };
+}

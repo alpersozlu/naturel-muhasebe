@@ -19,7 +19,7 @@ import { forwardDealerReport } from "@/server/services/mavi-iskonto/forward";
 import { saveReportReps } from "@/server/services/dealer-report/daily-reps";
 import { saveMaviReceipts } from "@/server/services/dealer-report/mavi-receipts";
 import { isSapOriginal, xlsxOrigin } from "@/server/services/xlsx-origin";
-import { reconcileExtraRowsWithSap } from "./extra-rows";
+import { reconcileExtraRowsWithSap, reconcileLoyaltyWireWithSap } from "./extra-rows";
 import { parseCheque } from "./parsers/cheque";
 import { reconcileReceiptAmount } from "./amount-words";
 import { reconcileExpenseAmount } from "./expense-amount";
@@ -735,15 +735,30 @@ async function runStoreSummary(upload: Upload, buffer: Buffer, cachedRaw?: unkno
   if (parsed.report_format === "it_pos" && parsed.currency === "TRY") {
     const sap = await prisma.dealerDailyReport.findUnique({ where: { daily_record_id: upload.daily_record_id } });
     if (sap) {
+      const prevExtras = await prevSummaryExtras(upload.daily_record_id);
       const fix = reconcileExtraRowsWithSap(
         { loyalty: parsed.loyalty_points_total, voucher: parsed.shopping_voucher_total, sales: parsed.sales_total, cash: parsed.cash_sales, card: parsed.credit_card_total },
         { loyalty: sap.loyalty_try.toNumber(), gift: sap.gift_card_try?.toNumber() ?? 0 },
-        await prevSummaryExtras(upload.daily_record_id)
+        prevExtras
       );
       if (fix) {
         parsed.loyalty_points_total = fix.loyalty;
         parsed.shopping_voucher_total = fix.voucher;
         await stashRaw(upload.id, { ...(raw as object), sap_extra_rows_fix: fix.note });
+      }
+      // Kartuş ↔ Havale (17.11.2026 Mavi Güzelyurt) — SAP'ta havale sütunu
+      // olan raporlarda (19.09.2026'dan beri).
+      if (sap.wire_try != null) {
+        const swap = reconcileLoyaltyWireWithSap(
+          { loyalty: parsed.loyalty_points_total, wire: parsed.wire_transfer_total },
+          { loyalty: sap.loyalty_try.toNumber(), wire: sap.wire_try.toNumber() },
+          prevExtras
+        );
+        if (swap) {
+          parsed.loyalty_points_total = swap.loyalty;
+          parsed.wire_transfer_total = swap.wire;
+          await stashRaw(upload.id, { ...(raw as object), sap_loyalty_wire_fix: swap.note });
+        }
       }
     }
   }
@@ -1609,6 +1624,27 @@ async function runDealerDailyReport(upload: Upload, buffer: Buffer, opts: { skip
       });
       console.info("[OCR] store summary extra rows corrected from SAP:", fix.note);
     }
+    // Kartuş ↔ Havale — yukarıdaki düzeltmeden SONRAKİ kartuşla.
+    if (day.wire != null) {
+      const loyaltyNow = fix ? fix.loyalty : (existing.loyalty_points_total_try?.toNumber() ?? null);
+      const swap = reconcileLoyaltyWireWithSap(
+        { loyalty: loyaltyNow, wire: existing.wire_transfer_total_try?.toNumber() ?? null },
+        { loyalty: day.loyalty, wire: day.wire },
+        await prevSummaryExtras(upload.daily_record_id)
+      );
+      if (swap) {
+        await prisma.storeSummary.update({
+          where: { id: existing.id },
+          data: {
+            loyalty_points_total: swap.loyalty,
+            loyalty_points_total_try: swap.loyalty,
+            wire_transfer_total: swap.wire,
+            wire_transfer_total_try: swap.wire,
+          },
+        });
+        console.info("[OCR] store summary Kartuş/Havale corrected from SAP:", swap.note);
+      }
+    }
   }
 
   // The same export feeds the discount-control system; hand it over now that
@@ -1622,14 +1658,24 @@ async function runDealerDailyReport(upload: Upload, buffer: Buffer, opts: { skip
  * Kartuş / Alışveriş Çeki düzeltmesinde SAP ile karşılaştırma tabanı olur.
  * Kümülatif değilse null.
  */
-async function prevSummaryExtras(dailyRecordId: string): Promise<{ loyalty: number | null; voucher: number | null } | null> {
+async function prevSummaryExtras(
+  dailyRecordId: string
+): Promise<{ loyalty: number | null; voucher: number | null; wire: number | null } | null> {
   const dr = await prisma.dailyRecord.findUnique({
     where: { id: dailyRecordId },
-    select: { cumulative_prev: { select: { store_summary: { select: { loyalty_points_total_try: true, shopping_voucher_total_try: true } } } } },
+    select: {
+      cumulative_prev: {
+        select: { store_summary: { select: { loyalty_points_total_try: true, shopping_voucher_total_try: true, wire_transfer_total_try: true } } },
+      },
+    },
   });
   const ps = dr?.cumulative_prev?.store_summary;
   if (!ps) return null;
-  return { loyalty: ps.loyalty_points_total_try?.toNumber() ?? null, voucher: ps.shopping_voucher_total_try?.toNumber() ?? null };
+  return {
+    loyalty: ps.loyalty_points_total_try?.toNumber() ?? null,
+    voucher: ps.shopping_voucher_total_try?.toNumber() ?? null,
+    wire: ps.wire_transfer_total_try?.toNumber() ?? null,
+  };
 }
 
 /**
