@@ -154,7 +154,12 @@ export function checkVoucher(a: VoucherCheckInput): VoucherCheckResult {
     return a.source_loaded
       ? {
           status: "fail",
-          reasons: ["Bu fiş numarası Mavi kayıtlarında yok — fiş sahte ya da numara yanlış."],
+          // "Sahte" denmez (18.11.2026): Mağusa'da gerçek bir fiş, kutuda kalan
+          // eski rakamların arkasına okutulduğu için bulunamamıştı. Önce
+          // numaranın doğru girildiğinden emin olunur; karar yöneticide.
+          reasons: [
+            "Bu numara Mavi kayıtlarında yok. Kutuyu boşaltıp fişin altındaki barkodu bir kez okutun ya da fişin üstündeki 16 haneli Fatura No'yu elle yazın. Numara doğruysa yönetici kontrol eder.",
+          ],
           entitlement: 0,
           tier: null,
           deadline: null,
@@ -223,7 +228,13 @@ export type ParsedVoucherBarcode =
 
 /** Okutulan barkodu çöz: küpür ve sıra numarası. Boşluklar temizlenir. */
 export function parseVoucherBarcode(raw: string): ParsedVoucherBarcode {
-  const code = (raw ?? "").replace(/\D/g, "");
+  let code = (raw ?? "").replace(/\D/g, "");
+  // Kutuda eski yazı kalmışken okutulan barkod arkaya eklenir; geçerli bir
+  // çek barkoduyla bitiyorsa SON okutulan 13 hane alınır (18.11.2026).
+  if (code.length > 13) {
+    const tail = code.slice(-13);
+    if (tail.startsWith(VOUCHER_BARCODE_PREFIX) && isValidEan13(tail)) code = tail;
+  }
   if (code.length !== 13) return { ok: false, reason: "Barkod 13 haneli olmalı (EAN-13)." };
   if (!code.startsWith(VOUCHER_BARCODE_PREFIX)) {
     return { ok: false, reason: "Bu bir Derimod hediye çeki barkodu değil (290 ile başlamalı)." };

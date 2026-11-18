@@ -5,9 +5,25 @@ import { checkVoucher, parseVoucherBarcode, type VoucherCheckResult } from "@/li
 const num = (d: { toNumber(): number } | null | undefined) => d?.toNumber() ?? 0;
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
-/** Okutulan fiş numarasını temizle: boşluk, görünmez karakter. */
+/** Mavi Fatura No: mağaza kodu (94xx) + 0000 + 8 hane = 16 hane. */
+const FATURA_NO = /^94\d{2}0000\d{8}$/;
+
+/**
+ * Okutulan fiş numarasını temizle: boşluk, görünmez karakter.
+ *
+ * Kutuda eski yazı kalmışken okutulan numara ARKAYA eklenir — 18.11.2026 Mavi
+ * Mağusa: kutuda "940200001" duruyordu, barkod okutulunca
+ * "9402000019402000011781980" oldu, gerçek fiş "bulunamadı" ve "sahte" denildi.
+ * Barkod okuyucu numarayı her zaman sona yazdığı için 16 haneden uzun bir
+ * girdinin SON 16 hanesi geçerli bir Fatura No ise o alınır.
+ */
 export function cleanReceiptRef(raw: string): string {
-  return (raw ?? "").replace(/\s+/g, "").replace(/[^0-9A-Za-z-]/g, "");
+  const s = (raw ?? "").replace(/\s+/g, "").replace(/[^0-9A-Za-z-]/g, "");
+  if (/^\d{17,}$/.test(s)) {
+    const tail = s.slice(-16);
+    if (FATURA_NO.test(tail)) return tail;
+  }
+  return s;
 }
 
 /**
@@ -37,29 +53,6 @@ export async function findMaviReceipt(prisma: PrismaClient, ref: string) {
   });
   if (hits.length === 1) return { receipt: hits[0]!, ambiguous: false as const };
   return { receipt: null, ambiguous: hits.length > 1 };
-}
-
-/**
- * Fiş, elimizdeki verinin BAŞLADIĞI tarihten eski mi?
- *
- * Fiş numaraları mağaza içinde sıralıdır (9400000012935988 < 9400000013268414),
- * yani okutulan numara o mağazadaki EN KÜÇÜK kayıttan da küçükse o alışveriş
- * biz veri toplamaya başlamadan önce yapılmıştır. Böyle bir fişi "sahte"
- * saymak yanlış olur: eski (barkodsuz) çeklerin fişleri buraya düşer, karar
- * yöneticiye kalır. Veri eylül 2026'da başlıyor; 27.07 öncesi süresiz çeklerin
- * fişleri sistemde HİÇ yok.
- */
-export async function isBeforeCoverage(prisma: PrismaClient, ref: string): Promise<{ older: boolean; coverage_from: string | null }> {
-  const clean = cleanReceiptRef(ref);
-  if (!/^\d{12,}$/.test(clean)) return { older: false, coverage_from: null };
-  const prefix = clean.slice(0, 4); // mağaza kodu: 9400 / 9401 / 9402 / 9403
-  const oldest = await prisma.maviReceipt.findFirst({
-    where: { ref: { startsWith: prefix } },
-    orderBy: { ref: "asc" },
-    select: { ref: true, date: true },
-  });
-  if (!oldest || oldest.ref.length !== clean.length) return { older: false, coverage_from: null };
-  return { older: clean < oldest.ref, coverage_from: oldest.date.toISOString().slice(0, 10) };
 }
 
 /**
@@ -133,18 +126,10 @@ export async function previewClaim(prisma: PrismaClient, input: ClaimInput): Pro
     source_loaded: await maviSourceLoaded(prisma, receipt ? iso(receipt.date) : null),
   });
 
+  // "Verimizden eski" tahmini KALDIRILDI (18.11.2026): fiş numaraları tarih
+  // sırasıyla artmıyor — Mağusa'nın yalnız 24.10'daki 92 fişi 8,7 milyondan
+  // 13,2 milyona dağılıyor — yani numaraya bakıp fişin eski olduğu söylenemez.
   const reasons = [...check.reasons];
-  // "Sahte fiş" demeden önce: bu numara veri kapsamımızdan eski olabilir.
-  if (!receipt) {
-    const cov = await isBeforeCoverage(prisma, input.receipt_ref);
-    if (cov.older) {
-      const tr = (cov.coverage_from ?? "").split("-").reverse().join(".");
-      reasons.length = 0;
-      reasons.push(
-        `Bu fiş, sistemdeki Mavi verisinden daha eski (veri ${tr} tarihinde başlıyor) — numara doğru olabilir ama tutarını buradan doğrulayamıyoruz. Yönetici elle onaylayabilir.`
-      );
-    }
-  }
   if (!parsed.ok) reasons.unshift(parsed.reason);
   if (ambiguous) reasons.unshift("Fiş numarası birden çok kayda yakın — numarayı yeniden okutun.");
   const status: VoucherCheckResult["status"] = !parsed.ok || ambiguous ? "fail" : check.status;

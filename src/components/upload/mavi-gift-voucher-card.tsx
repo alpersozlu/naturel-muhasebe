@@ -80,7 +80,7 @@ export function MaviGiftVoucherCard({ storeId, date }: { storeId: string; date: 
   const disabled = !storeId || !date;
   const day = trpc.giftVoucher.dayTotal.useQuery({ store_id: storeId, date }, { enabled: !disabled });
   const list = trpc.giftVoucher.list.useQuery(
-    { status: "all", from: date, to: date, limit: 50 },
+    { store_id: storeId, status: "all", from: date, to: date, limit: 50 },
     { enabled: !disabled }
   );
   const mine = (list.data ?? []).filter((r) => r.used_date === date);

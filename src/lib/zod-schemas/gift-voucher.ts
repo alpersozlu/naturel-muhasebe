@@ -27,6 +27,8 @@ export const giftVoucherClaimInputSchema = z
   });
 
 export const giftVoucherListSchema = z.object({
+  /** Kullanıldığı mağaza — yönetici olmayan için ZORUNLU (kendi mağazası). */
+  store_id: z.string().uuid().optional(),
   status: z.enum(["all", "ok", "pending", "fail"]).default("all"),
   from: dateOnly.optional(),
   to: dateOnly.optional(),

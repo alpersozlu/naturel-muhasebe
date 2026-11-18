@@ -101,15 +101,26 @@ export function VoucherScan({
           {noBarcode ? (
             <Input value={manualAmount} onChange={(e) => setManualAmount(e.target.value)} placeholder="500" inputMode="decimal" className="text-lg tabular-nums" disabled={disabled} />
           ) : (
-            <Input ref={voucherRef} value={voucher} onChange={(e) => setVoucher(e.target.value)} placeholder="2900500000013" className="font-mono text-lg" disabled={disabled} />
+            <Input
+              ref={voucherRef}
+              value={voucher}
+              onChange={(e) => setVoucher(e.target.value)}
+              onFocus={(e) => e.currentTarget.select()}
+              placeholder="2900500000013"
+              className="font-mono text-lg"
+              disabled={disabled}
+            />
           )}
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Mavi fişinin barkodu</Label>
+          <Label className="text-xs">Mavi fişinin barkodu (Fatura No)</Label>
           <Input
             ref={receiptRef}
             value={receipt}
             onChange={(e) => setReceipt(e.target.value)}
+            // Kutuya gelince içindeki eski yazı seçilir: okuyucu yeni numarayı
+            // eskisinin ARKASINA eklemez, yerine yazar (18.11.2026 Mağusa).
+            onFocus={(e) => e.currentTarget.select()}
             onKeyDown={(e) => {
               if (e.key === "Enter" && ready && p && !save.isPending) save.mutate(payload);
             }}

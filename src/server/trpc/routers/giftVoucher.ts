@@ -1,21 +1,28 @@
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, adminProcedure } from "../trpc";
-import { withAudit } from "../middleware/audit";
+import { withAudit, withAuditProtected } from "../middleware/audit";
 import {
   giftVoucherClaimInputSchema,
   giftVoucherIdSchema,
   giftVoucherListSchema,
   giftVoucherOverrideSchema,
 } from "@/lib/zod-schemas/gift-voucher";
-import { previewClaim, recheckPending } from "@/server/services/gift-voucher/check";
+import { cleanReceiptRef, previewClaim, recheckPending } from "@/server/services/gift-voucher/check";
 import { giftVoucherAudit, giftVoucherSummaryMatch } from "@/server/services/gift-voucher/summary-match";
-import { isAdmin } from "@/lib/auth/permissions";
+import { assertCanAccessStore, isAdmin } from "@/lib/auth/permissions";
 import type { PrismaClient } from "@prisma/client";
 import { getOrCreateDailyRecord } from "@/server/services/daily-record";
 type PrismaContext = PrismaClient;
 import { z } from "zod";
 
 const claimAudited = withAudit("GiftVoucherClaim");
+/**
+ * Mağaza kullanıcısı da çek KAYDEDEBİLİR (sahibi, 18.11.2026 — Derimod
+ * Lefkoşa'da "FORBIDDEN"): okutma kutusu Yükle ve Analiz'deki günlük karta
+ * taşındığında kaydetme hâlâ yalnız yöneticiye açıktı. Yetki prosedürde:
+ * yönetici olmayan yalnız ERİŞEBİLDİĞİ mağazaya kaydeder.
+ */
+const claimAuditedStore = withAuditProtected("GiftVoucherClaim");
 
 /**
  * O günün okutulmuş çek toplamını DailyRecord'a yazar (Mavi Hediye Çeki —
@@ -52,12 +59,18 @@ const todayIso = () =>
  */
 export const giftVoucherRouter = router({
   /** Okutulan çek + fiş için kararı hesapla (kaydetmeden). */
-  preview: protectedProcedure.input(giftVoucherClaimInputSchema).query(({ ctx, input }) =>
-    previewClaim(ctx.prisma, { ...input, used_date: input.used_date ?? todayIso() })
-  ),
+  preview: protectedProcedure.input(giftVoucherClaimInputSchema).query(async ({ ctx, input }) => {
+    if (input.used_store_id && !isAdmin(ctx.user)) await assertCanAccessStore(ctx.user, input.used_store_id);
+    return previewClaim(ctx.prisma, { ...input, used_date: input.used_date ?? todayIso() });
+  }),
 
   /** Kararı kaydet. Aynı çek barkodu ikinci kez kaydedilemez. */
-  claim: claimAudited.input(giftVoucherClaimInputSchema).mutation(async ({ ctx, input }) => {
+  claim: claimAuditedStore.input(giftVoucherClaimInputSchema).mutation(async ({ ctx, input }) => {
+    if (!isAdmin(ctx.user)) {
+      if (!input.used_store_id)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Çekin kullanıldığı mağaza seçilmedi." });
+      await assertCanAccessStore(ctx.user, input.used_store_id);
+    }
     const usedDate = input.used_date ?? todayIso();
     const p = await previewClaim(ctx.prisma, { ...input, used_date: usedDate });
     if (!p.voucher) {
@@ -89,7 +102,7 @@ export const giftVoucherRouter = router({
         barcode: p.voucher.barcode,
         is_manual: p.voucher.manual,
         amount: p.voucher.amount,
-        receipt_ref: input.receipt_ref.trim(),
+        receipt_ref: cleanReceiptRef(input.receipt_ref),
         mavi_receipt_id: p.receipt?.id ?? null,
         used_date: new Date(`${usedDate}T00:00:00.000Z`),
         used_store_id: input.used_store_id ?? null,
@@ -107,8 +120,15 @@ export const giftVoucherRouter = router({
   }),
 
   list: protectedProcedure.input(giftVoucherListSchema).query(async ({ ctx, input }) => {
+    // Mağaza kullanıcısı yalnız kendi mağazasının çeklerini görür (müşteri adı,
+    // fiş tutarı başka mağazaya gösterilmez).
+    if (!isAdmin(ctx.user)) {
+      if (!input.store_id) throw new TRPCError({ code: "FORBIDDEN", message: "Mağaza seçilmedi." });
+      await assertCanAccessStore(ctx.user, input.store_id);
+    }
     const rows = await ctx.prisma.giftVoucherClaim.findMany({
       where: {
+        ...(input.store_id ? { used_store_id: input.store_id } : {}),
         ...(input.status === "all" ? {} : { status: input.status }),
         ...(input.from || input.to
           ? {
@@ -158,6 +178,7 @@ export const giftVoucherRouter = router({
   dayTotal: protectedProcedure
     .input(z.object({ store_id: z.string().uuid(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
     .query(async ({ ctx, input }) => {
+      await assertCanAccessStore(ctx.user, input.store_id);
       const day = new Date(`${input.date}T00:00:00.000Z`);
       const g = await ctx.prisma.giftVoucherClaim.aggregate({
         where: { used_store_id: input.store_id, used_date: day },
@@ -181,7 +202,7 @@ export const giftVoucherRouter = router({
       return giftVoucherAudit(ctx.prisma, { from: iso(d), to });
     }),
 
-  counts: protectedProcedure.query(async ({ ctx }) => {
+  counts: adminProcedure.query(async ({ ctx }) => {
     const g = await ctx.prisma.giftVoucherClaim.groupBy({ by: ["status"], _count: true, _sum: { amount: true } });
     const out = { ok: 0, pending: 0, fail: 0, total_amount: 0 };
     for (const r of g) {
