@@ -31,6 +31,27 @@ export function cleanReceiptRef(raw: string): string {
  * ya da fotoğraftan okunduysa bir hane kayabilir — tam eşleşme yoksa TEK hane
  * farkı olan adaya bakılır (iki aday varsa karar kullanıcıya kalır).
  */
+/**
+ * Uzun bir barkodun İÇİNDEKİ Fatura No adayları (16 hane, 94xx0000 + 8 hane),
+ * soldan sağa, tekrarsız.
+ *
+ * 18.11.2026 Mavi Mağusa: müşteri adına kesilen (e-Arşiv) bilgi fişinin
+ * barkodu 32 hanedir ve Fatura No ortasındadır —
+ *   "940200001" + "9402000011781980" + "2663645".
+ * Lefkoşa'nın düz fişlerinde barkod yalnız Fatura No'dur. Hangi pencerenin
+ * gerçek numara olduğuna veritabanı karar verir (yalnız biri kayıtlıdır).
+ */
+export function faturaNoCandidates(raw: string): string[] {
+  const s = (raw ?? "").replace(/\D/g, "");
+  if (s.length <= 16) return [];
+  const out: string[] = [];
+  for (let i = 0; i + 16 <= s.length; i++) {
+    const w = s.slice(i, i + 16);
+    if (FATURA_NO.test(w) && !out.includes(w)) out.push(w);
+  }
+  return out;
+}
+
 export async function findMaviReceipt(prisma: PrismaClient, ref: string) {
   const clean = cleanReceiptRef(ref);
   if (!clean) return { receipt: null, ambiguous: false as const };
@@ -39,6 +60,18 @@ export async function findMaviReceipt(prisma: PrismaClient, ref: string) {
     include: { store: { select: { name: true } } },
   });
   if (exact) return { receipt: exact, ambiguous: false as const };
+  // Barkod Fatura No'dan uzunsa (e-Arşiv fişi, ya da kutuda kalan eski
+  // rakamlar): içindeki Fatura No adaylarından KAYITLI olanı al.
+  const candidates = faturaNoCandidates(ref);
+  if (candidates.length > 0) {
+    const found = await prisma.maviReceipt.findMany({
+      where: { ref: { in: candidates } },
+      include: { store: { select: { name: true } } },
+    });
+    const refs = Array.from(new Set(found.map((f) => f.ref)));
+    if (refs.length === 1) return { receipt: found.find((f) => f.ref === refs[0])!, ambiguous: false as const };
+    if (refs.length > 1) return { receipt: null, ambiguous: true as const };
+  }
   if (!/^\d{10,}$/.test(clean)) return { receipt: null, ambiguous: false as const };
   const near = await prisma.maviReceipt.findMany({
     where: { ref: { startsWith: clean.slice(0, 6) } },

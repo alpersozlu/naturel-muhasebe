@@ -102,7 +102,7 @@ export const giftVoucherRouter = router({
         barcode: p.voucher.barcode,
         is_manual: p.voucher.manual,
         amount: p.voucher.amount,
-        receipt_ref: cleanReceiptRef(input.receipt_ref),
+        receipt_ref: p.receipt?.ref ?? cleanReceiptRef(input.receipt_ref),
         mavi_receipt_id: p.receipt?.id ?? null,
         used_date: new Date(`${usedDate}T00:00:00.000Z`),
         used_store_id: input.used_store_id ?? null,

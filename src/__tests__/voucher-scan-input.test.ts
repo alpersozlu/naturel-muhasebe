@@ -37,3 +37,18 @@ describe("çek barkodu temizliği", () => {
     expect(parseVoucherBarcode("29007236506371").ok).toBe(false);
   });
 });
+
+import { faturaNoCandidates } from "@/server/services/gift-voucher/check";
+
+describe("uzun barkodun içindeki Fatura No adayları", () => {
+  it("18.11 Mağusa e-Arşiv fişi: 32 haneli barkodun içinde Fatura No var", () => {
+    const c = faturaNoCandidates("94020000194020000117819802663645");
+    expect(c).toContain("9402000011781980");
+  });
+  it("Fatura No uzunluğundaki girdi aday üretmez (doğrudan aranır)", () => {
+    expect(faturaNoCandidates("9402000011781980")).toEqual([]);
+  });
+  it("aynı numara iki kez okutulduysa tek aday", () => {
+    expect(faturaNoCandidates("94000000130711379400000013071137")).toEqual(["9400000013071137"]);
+  });
+});
