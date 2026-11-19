@@ -1,7 +1,7 @@
 import "server-only";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { getAnthropic, OCR_MODEL } from "@/lib/anthropic";
-import { preprocessReceipt } from "../preprocess";
+import { preprocessImage, preprocessReceipt } from "../preprocess";
 import {
   expenseOcrSchema,
   expenseOutputSchema,
@@ -27,6 +27,13 @@ export async function parseExpense(opts: {
   mimeType: string;
   /** Aynı dosya daha önce okunduysa (SHA-256) önceki ham çıktı — model ÇAĞRILMAZ (kredi harcanmaz). */
   cachedRaw?: unknown;
+  /**
+   * Kâğıt kırpması yapılmaz, karenin tamamı gönderilir. Kırpma desenli zemini
+   * kâğıt sanabilir (sahibi, 19.11.2026: gri mermer desenli klasör üstünde
+   * çekilen 5 fatura — kırpma klasörü seçti, model "doku deseni" dedi).
+   * Okuma reddedilirse ikinci deneme bununla yapılır.
+   */
+  wholeFrame?: boolean;
 }): Promise<{ raw: unknown; parsed: ExpenseOcr; rawText: string; tiles: number }> {
   const isPdf = opts.mimeType === "application/pdf";
 
@@ -46,6 +53,9 @@ export async function parseExpense(opts: {
         data: opts.buffer.toString("base64"),
       },
     });
+  } else if (opts.wholeFrame) {
+    const r = await preprocessImage(opts.buffer, opts.mimeType);
+    content.push({ type: "image", source: { type: "base64", media_type: r.mediaType, data: r.buffer.toString("base64") } });
   } else {
     const r = await preprocessReceipt(opts.buffer, opts.mimeType, { kind: "document" });
     tileCount = r.tiles.length;

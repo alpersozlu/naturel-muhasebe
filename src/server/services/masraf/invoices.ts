@@ -246,7 +246,13 @@ export async function readInvoice(prisma: PrismaClient, id: string) {
   const inv = await prisma.masrafInvoice.findUniqueOrThrow({ where: { id } });
   try {
     const buf = await downloadFromStorage(inv.storage_path);
-    const { raw, parsed } = await parseExpense({ buffer: buf, mimeType: inv.mime_type });
+    let { raw, parsed } = await parseExpense({ buffer: buf, mimeType: inv.mime_type });
+    // Kırpma desenli zemini kâğıt sanabilir (19.11.2026, mermer desenli klasör):
+    // reddedilen ya da tutarı okunamayan fotoğraf bir kez karenin tamamıyla okunur.
+    if ((!parsed.is_expense || parsed.amount == null) && inv.mime_type !== "application/pdf") {
+      const second = await parseExpense({ buffer: buf, mimeType: inv.mime_type, wholeFrame: true });
+      if (second.parsed.is_expense && second.parsed.amount != null) ({ raw, parsed } = second);
+    }
     if (!parsed.is_expense) {
       return prisma.masrafInvoice.update({ where: { id }, data: { ocr_status: "failed", ocr_error: parsed.rejection_reason ?? "Bu bir fatura/makbuz gibi görünmüyor", ocr_json: raw as object } });
     }
