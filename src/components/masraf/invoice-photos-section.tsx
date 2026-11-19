@@ -12,9 +12,11 @@ import {
   Loader2,
   Pencil,
   RefreshCw,
+  Search,
   Store,
   Trash2,
   Undo2,
+  X,
   XCircle,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -119,6 +121,8 @@ export function InvoicePhotosSection({ year, month }: { year: number; month: num
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [drag, setDrag] = useState(false);
   const [filter, setFilter] = useState<"all" | "company" | "store" | "review">("all");
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<"date" | "amount">("date");
   const [editing, setEditing] = useState<string | null>(null);
   const [linking, setLinking] = useState<string | null>(null);
 
@@ -217,6 +221,30 @@ export function InvoicePhotosSection({ year, month }: { year: number; month: num
     if (filter === "review") return items.filter((i) => i.ocr_status !== "done" || i.needs_review || i.classification === "duplicate");
     return items;
   }, [items, filter]);
+  // Arama + sıralama (sahibi, 19.11.2026). Arama satıcı, açıklama, belge no,
+  // dosya adı, kategori, eşleşen mağaza ve tutarda yapılır; tutar "34000",
+  // "34.000" ya da "34.000,00" diye yazılabilir.
+  const listed = useMemo(() => {
+    const norm = (t: string) => t.toLocaleLowerCase("tr").replace(/\s+/g, " ").trim();
+    const q = norm(search);
+    const digits = q.replace(/[^0-9]/g, "");
+    let out = shown;
+    if (q) {
+      out = shown.filter((i) => {
+        const text = norm(
+          [i.vendor, i.description, i.document_no, i.source_name, i.category ? KATEGORI_LABEL[i.category as keyof typeof KATEGORI_LABEL] : null, i.matched?.store_name]
+            .filter(Boolean)
+            .join(" ")
+        );
+        if (text.includes(q)) return true;
+        if (i.amount_try == null || !digits) return false;
+        const amt = [fmt(i.amount_try), i.amount_try.toFixed(2), String(Math.round(i.amount_try))];
+        return amt.some((a) => a.toLocaleLowerCase("tr").includes(q) || a.replace(/[^0-9]/g, "").startsWith(digits));
+      });
+    }
+    if (sort === "amount") out = [...out].sort((a, b) => (b.amount_try ?? -1) - (a.amount_try ?? -1));
+    return out;
+  }, [shown, search, sort]);
   const busy = !!progress;
   const editItem = editing ? items.find((i) => i.id === editing) ?? null : null;
 
@@ -281,6 +309,38 @@ export function InvoicePhotosSection({ year, month }: { year: number; month: num
                 {label}
               </button>
             ))}
+            <div className="ml-auto flex flex-wrap items-center gap-1.5">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Satıcı, açıklama, belge no, tutar…"
+                  className="h-8 w-64 pl-8 pr-7 text-xs"
+                  aria-label="Faturalarda ara"
+                />
+                {search ? (
+                  <button type="button" onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="Aramayı temizle">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+              </div>
+              {(
+                [
+                  ["date", "Tarihe göre"],
+                  ["amount", "Tutar: yüksekten düşüğe"],
+                ] as const
+              ).map(([k, label]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setSort(k)}
+                  className={cn("rounded-full border px-2.5 py-1 transition-colors", sort === k ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground hover:bg-accent/40")}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         ) : null}
 
@@ -305,7 +365,14 @@ export function InvoicePhotosSection({ year, month }: { year: number; month: num
                 </tr>
               </thead>
               <tbody>
-                {shown.map((it) => {
+                {listed.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                      {search ? `“${search}” ile eşleşen fatura yok.` : "Bu filtrede fatura yok."}
+                    </td>
+                  </tr>
+                ) : null}
+                {listed.map((it) => {
                   const meta = CLASS_META[it.ocr_status === "done" ? it.classification : it.ocr_status === "failed" ? "excluded" : "pending"] ?? CLASS_META.pending;
                   const failed = it.ocr_status === "failed";
                   const warn = it.needs_review && it.ocr_status === "done";
