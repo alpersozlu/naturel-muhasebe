@@ -123,8 +123,12 @@ export function InvoicePhotosSection({ year, month }: { year: number; month: num
   const [linking, setLinking] = useState<string | null>(null);
 
   // Sayı sınırı yok: her fotoğraf kendi isteğiyle yüklenir ve hemen okunur.
-  // Okuma SIRAYLA yapılır — mükerrer çekim kararı, ikizinin önceden okunmuş
-  // olmasına bağlı.
+  // Aynı anda PARALLEL fotoğraf işlenir (sahibi, 19.11.2026: "çok yavaş" — tek
+  // tek fotoğraf başına 30–50 sn). Mükerrer çekim kararı ikizin önceden okunmuş
+  // olmasına bağlı olduğundan, aynı anda okunan iki ikiz parti sonunda
+  // rematchMonth ile ayıklanır (yüklenme sırasına göre ikincisi mükerrer olur).
+  const PARALLEL = 4;
+  const rematchQuiet = trpc.invoicedExpense.photosRematch.useMutation();
   const ingest = async (list: FileList | File[]) => {
     const files = Array.from(list);
     if (files.length === 0) return;
@@ -135,18 +139,18 @@ export function InvoicePhotosSection({ year, month }: { year: number; month: num
     let store = 0;
     let failed = 0;
     let read_n = 0;
-    try {
-      for (let i = 0; i < files.length; i++) {
-        const f = files[i]!;
+    let next = 0;
+    let done = 0;
+    const one = async (f: File) => {
         try {
           const { blob, mime } = await shrink(f);
           if (!(PHOTO_MIMES as readonly string[]).includes(mime)) {
             skipped.push(`${f.name}: yalnız fotoğraf ya da PDF`);
-            continue;
+            return;
           }
           if (blob.size > BUCKET_MAX) {
             skipped.push(`${f.name}: dosya çok büyük (${(blob.size / 1024 / 1024).toFixed(1)} MB, en fazla 10 MB)`);
-            continue;
+            return;
           }
           const target = await uploadUrl.mutateAsync({ year, month, mime_type: mime as PhotoMime });
           const put = await supabase.storage.from(UPLOAD_BUCKET).uploadToSignedUrl(target.path, target.token, blob, { contentType: mime });
@@ -170,10 +174,18 @@ export function InvoicePhotosSection({ year, month }: { year: number; month: num
         } catch (e) {
           skipped.push(`${f.name}: ${e instanceof Error ? e.message : "yüklenemedi"}`);
         } finally {
-          setProgress({ done: i + 1, total: files.length });
-          if ((i + 1) % 5 === 0) invalidate();
+          done += 1;
+          setProgress({ done, total: files.length });
+          if (done % 5 === 0) invalidate();
         }
-      }
+    };
+    try {
+      await Promise.all(
+        Array.from({ length: Math.min(PARALLEL, files.length) }, async () => {
+          while (next < files.length) await one(files[next++]!);
+        })
+      );
+      if (read_n > 1) await rematchQuiet.mutateAsync({ year, month }).catch(() => undefined);
     } finally {
       invalidate();
       setProgress(null);
