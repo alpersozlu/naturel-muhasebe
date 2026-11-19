@@ -91,6 +91,18 @@ export const MANUEL_KATEGORILER = [
 const RULES: { kw: string[]; cat: MasrafKategori }[] = [
   // PAZAR → yok say (maaşa dahil) — "pazar parasi" dahil. Avans da masraf değil.
   { kw: ["pazar", "avans"], cat: "IGNORE" },
+  // DİĞER GİDERLER — sahibi (19.11.2026): cam temizliği / camcı (Murat Okur)
+  // temizlik DEĞİL, camcı → Diğer; kurumsal koku / parfümlendirme hizmeti ve
+  // elektrik MALZEMESİ (elektrikçi dükkânı) da Diğer. Temizlik ve Elektrik
+  // kurallarından ÖNCE durmalı ("cam temizliği" "temizliği"ne takılmasın).
+  {
+    kw: [
+      "cam temizligi", "cam temizliği", "cam temizlik", "cam silme", "camci", "camcı", "murat okur",
+      "kurumsal koku", "koku hizmeti", "parfumlendirme", "parfümlendirme",
+      "elektrik malzeme", "elektrik malzemesi", "elektrikci", "elektrikçi",
+    ],
+    cat: "DIGER",
+  },
   // KİRA — orange mall / ortak alan (sadece Güzelyurt; mağaza ataması ayrı)
   { kw: ["orange mall", "ortak alan", "ciro kira", "kira odeme", "kira ödeme", "kira bedeli"], cat: "KIRA" },
   // MARKET → özel dağıtım
@@ -107,9 +119,10 @@ const RULES: { kw: string[]; cat: MasrafKategori }[] = [
   { kw: ["muhasebe", "mali musavir", "mali müşavir", "denetim ucreti", "denetim ücreti"], cat: "MUHASEBE" },
   { kw: ["sigorta", "police", "poliçe"], cat: "SIGORTA" },
   // TEMİZLİK — cam temizliği, temizlik malzemesi, deterjan
-  { kw: ["temizlik", "temizligi", "temizliği", "temizlige", "temizliğe", "deterjan", "cam silme", "hijyen", "wc", "tuvalet kagidi", "tuvalet kağıdı", "eldiven", "cop torbasi", "çöp torbası", "copluk", "çöp"], cat: "TEMIZLIK" },
+  { kw: ["temizlik", "temizligi", "temizliği", "temizlige", "temizliğe", "deterjan", "hijyen", "wc", "tuvalet kagidi", "tuvalet kağıdı", "eldiven", "cop torbasi", "çöp torbası", "copluk", "çöp"], cat: "TEMIZLIK" },
   // TERZİ = tamir (paça, dikiş, ayakkabı tamiri, lastik)
-  { kw: ["terzi", "tamir", "lastik", "paca", "paça", "dikis", "dikiş", "tadilat", "ayakkabici", "ayakkabıcı", "kundura"], cat: "TERZI" },
+  // Metin Göçer = Mavi Lefkoşa'nın terzisi (sahibi, 19.11.2026)
+  { kw: ["terzi", "metin göçer", "metin gocer", "tamir", "lastik", "paca", "paça", "dikis", "dikiş", "tadilat", "ayakkabici", "ayakkabıcı", "kundura"], cat: "TERZI" },
   // KIRTASİYE
   { kw: ["kirtasiye", "kırtasiye", "koli band", "hafiza kart", "hafıza kart", "toner", "kartus dolum", "kartuş dolum", "fotokopi", "zimba", "zımba", "epson", "a4", "etiket", "baski", "baskı", "flex"], cat: "KIRTASIYE" },
   // İŞÇİ — günlük/geçici işçi, deneme personeli (maaşlı personelden ayrı)
@@ -239,6 +252,11 @@ export function categorizeExpense(input: {
       return { category: mapped, needsReview: false, matched: `kategori:${input.category}` };
     }
     return byDesc;
+  }
+  // "Elektrik" yalnız ana faturadır (Kıb-Tek). Model elektrikçi dükkânının
+  // malzeme fişine de "electricity" diyor (Halil & Doğan Elektrik, 19.11.2026).
+  if (mapped === "ELEKTRIK" && categorizeMasraf(`${vendor} ${desc}`).category !== "ELEKTRIK") {
+    return { category: "DIGER", needsReview: false, matched: "elektrik:ana-fatura-değil" };
   }
   if (mapped) return { category: mapped, needsReview: false, matched: `kategori:${input.category}` };
   const byVendor = vendor.trim() ? categorizeMasraf(vendor) : null;

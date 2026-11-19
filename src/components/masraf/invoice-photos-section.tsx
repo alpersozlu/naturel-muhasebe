@@ -266,7 +266,7 @@ export function InvoicePhotosSection({ year, month }: { year: number; month: num
               <h2 className="font-semibold leading-tight">Fatura fotoğrafları — {MONTHS[month]} {year}</h2>
               {s ? (
                 <span className="text-xs text-muted-foreground">
-                  {s.total} fatura · {s.company} şirket ({fmt(s.company_total)} ₺ → mağaza başına {fmt(s.company_total / storeCount)} ₺) · {s.store} mağaza ({fmt(s.store_total)} ₺)
+                  {s.total} fatura · {s.company} şirket ({fmt(s.company_total)} ₺ → mağaza başına {fmt(s.company_total / storeCount)} ₺){s.kira_total > 0 ? ` · kira ${fmt(s.kira_total)} ₺ → Güzelyurt` : ""} · {s.store} mağaza ({fmt(s.store_total)} ₺)
                   {s.duplicate ? ` · ${s.duplicate} mükerrer` : ""}{s.failed ? ` · ${s.failed} okunamadı` : ""}{s.review ? ` · ${s.review} gözden geçir` : ""}
                 </span>
               ) : null}
@@ -416,7 +416,7 @@ export function InvoicePhotosSection({ year, month }: { year: number; month: num
                       </td>
                       <td className="px-3 py-2">
                         <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1", meta.cls)}>
-                          {meta.icon} {failed ? "Okunamadı" : meta.label}
+                          {meta.icon} {failed ? "Okunamadı" : it.classification === "company" && it.category === "KIRA" ? "Kira · Güzelyurt'a" : meta.label}
                         </span>
                         {it.matched ? (
                           <div className="mt-1 text-[11px] text-emerald-800">

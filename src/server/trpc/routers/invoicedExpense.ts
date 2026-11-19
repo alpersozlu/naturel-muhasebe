@@ -329,7 +329,8 @@ export const invoicedExpenseRouter = router({
             }
           : null,
         duplicate_of: twin ? { id: twin.id, vendor: twin.vendor, amount_try: twin.amount_try == null ? null : Number(twin.amount_try) } : null,
-        per_store: r.classification === "company" && amt != null ? Math.round((amt / storeCount) * 100) / 100 : null,
+        // Kira 7'ye bölünmez: Mavi'de tamamı Güzelyurt'a (brands.kiraStoreCode) yazılır.
+        per_store: r.classification === "company" && r.category !== "KIRA" && amt != null ? Math.round((amt / storeCount) * 100) / 100 : null,
       };
     });
     const sum = (f: (x: (typeof list)[number]) => boolean) => list.filter(f).reduce((s, x) => s + (x.amount_try ?? 0), 0);
@@ -341,7 +342,8 @@ export const invoicedExpenseRouter = router({
         pending: list.filter((x) => x.ocr_status === "pending").length,
         failed: list.filter((x) => x.ocr_status === "failed").length,
         company: list.filter((x) => x.classification === "company").length,
-        company_total: sum((x) => x.classification === "company"),
+        company_total: sum((x) => x.classification === "company" && x.category !== "KIRA"),
+        kira_total: sum((x) => x.classification === "company" && x.category === "KIRA"),
         store: list.filter((x) => x.classification === "store").length,
         store_total: sum((x) => x.classification === "store"),
         duplicate: list.filter((x) => x.classification === "duplicate").length,
