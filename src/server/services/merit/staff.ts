@@ -69,7 +69,8 @@ export async function parseStaffXlsx(buffer: Buffer): Promise<string[]> {
     const parts = cols.map((c) => clean(row.getCell(c).value)).filter((x) => x && x !== "*" && x !== "-");
     if (parts.some(isHeader)) return; // başlık (ya da tablonun ortasındaki ikinci başlık)
     const n = parts.join(" ").trim();
-    if (n.length >= 3 && /\p{L}/u.test(n) && !/^\d+$/.test(n)) names.push(n);
+    // harf içermeli (yalnız sıra no / sayı değil)
+    if (n.length >= 3 && n.toLocaleLowerCase("tr") !== n.toLocaleUpperCase("tr")) names.push(n);
   });
   return Array.from(new Set(names));
 }
