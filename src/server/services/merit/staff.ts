@@ -30,23 +30,46 @@ function cellText(v: ExcelJS.CellValue): string {
 const HEADER_RE = /^(ad[ıi]?( soyad[ıi]?)?|soyad[ıi]?|name|surname|full ?name|personel|isim)$/i;
 
 /**
- * Personel listesi Excel'ini (.xlsx) okur. İki düzen tanınır:
- *  - tek sütun "ADI SOYADI";
- *  - iki sütun "Adı | Soyadı" (birleştirilir). "*" / boş hücreler atlanır.
+ * Personel listesi Excel'ini (.xlsx) okur. Düzenler:
+ *  - başlık satırında "ADI SOYADI" (ya da "Adı" + "Soyadı") olan HERHANGİ bir
+ *    sütun — ör. Les Ambassadeurs 20.11.2026: "# | DEPARTMAN | ADI SOYADI |
+ *    GÖREVİ", isimler D sütununda; tablonun ortasındaki ikinci başlık satırı
+ *    ("BİRİMİ | ADI SOYADI") atlanır;
+ *  - başlıksız: A sütunu (ve varsa B) ad soyad. "*" / boş hücreler atlanır.
  */
 export async function parseStaffXlsx(buffer: Buffer): Promise<string[]> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer as unknown as ArrayBuffer);
   const ws = wb.worksheets[0];
   if (!ws) return [];
+  const clean = (v: ExcelJS.CellValue) => cellText(v).replace(/\s+/g, " ").trim();
+  const isHeader = (t: string) => HEADER_RE.test(t);
+
+  // Başlık satırını ilk 10 satırda ara: ad (ve ayrı soyad) sütunu.
+  let nameCol: number | null = null;
+  let surnameCol: number | null = null;
+  for (let r = 1; r <= Math.min(10, ws.rowCount) && nameCol == null; r++) {
+    const row = ws.getRow(r);
+    for (let c = 1; c <= Math.max(ws.columnCount, 8); c++) {
+      const t = clean(row.getCell(c).value).toLocaleLowerCase("tr");
+      if (!t) continue;
+      if (/^ad[ıi]? ?soyad[ıi]?$|^full ?name$|^isim$|^personel$/.test(t)) { nameCol = c; surnameCol = null; break; }
+      if (/^ad[ıi]?$|^name$/.test(t) && nameCol == null) {
+        nameCol = c;
+        const next = clean(row.getCell(c + 1).value).toLocaleLowerCase("tr");
+        if (/^soyad[ıi]?$|^surname$/.test(next)) surnameCol = c + 1;
+        break;
+      }
+    }
+  }
+  const cols: number[] = nameCol != null ? [nameCol, ...(surnameCol ? [surnameCol] : [])] : [1, 2];
+
   const names: string[] = [];
-  ws.eachRow((row, i) => {
-    const a = cellText(row.getCell(1).value).replace(/\s+/g, " ").trim();
-    const b = cellText(row.getCell(2).value).replace(/\s+/g, " ").trim();
-    if (i === 1 && (HEADER_RE.test(a) || HEADER_RE.test(b))) return;
-    const parts = [a, b].filter((x) => x && x !== "*" && x !== "-");
+  ws.eachRow((row) => {
+    const parts = cols.map((c) => clean(row.getCell(c).value)).filter((x) => x && x !== "*" && x !== "-");
+    if (parts.some(isHeader)) return; // başlık (ya da tablonun ortasındaki ikinci başlık)
     const n = parts.join(" ").trim();
-    if (n.length >= 3) names.push(n);
+    if (n.length >= 3 && /\p{L}/u.test(n) && !/^\d+$/.test(n)) names.push(n);
   });
   return Array.from(new Set(names));
 }
