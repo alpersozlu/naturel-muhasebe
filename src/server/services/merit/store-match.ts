@@ -4,10 +4,12 @@
  * yönetim notuna otel adını ("merit") yazmış mı; fişte gerçekten EK %10 (dip iskonto)
  * uygulanmış mı? Köprü saatlik çalışır; satıştan hemen sonra "henüz fiş yok"
  * normaldir. Yönetim notunu sahibi sonradan işler — "onay bekliyor" da normaldir.
+ * Nebim "MERİT KAMPANYASI" ile kesilen fiş (20.11.2026) not beklemez: kampanya onaydır,
+ * ek %10'u Nebim hesaplar → kart yüklenince doğrudan "Doğrulandı".
  */
 import type { PrismaClient } from "@prisma/client";
 import { nameSimilarity } from "./cards";
-import { AUTO_MATCH_MIN, extraRateOf, hotelOf, isExtraOk, noteApproves } from "./check";
+import { AUTO_MATCH_MIN, extraCheck, hotelOf, isMeritCampaign, noteApproves } from "./check";
 
 export type StoreMatchStatus = "approved" | "confirmed" | "extra_mismatch" | "note_pending" | "not_found" | "unreadable";
 
@@ -23,6 +25,10 @@ export type StoreMatchInvoice = {
   /** ek indirim oranı (dip iskonto ÷ kampanya sonrası tutar), null = hesaplanamadı */
   extra_rate: number | null;
   extra_ok: boolean;
+  /** Merit Nebim kampanyasıyla (kasada MERİT %10 çeki + sicil) uygulandı */
+  via_campaign: boolean;
+  /** kampanya + elle dip iskonto birlikte → çift indirim */
+  double_discount: boolean;
   /** yönetici Analiz'de bu kartı bu fişe elle bağladı */
   manual: boolean;
 };
@@ -81,31 +87,39 @@ export async function matchCardToSales(
     if (!manual && nameSimilarity(card.full_name, l.customer_name) < AUTO_MATCH_MIN) continue;
     let inv = byRef.get(l.invoice_ref);
     if (!inv) {
-      const noteText = [l.mgmt_note, l.invoice_note, l.discount_reason, l.campaign].filter(Boolean).join(" | ");
       inv = {
         invoice_ref: l.invoice_ref,
         invoice_date: iso(l.invoice_date),
         total: 0,
-        mgmt_note: l.mgmt_note?.replace(/\s+/g, " ").trim().slice(0, 120) ?? null,
-        hotel: hotelOf(noteText),
-        note_ok: noteApproves(l.mgmt_note),
+        mgmt_note: null,
+        hotel: null,
+        note_ok: false,
         extra_rate: null,
         extra_ok: false,
+        via_campaign: false,
+        double_discount: false,
         manual,
         _base: 0,
         _doc: 0,
       };
       byRef.set(l.invoice_ref, inv);
     }
+    // kurum / not / kampanya fişin herhangi bir satırından (kampanyalı Merit'te outlet satırında Merit yazmaz)
+    const noteText = [l.mgmt_note, l.invoice_note, l.discount_reason, l.campaign].filter(Boolean).join(" | ");
+    if (!inv.hotel) inv.hotel = hotelOf(noteText);
+    if (!inv.mgmt_note && l.mgmt_note) inv.mgmt_note = l.mgmt_note.replace(/\s+/g, " ").trim().slice(0, 120);
+    if (isMeritCampaign(l.campaign)) inv.via_campaign = true;
+    if (noteApproves(l.mgmt_note)) inv.note_ok = true;
     inv.total = Math.round((inv.total + Number(l.amount_vi ?? 0)) * 100) / 100;
     inv._base += Number(l.price ?? 0) * Number(l.qty ?? 0) - Number(l.line_disc ?? 0);
     inv._doc += Number(l.doc_disc ?? 0);
   }
   const invoices: StoreMatchInvoice[] = Array.from(byRef.values())
-    .map(({ _base, _doc, ...rest }) => {
-      const extra_rate = extraRateOf(_base, _doc);
-      return { ...rest, extra_rate, extra_ok: isExtraOk(extra_rate) };
-    })
+    .map(({ _base, _doc, ...rest }) => ({
+      ...rest,
+      note_ok: rest.note_ok || rest.via_campaign,
+      ...extraCheck(rest.via_campaign, _base, _doc),
+    }))
     .sort((a, b) => Number(b.manual) - Number(a.manual) || b.invoice_date.localeCompare(a.invoice_date));
   return { status: storeMatchStatus(invoices, readable), invoices, from: iso(from), to: iso(to) };
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nameSimilarity, normalizeName, photoDateFromName } from "@/server/services/merit/cards";
-import { extraRateOf, hotelOf, isExtraOk, meritRuleApplies, meritStatus, noteApproves } from "@/server/services/merit/check";
+import { extraCheck, extraRateOf, hotelOf, isExtraOk, isMeritCampaign, meritRuleApplies, meritStatus, noteApproves } from "@/server/services/merit/check";
 import { storeMatchStatus } from "@/server/services/merit/store-match";
 
 describe("Merit kartı — ad eşleştirme", () => {
@@ -36,11 +36,13 @@ describe("Merit kartı — ad eşleştirme", () => {
 });
 
 describe("Merit %10 — kart zorunluluğu ve durum", () => {
-  it("Girne baştan beri, Lefkoşa 08.10.2026'dan itibaren, Mağusa programda değil", () => {
+  it("Girne baştan beri, Lefkoşa 08.10.2026'dan, Mağusa 21.11.2026'dan (Nebim Merit kampanyası)", () => {
     expect(meritRuleApplies("S03", "2026-03-01")).toBe(true);
     expect(meritRuleApplies("S01", "2026-10-07")).toBe(false);
     expect(meritRuleApplies("S01", "2026-10-08")).toBe(true);
     expect(meritRuleApplies("S02", "2026-10-08")).toBe(false);
+    expect(meritRuleApplies("S02", "2026-11-20")).toBe(false);
+    expect(meritRuleApplies("S02", "2026-11-21")).toBe(true);
     expect(meritRuleApplies(null, "2026-10-08")).toBe(false);
   });
   it("elle karar otomatik eşleşmeyi ezer; kart yoksa ve zorunluysa 'missing'", () => {
@@ -98,7 +100,7 @@ describe("ek %10 ve yönetim notu", () => {
 
 describe("mağaza tarafı doğrulama durumu", () => {
   const inv = (o: Partial<{ hotel: string | null; note_ok: boolean; extra_ok: boolean }>) => ({
-    invoice_ref: "1-R-7-1", invoice_date: "2026-10-09", total: 100, mgmt_note: null, hotel: null, note_ok: false, extra_rate: 0.1, extra_ok: true, manual: false, ...o,
+    invoice_ref: "1-R-7-1", invoice_date: "2026-10-09", total: 100, mgmt_note: null, hotel: null, note_ok: false, extra_rate: 0.1, extra_ok: true, via_campaign: false, double_discount: false, manual: false, ...o,
   });
   it("yönetici elle bağladıysa her şeyin önünde 'approved' (kart okunamasa bile)", () => {
     expect(storeMatchStatus([{ ...inv({}), manual: true }], false)).toBe("approved");
@@ -110,5 +112,33 @@ describe("mağaza tarafı doğrulama durumu", () => {
     expect(storeMatchStatus([inv({})], true)).toBe("note_pending");
     expect(storeMatchStatus([inv({ hotel: "Merit", note_ok: true, extra_ok: false })], true)).toBe("extra_mismatch");
     expect(storeMatchStatus([inv({ hotel: "Merit", note_ok: true, extra_ok: true })], true)).toBe("confirmed");
+  });
+});
+
+describe("Nebim MERİT KAMPANYASI (kasada MERİT %10 çeki + sicil, 20.11.2026)", () => {
+  it("kampanya adını tanır — Nebim'in yazdığı büyük noktalı İ dahil; başka kampanya değil", () => {
+    expect(isMeritCampaign("MERİT KAMPANYASI")).toBe(true);
+    expect(isMeritCampaign("İndirim Kampanyası | MERİT KAMPANYASI")).toBe(true);
+    expect(isMeritCampaign("BIRLESIK 20/50 KAMPANYA | Merit Kampanyası")).toBe(true);
+    expect(isMeritCampaign("İndirim Kampanyası")).toBe(false);
+    expect(isMeritCampaign("DERIMOD HEDIYE CEKI KULLANIMI")).toBe(false);
+    expect(isMeritCampaign(null)).toBe(false);
+    expect(hotelOf("İndirim Kampanyası | MERİT KAMPANYASI")).toBe("Merit");
+  });
+  it("kampanyalı fişte ek %10 Nebim'in hesabı; elle dip iskonto da varsa ÇİFT indirim", () => {
+    // Lefkoşa T1: çanta 5.939,99 − kampanyalar (IND 1.190 + Merit 475) → satır iskontosu 1.665; dip yok
+    expect(extraCheck(true, 5939.99 - 1665 + 1999.99, 0)).toEqual({ extra_rate: null, extra_ok: true, double_discount: false });
+    // kampanya + elle %10 dip iskonto → çift
+    const d = extraCheck(true, 6274.98, 627.5);
+    expect(d.double_discount).toBe(true);
+    expect(d.extra_ok).toBe(false);
+    // elle Merit eskisi gibi: dip ÷ kampanya sonrası tutar
+    expect(extraCheck(false, 7999.99, 800)).toEqual({ extra_rate: 0.1, extra_ok: true, double_discount: false });
+    expect(extraCheck(false, 3959.97, 245.97).extra_ok).toBe(false);
+  });
+  it("mağaza kutusu: kampanyalı fiş kart yüklenince doğrudan 'Doğrulandı'; çift indirim 'Ek %10 tutmuyor'", () => {
+    const base = { invoice_ref: "1-R-7-2", invoice_date: "2026-11-21", total: 6274.98, mgmt_note: null, hotel: "Merit", manual: false };
+    expect(storeMatchStatus([{ ...base, note_ok: true, extra_rate: null, extra_ok: true, via_campaign: true, double_discount: false }], true)).toBe("confirmed");
+    expect(storeMatchStatus([{ ...base, note_ok: true, extra_rate: 0.1, extra_ok: false, via_campaign: true, double_discount: true }], true)).toBe("extra_mismatch");
   });
 });

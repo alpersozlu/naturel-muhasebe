@@ -208,7 +208,16 @@ export function NebimMerit({ filters }: { filters: NebimSalesSelection }) {
           <Kpi label="Kart / liste ile onaylı" value={String(groups.matched.length)} tone="text-emerald-700" sub={`${money(sum(groups.matched))} ₺ · kart ${k.with_card} · liste ${k.with_list}`} />
           <Kpi label="Kartı var · fişi yok" value={String(groups.cardsNoInvoice.length)} tone={groups.cardsNoInvoice.length ? "text-amber-700" : "text-emerald-700"} sub="kart yüklü, Merit fişi yok" />
           <Kpi label="Fişi var · kartı yok" value={String(groups.invoicesNoCard.length)} tone={missingCount ? "text-rose-700" : "text-emerald-700"} sub={missingCount ? `${missingCount} tanesi kontrol edilmeli` : "hepsi karara bağlı"} />
-          <Kpi label="Ek %10 değil" value={String(k.extra_mismatch)} tone={k.extra_mismatch ? "text-amber-700" : "text-emerald-700"} sub={k.note_incomplete ? `${k.note_incomplete} fişte yönetim notu eksik` : "dip iskonto ≈ %10"} />
+          <Kpi
+            label="Ek %10 değil"
+            value={String(k.extra_mismatch)}
+            tone={k.double_discount ? "text-rose-700" : k.extra_mismatch ? "text-amber-700" : "text-emerald-700"}
+            sub={[
+              k.double_discount ? `${k.double_discount} fişte ÇİFT indirim` : null,
+              k.note_incomplete ? `${k.note_incomplete} fişte yönetim notu eksik` : null,
+              k.via_campaign ? `${k.via_campaign} fiş Nebim kampanyasıyla` : null,
+            ].filter(Boolean).join(" · ") || "dip iskonto ≈ %10"}
+          />
           <Kpi label="İndirim toplamı" value={`${money(k.discount_total)} ₺`} sub="satır + dip iskonto" />
         </div>
 
@@ -476,8 +485,21 @@ function InvoiceRow({ inv, onPick, onAccept, onReject, onClear }: { inv: MeritIn
         )}
       </div>
       <div className="flex w-44 shrink-0 flex-col gap-0.5 text-[11px]">
-        <Check ok={inv.note_ok} label={inv.note_ok ? "Yönetim notu: Merit" : inv.mgmt_note ? `Not: "${inv.mgmt_note.slice(0, 22)}"` : "Yönetim notu yok"} />
-        <Check ok={inv.extra_ok} label={`Ek indirim ${pct(inv.extra_rate)}${inv.extra_ok ? "" : " — %10 değil"}`} warn={!inv.extra_ok} />
+        <Check
+          ok={inv.note_ok}
+          label={inv.via_campaign ? "Kasada Merit kampanyası" : inv.note_ok ? "Yönetim notu: Merit" : inv.mgmt_note ? `Not: "${inv.mgmt_note.slice(0, 22)}"` : "Yönetim notu yok"}
+        />
+        <Check
+          ok={inv.extra_ok}
+          label={
+            inv.double_discount
+              ? `ÇİFT İNDİRİM: kampanya + elle ${pct(inv.extra_rate)}`
+              : inv.via_campaign
+                ? "Ek %10: Nebim hesapladı"
+                : `Ek indirim ${pct(inv.extra_rate)}${inv.extra_ok ? "" : " — %10 değil"}`
+          }
+          warn={!inv.extra_ok}
+        />
         <StatusBadge s={inv.status} />
       </div>
       <div className="flex shrink-0 items-center gap-1">

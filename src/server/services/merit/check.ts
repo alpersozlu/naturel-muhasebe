@@ -10,7 +10,14 @@
  *
  * Kart zorunluluğu (sahibi, 09.10.2026): Girne'de baştan beri; Lefkoşa'da
  * 08.10.2026'dan itibaren. Daha eski Lefkoşa fişleri "kural öncesi" sayılır,
- * kırmızı değildir. Mağusa programda değil.
+ * kırmızı değildir. Mağusa 21.11.2026'dan (Nebim Merit kampanyasıyla) programda.
+ *
+ * Nebim "MERİT KAMPANYASI" (20.11.2026, YUKLE24B/25/26): kasiyer İndirim Çeki
+ * Kullan penceresinde "MERİT %10" seçip personelin sicil numarasını yazar; Nebim
+ * outlet hariç ürünlerin kampanyalı fiyatına %10 uygular. Fişte yönetim notu ve dip
+ * iskonto YOK — indirim satır kampanyası (line_disc) içinde, satırın `campaign`
+ * alanında "MERİT KAMPANYASI" yazar. Böyle fiş onaylı sayılır ve ek %10 Nebim'in
+ * hesabıdır; aynı fişte elle dip iskonto da varsa ÇİFT indirimdir.
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createSignedReadUrl } from "@/server/services/storage";
@@ -21,6 +28,7 @@ import { nameSimilarity } from "./cards";
 export const MERIT_RULE_START: Record<string, string> = {
   S03: "2026-01-01", // Derimod Girne — baştan beri
   S01: "2026-10-08", // Derimod Lefkoşa — 08.10.2026'dan itibaren
+  S02: "2026-11-21", // Derimod Mağusa — Nebim Merit kampanyasıyla (sahibi 19.11.2026: üç mağaza)
 };
 export const AUTO_MATCH_MIN = 0.8;
 export const SUGGEST_MIN = 0.4;
@@ -79,7 +87,8 @@ export function meritStatus(input: {
  * Tip-İş) da listelenir ama kart programı yalnız Merit'te.
  */
 export const HOTEL_PATTERNS: Array<{ hotel: string; re: RegExp; needles: string[] }> = [
-  { hotel: "Merit", re: /m\s*e\s*r\s*[iı]\s*t|\bmrt\b/i, needles: ["merit", "merıt", "mrt"] },
+  // "MERİT" (büyük noktalı İ) ayrı: Postgres ILIKE 'merit' onu yakalamaz (Nebim kampanya adı "MERİT KAMPANYASI")
+  { hotel: "Merit", re: /m\s*e\s*r\s*[iı]\s*t|\bmrt\b/i, needles: ["merit", "merıt", "mrt", "MERİT"] },
   { hotel: "Cratos", re: /crat+os/i, needles: ["cratos", "crattos"] },
   { hotel: "Lord's Palace", re: /lord/i, needles: ["lord"] },
   // Les Ambassadeurs (Girne) — notta "Les %10" ya da "ambassadeur" (20.10.2026, personel listesi geldi)
@@ -95,6 +104,24 @@ export function hotelOf(text: string): string | null {
   const t = text.toLocaleLowerCase("tr");
   for (const h of HOTEL_PATTERNS) if (h.re.test(t)) return h.hotel;
   return null;
+}
+
+/** Satırın kampanya alanında Nebim "MERİT KAMPANYASI" var mı (kasada MERİT %10 çeki + sicil). */
+export function isMeritCampaign(campaign: string | null | undefined): boolean {
+  if (!campaign) return false;
+  return /m\s*e\s*r\s*[iı]\s*t\s*kampanyas/.test(campaign.toLocaleLowerCase("tr"));
+}
+
+/**
+ * Ek %10 kararı — saf; test edilir. Elle Merit: dip iskonto ÷ kampanya sonrası tutar ≈ %10.
+ * Kampanyalı Merit: oranı Nebim uygular (outlet hariç, kampanyalı fiyattan; Lefkoşa testi
+ * 20.11.2026 kuruşu kuruşuna) → tamam; ama elle dip iskonto da girildiyse ÇİFT indirim.
+ */
+export function extraCheck(viaCampaign: boolean, baseAfterLineDisc: number, docDisc: number): { extra_rate: number | null; extra_ok: boolean; double_discount: boolean } {
+  const rate = extraRateOf(baseAfterLineDisc, docDisc);
+  if (!viaCampaign) return { extra_rate: rate, extra_ok: isExtraOk(rate), double_discount: false };
+  if (docDisc > 0.005) return { extra_rate: rate, extra_ok: false, double_discount: true };
+  return { extra_rate: null, extra_ok: true, double_discount: false };
 }
 
 export const MERIT_LINE_WHERE: Prisma.NebimSaleLineWhereInput = {
@@ -154,6 +181,10 @@ export type MeritInvoiceView = {
   extra_rate: number | null;
   /** ek indirim gerçekten ≈ %10 */
   extra_ok: boolean;
+  /** Merit Nebim kampanyasıyla (kasada MERİT %10 çeki + sicil) uygulandı */
+  via_campaign: boolean;
+  /** kampanya + elle dip iskonto birlikte → müşteri iki kez indirim aldı */
+  double_discount: boolean;
   required: boolean;
   status: MeritStatus;
   match: "manual" | "auto" | null;
@@ -172,6 +203,10 @@ export type MeritCheck = {
     other_hotels: Record<string, number>;
     /** Merit fişi ama ek indirim ≈%10 değil ya da yönetim notu eksik */
     extra_mismatch: number;
+    /** kampanya + elle dip iskonto (çift indirim) */
+    double_discount: number;
+    /** Nebim Merit kampanyasıyla gelen fiş */
+    via_campaign: number;
     note_incomplete: number;
     with_card: number;
     /** personel listesiyle onaylı */
@@ -204,83 +239,101 @@ export async function buildMeritCheck(
   if (filter.date_to) dateFilter.lte = new Date(`${filter.date_to}T00:00:00.000Z`);
   if (dateFilter.gte || dateFilter.lte) where.invoice_date = dateFilter;
 
+  const lineSelect = {
+    invoice_ref: true,
+    invoice_date: true,
+    store_id: true,
+    store_name_raw: true,
+    nebim_store_code: true,
+    customer_name: true,
+    salesperson_name: true,
+    qty: true,
+    price: true,
+    amount_vi: true,
+    line_disc: true,
+    doc_disc: true,
+    mgmt_note: true,
+    invoice_note: true,
+    discount_reason: true,
+    campaign: true,
+    store: { select: { name: true } },
+  } as const;
+  // Önce anlaşmalı notu/kampanyası olan fişler, sonra o fişlerin TÜM satırları: kampanyalı
+  // Merit'te outlet satırının kampanya alanında Merit yazmaz, ama fiş toplamına girer.
+  const loadLines = async () => {
+    const hits = await prisma.nebimSaleLine.findMany({ where, select: { invoice_ref: true }, distinct: ["invoice_ref"] });
+    if (hits.length === 0) return [];
+    return prisma.nebimSaleLine.findMany({
+      where: { invoice_ref: { in: hits.map((h) => h.invoice_ref) }, is_return: false, ...(filter.store_ids ? { store_id: { in: filter.store_ids } } : {}) },
+      select: lineSelect,
+      orderBy: [{ invoice_date: "desc" }, { invoice_ref: "asc" }],
+    });
+  };
   const [lines, cardsRaw, reviews, staffIndex, staffMeta] = await Promise.all([
-    prisma.nebimSaleLine.findMany({
-      where,
-      select: {
-        invoice_ref: true,
-        invoice_date: true,
-        store_id: true,
-        store_name_raw: true,
-        nebim_store_code: true,
-        customer_name: true,
-        salesperson_name: true,
-        qty: true,
-        price: true,
-        amount_vi: true,
-        line_disc: true,
-        doc_disc: true,
-        mgmt_note: true,
-        invoice_note: true,
-        discount_reason: true,
-        campaign: true,
-        store: { select: { name: true } },
-      },
-      orderBy: { invoice_date: "desc" },
-    }),
+    loadLines(),
     prisma.meritCard.findMany({ where: { deleted_at: null }, orderBy: { uploaded_at: "desc" }, include: { store: { select: { name: true } } } }),
     prisma.meritInvoiceReview.findMany(),
     loadStaffIndex(prisma),
     prisma.hotelStaff.groupBy({ by: ["hotel"], where: { deleted_at: null }, _count: { _all: true }, _max: { uploaded_at: true, source_name: true } }),
   ]);
 
-  // fiş bazında topla
-  const byRef = new Map<string, MeritInvoiceView & { _base: number; _doc: number }>();
+  // fiş bazında topla (kurum ve kampanya fişin bütün satırlarından okunur)
+  const groups = new Map<string, typeof lines>();
   for (const l of lines) {
-    let inv = byRef.get(l.invoice_ref);
-    if (!inv) {
-      const noteText = [l.mgmt_note, l.invoice_note, l.discount_reason, l.campaign].filter(Boolean).join(" | ");
-      const hotel = hotelOf(noteText);
-      if (!hotel) continue; // satır başka nedenle gelmiş olabilir (kampanya adı vb.)
-      if (NO_CARD_PROGRAMS.has(hotel)) continue; // Tip-İş: kart programı yok, bu kontrolün dışında (sahibi 20.10.2026)
-      const merit = [l.mgmt_note, l.invoice_note, l.discount_reason].find((n) => n && hotelOf(n)) ?? null;
-      inv = {
-        invoice_ref: l.invoice_ref,
-        hotel,
-        invoice_date: l.invoice_date.toISOString().slice(0, 10),
-        store_id: l.store_id,
-        store_name: l.store?.name ?? l.store_name_raw ?? "?",
-        store_code: l.nebim_store_code,
-        customer_name: l.customer_name,
-        salesperson_name: l.salesperson_name,
-        lines: 0,
-        units: 0,
-        total: 0,
-        discount: 0,
-        note: merit ? merit.replace(/\s+/g, " ").trim().slice(0, 160) : null,
-        mgmt_note: l.mgmt_note?.replace(/\s+/g, " ").trim().slice(0, 160) ?? null,
-        note_ok: noteApproves(l.mgmt_note),
-        extra_rate: null,
-        extra_ok: false,
-        required: false,
-        status: "not_required",
-        match: null,
-        card: null,
-        list_match: null,
-        suggestions: [],
-        review_note: null,
-        _base: 0,
-        _doc: 0,
-      };
-      byRef.set(l.invoice_ref, inv);
+    const g = groups.get(l.invoice_ref);
+    if (g) g.push(l);
+    else groups.set(l.invoice_ref, [l]);
+  }
+  const byRef = new Map<string, MeritInvoiceView & { _base: number; _doc: number }>();
+  for (const [ref, ls] of Array.from(groups.entries())) {
+    const noteText = ls.flatMap((l) => [l.mgmt_note, l.invoice_note, l.discount_reason, l.campaign]).filter(Boolean).join(" | ");
+    const hotel = hotelOf(noteText);
+    if (!hotel) continue; // satır başka nedenle gelmiş olabilir (kampanya adı vb.)
+    if (NO_CARD_PROGRAMS.has(hotel)) continue; // Tip-İş: kart programı yok, bu kontrolün dışında (sahibi 20.10.2026)
+    const l0 = ls[0]!;
+    const viaCampaign = hotel === "Merit" && ls.some((l) => isMeritCampaign(l.campaign));
+    const mgmtNote = ls.find((l) => l.mgmt_note)?.mgmt_note ?? null;
+    const merit = ls.flatMap((l) => [l.mgmt_note, l.invoice_note, l.discount_reason]).find((n) => n && hotelOf(n)) ?? null;
+    const inv: MeritInvoiceView & { _base: number; _doc: number } = {
+      invoice_ref: ref,
+      hotel,
+      invoice_date: l0.invoice_date.toISOString().slice(0, 10),
+      store_id: l0.store_id,
+      store_name: l0.store?.name ?? l0.store_name_raw ?? "?",
+      store_code: l0.nebim_store_code,
+      customer_name: l0.customer_name,
+      salesperson_name: l0.salesperson_name,
+      lines: 0,
+      units: 0,
+      total: 0,
+      discount: 0,
+      note: merit ? merit.replace(/\s+/g, " ").trim().slice(0, 160) : viaCampaign ? "MERİT KAMPANYASI (kasada çek + sicil)" : null,
+      mgmt_note: mgmtNote?.replace(/\s+/g, " ").trim().slice(0, 160) ?? null,
+      note_ok: noteApproves(mgmtNote) || viaCampaign,
+      extra_rate: null,
+      extra_ok: false,
+      via_campaign: viaCampaign,
+      double_discount: false,
+      required: false,
+      status: "not_required",
+      match: null,
+      card: null,
+      list_match: null,
+      suggestions: [],
+      review_note: null,
+      _base: 0,
+      _doc: 0,
+    };
+    for (const l of ls) {
+      inv.lines += 1;
+      inv.units += num(l.qty);
+      inv.total += num(l.amount_vi);
+      // satır iskontosu = kampanya (kampanyalı Merit dahil); dip iskonto = satırlara dağıtılmış manuel ek indirim
+      inv.discount += num(l.line_disc) + num(l.doc_disc);
+      inv._base += num(l.price) * num(l.qty) - num(l.line_disc);
+      inv._doc += num(l.doc_disc);
     }
-    inv.lines += 1;
-    inv.units += num(l.qty);
-    inv.total += num(l.amount_vi);
-    // satır iskontosu = kampanya; dip iskonto = satırlara dağıtılmış manuel ek indirim (her satır kendi payı)
-    inv.discount += num(l.line_disc) + num(l.doc_disc);
-    inv._base += num(l.price) * num(l.qty) - num(l.line_disc);
-    inv._doc += num(l.doc_disc);
+    byRef.set(ref, inv);
   }
 
   // kart görünümleri + imzalı URL
@@ -320,8 +373,8 @@ export async function buildMeritCheck(
   const invoices: MeritInvoiceView[] = [];
   for (const inv of Array.from(byRef.values())) {
     const { _base, _doc, ...rest } = inv;
-    const extra_rate = extraRateOf(_base, _doc);
-    const v: MeritInvoiceView = { ...rest, total: r2(inv.total), discount: r2(inv.discount), units: r2(inv.units), extra_rate, extra_ok: isExtraOk(extra_rate) };
+    const ex = extraCheck(inv.via_campaign, _base, _doc);
+    const v: MeritInvoiceView = { ...rest, total: r2(inv.total), discount: r2(inv.discount), units: r2(inv.units), ...ex };
     // Sahibi (20.10.2026): kart yalnız Merit'e değil, tüm anlaşmalı kurumlara (Cratos, Lord's Palace…) aranır.
     v.required = meritRuleApplies(v.store_code, v.invoice_date);
     const review = reviewByRef.get(v.invoice_ref) ?? null;
@@ -395,6 +448,8 @@ export async function buildMeritCheck(
     invoices: meritInv.length,
     other_hotels,
     extra_mismatch: meritInv.filter((i) => !i.extra_ok).length,
+    double_discount: meritInv.filter((i) => i.double_discount).length,
+    via_campaign: meritInv.filter((i) => i.via_campaign).length,
     note_incomplete: meritInv.filter((i) => !i.note_ok).length,
     with_card: invoices.filter((i) => i.status === "ok_card").length,
     with_list: invoices.filter((i) => i.status === "ok_list").length,

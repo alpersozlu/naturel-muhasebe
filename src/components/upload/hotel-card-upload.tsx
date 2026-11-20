@@ -197,13 +197,25 @@ export function HotelCardUpload({ storeId, date }: { storeId: string; date: stri
                         {inv.extra_rate != null ? ` · ek indirim %${(inv.extra_rate * 100).toFixed(1).replace(".", ",")}` : ""}
                       </>
                     ) : c.match.status === "confirmed" && inv ? (
-                      <>
-                        Fiş {dmy(inv.invoice_date)} · {TRY.format(inv.total)} ₺ · ek indirim %{((inv.extra_rate ?? 0) * 100).toFixed(1).replace(".", ",")} · not &quot;{inv.mgmt_note}&quot;
-                      </>
+                      inv.via_campaign ? (
+                        <>
+                          Fiş {dmy(inv.invoice_date)} · {TRY.format(inv.total)} ₺ · kasada Merit kampanyası (%10 Nebim hesapladı)
+                        </>
+                      ) : (
+                        <>
+                          Fiş {dmy(inv.invoice_date)} · {TRY.format(inv.total)} ₺ · ek indirim %{((inv.extra_rate ?? 0) * 100).toFixed(1).replace(".", ",")} · not &quot;{inv.mgmt_note}&quot;
+                        </>
+                      )
                     ) : c.match.status === "extra_mismatch" && inv ? (
-                      <>
-                        Fiş {dmy(inv.invoice_date)} · {TRY.format(inv.total)} ₺ · ek indirim {inv.extra_rate == null ? "yok" : `%${(inv.extra_rate * 100).toFixed(1).replace(".", ",")}`} — %10 olmalıydı.
-                      </>
+                      inv.double_discount ? (
+                        <>
+                          Fiş {dmy(inv.invoice_date)} · {TRY.format(inv.total)} ₺ · ÇİFT İNDİRİM: Merit kampanyası + elle %{((inv.extra_rate ?? 0) * 100).toFixed(1).replace(".", ",")} — elle %10 girilmemeliydi.
+                        </>
+                      ) : (
+                        <>
+                          Fiş {dmy(inv.invoice_date)} · {TRY.format(inv.total)} ₺ · ek indirim {inv.extra_rate == null ? "yok" : `%${(inv.extra_rate * 100).toFixed(1).replace(".", ",")}`} — %10 olmalıydı.
+                        </>
+                      )
                     ) : c.match.status === "note_pending" && inv ? (
                       <>
                         Fiş {dmy(inv.invoice_date)} · {TRY.format(inv.total)} ₺ bulundu; yönetim notu henüz işlenmedi (merkez işler).
