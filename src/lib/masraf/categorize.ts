@@ -121,8 +121,9 @@ const RULES: { kw: string[]; cat: MasrafKategori }[] = [
   // TEMİZLİK — cam temizliği, temizlik malzemesi, deterjan
   { kw: ["temizlik", "temizligi", "temizliği", "temizlige", "temizliğe", "deterjan", "hijyen", "wc", "tuvalet kagidi", "tuvalet kağıdı", "eldiven", "cop torbasi", "çöp torbası", "copluk", "çöp"], cat: "TEMIZLIK" },
   // TERZİ = tamir (paça, dikiş, ayakkabı tamiri, lastik)
-  // Metin Göçer = Mavi Lefkoşa'nın, Tuncay Kababıyık = Mavi Girne'nin terzisi (sahibi, 19.11.2026)
-  { kw: ["terzi", "metin göçer", "metin gocer", "tuncay kababiyik", "tuncay kababıyık", "kababiyik", "tamir", "lastik", "paca", "paça", "dikis", "dikiş", "tadilat", "ayakkabici", "ayakkabıcı", "kundura"], cat: "TERZI" },
+  // Terziler (sahibi, 19–20.11.2026): Metin Göçer = Mavi Lefkoşa, Tuncay Kababıyık
+  // = Mavi Girne, Senem Dervişoğlu = Mavi Mağusa
+  { kw: ["terzi", "metin göçer", "metin gocer", "tuncay kababiyik", "tuncay kababıyık", "kababiyik", "senem dervişoğlu", "senem dervisoglu", "dervişoğlu", "tamir", "lastik", "paca", "paça", "dikis", "dikiş", "tadilat", "ayakkabici", "ayakkabıcı", "kundura"], cat: "TERZI" },
   // KIRTASİYE
   { kw: ["kirtasiye", "kırtasiye", "koli band", "hafiza kart", "hafıza kart", "toner", "kartus dolum", "kartuş dolum", "fotokopi", "zimba", "zımba", "epson", "a4", "etiket", "baski", "baskı", "flex"], cat: "KIRTASIYE" },
   // İŞÇİ — günlük/geçici işçi, deneme personeli (maaşlı personelden ayrı)
